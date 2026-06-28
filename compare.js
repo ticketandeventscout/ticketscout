@@ -67,6 +67,41 @@ const ADAPTERS = [
     }
   },
 
+  {
+    source: 'Skiddle',
+
+    buildUrl(eventName, venueCity) {
+      // Search the top sellers feed first; festivals feed searched server-side
+      // as a fallback when no match is found in top sellers
+      const params = new URLSearchParams({ q: eventName, feed: 'topsellers' });
+      return `/api/skiddle?${params.toString()}`;
+    },
+
+    async normalise(data, eventName) {
+      if (data.error) return null;
+
+      // If top sellers feed had no match, try the festivals feed
+      if (!data.match) {
+        const fallback = await fetch(
+          `/api/skiddle?q=${encodeURIComponent(eventName)}&feed=festivals`
+        ).then(r => r.json()).catch(() => ({}));
+        if (!fallback.match) return null;
+        data = fallback;
+      }
+
+      const match = data.match;
+      if (!match.price) return null;
+
+      return {
+        source:    'Skiddle',
+        price:     Math.round(match.price),
+        currency:  'GBP',
+        url:       match.url,
+        available: true
+      };
+    }
+  },
+
   // ── Future adapters go here ──────────────────────────────────────────────
   //
   // {
@@ -95,7 +130,8 @@ async function comparePrices(eventName, venueCity) {
       const url = adapter.buildUrl(eventName, venueCity);
       const response = await fetch(url);
       const data = await response.json();
-      return adapter.normalise(data, eventName);
+      // normalise may be async (e.g. Skiddle fallback feed fetch)
+      return await adapter.normalise(data, eventName);
     })
   );
 
