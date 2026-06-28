@@ -619,3 +619,9 @@ a:hover {
   vertical-align: middle;
   display: inline-block;
 }
+
+/* Tribute act label in artist picker */
+.picker-tribute {
+  color: #999;
+  font-style: italic;
+}

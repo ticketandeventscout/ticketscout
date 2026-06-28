@@ -140,33 +140,137 @@ async function runSearch(keyword) {
     const response = await fetch(`/api/attractions?keyword=${encodeURIComponent(keyword)}`);
     const data = await response.json();
     const attractions = data._embedded?.attractions || [];
+    const meta = data._meta || {};
 
+    // No attraction match at all → fall through to venue/festival keyword search
     if (attractions.length === 0) {
-      // Fall back to a plain event keyword search (covers venues, festivals, etc.
-      // that aren't modeled as a single "attraction")
-      grid.innerHTML = '<div class="loading">No specific artist match — showing event results…</div>';
-      const evResponse = await fetch(`/api/ticketmaster?keyword=${encodeURIComponent(keyword)}&size=12`);
-      const evData = await evResponse.json();
-      if (evData.error || !evData._embedded?.events) {
-        grid.innerHTML = '<div class="error-msg">No events found. Try a different search.</div>';
-        return;
-      }
-      renderEventCards(grid, evData._embedded.events);
+      await runKeywordEventSearch(keyword, grid);
       return;
     }
 
-    if (attractions.length === 1) {
+    // Server flagged a clear exact-match winner → skip picker, go straight to dates
+    if (meta.hasExactMatch && meta.exactMatchId) {
+      const winner = attractions.find(a => a.id === meta.exactMatchId);
+      if (winner) {
+        navigate(`/artist/${winner.id}/${encodeURIComponent(winner.name)}`);
+        return;
+      }
+    }
+
+    // Single result that isn't a tribute act → also skip picker
+    if (attractions.length === 1 && !attractions[0]._tributeAct) {
       const a = attractions[0];
       navigate(`/artist/${a.id}/${encodeURIComponent(a.name)}`);
       return;
     }
 
+    // Multiple results → show picker (tribute acts labelled)
     renderArtistPicker(grid, attractions);
   } catch (error) {
     grid.innerHTML = '<div class="error-msg">Search failed. Please try again shortly.</div>';
     console.error('Attraction search error:', error);
   }
 }
+
+// ===========================
+// Keyword event search — fallback for venues, festivals, etc.
+// Supports "Load more" pagination via TM's page parameter.
+// ===========================
+
+// Tracks state for the current keyword search so "Load more" knows where it is
+let _keywordSearchState = null;
+
+async function runKeywordEventSearch(keyword, grid, page = 0) {
+  const isFirstPage = page === 0;
+
+  if (isFirstPage) {
+    _keywordSearchState = { keyword, page: 0, totalPages: 1 };
+    grid.className = 'events-grid';
+    grid.innerHTML = '<div class="loading">Searching events…</div>';
+  } else {
+    // Remove the "Load more" button while fetching next page
+    const btn = document.getElementById('load-more-btn');
+    if (btn) btn.remove();
+
+    const loadingRow = document.createElement('div');
+    loadingRow.className = 'loading';
+    loadingRow.id = 'load-more-loading';
+    loadingRow.textContent = 'Loading more…';
+    grid.appendChild(loadingRow);
+  }
+
+  try {
+    const params = new URLSearchParams({ keyword, size: '12', page: String(page) });
+    const response = await fetch(`/api/ticketmaster?${params.toString()}`);
+    const data = await response.json();
+
+    if (isFirstPage) {
+      grid.innerHTML = '';
+    } else {
+      document.getElementById('load-more-loading')?.remove();
+    }
+
+    if (data.error || !data._embedded?.events) {
+      if (isFirstPage) {
+        grid.innerHTML = '<div class="error-msg">No events found. Try a different search.</div>';
+      }
+      return;
+    }
+
+    // Update pagination state from TM's page metadata
+    const totalPages = data.page?.totalPages ?? 1;
+    _keywordSearchState = { keyword, page, totalPages };
+
+    renderEventCards(grid, data.events ?? data._embedded.events, isFirstPage ? 'replace' : 'append');
+
+    // Show "Load more" button if there are more pages
+    if (page + 1 < totalPages) {
+      renderLoadMoreButton(grid, keyword);
+    }
+  } catch (error) {
+    if (isFirstPage) {
+      grid.innerHTML = '<div class="error-msg">Unable to load events right now. Please try again shortly.</div>';
+    } else {
+      document.getElementById('load-more-loading')?.remove();
+    }
+    console.error('Keyword event search error:', error);
+  }
+}
+
+function renderLoadMoreButton(grid, keyword) {
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 16px 0 4px;';
+
+  const btn = document.createElement('button');
+  btn.id = 'load-more-btn';
+  btn.textContent = 'Load more results';
+  btn.style.cssText = `
+    background: #ffffff;
+    border: 1px solid #1a6fc4;
+    color: #1a6fc4;
+    padding: 10px 28px;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  `;
+  btn.onmouseenter = () => { btn.style.background = '#e8f2fc'; };
+  btn.onmouseleave = () => { btn.style.background = '#ffffff'; };
+
+  btn.onclick = () => {
+    const next = (_keywordSearchState?.page ?? 0) + 1;
+    runKeywordEventSearch(keyword, grid, next);
+  };
+
+  wrapper.appendChild(btn);
+  grid.appendChild(wrapper);
+}
+
+// ===========================
+// Artist picker — shown when search returns multiple attractions
+// ===========================
 
 function renderArtistPicker(grid, attractions) {
   grid.className = 'picker-grid';
@@ -185,7 +289,10 @@ function renderArtistPicker(grid, attractions) {
         : `<div class="picker-img-placeholder">${CATEGORY_ICONS[type] || CATEGORY_ICONS.default}</div>`
       }
       <div class="picker-name">${a.name}</div>
-      ${type ? `<div class="picker-type">${type}</div>` : ''}
+      ${a._tributeAct
+        ? `<div class="picker-type picker-tribute">Tribute act</div>`
+        : (type ? `<div class="picker-type">${type}</div>` : '')
+      }
     `;
     grid.appendChild(card);
   });
@@ -221,13 +328,18 @@ async function showArtistEvents(attractionId, name) {
 
 // ===========================
 // Shared — render a grid of event cards (each links to its own detail page)
+// mode: 'replace' (default) clears the grid first; 'append' adds to it
 // ===========================
 
-function renderEventCards(grid, events) {
-  grid.innerHTML = '';
+function renderEventCards(grid, events, mode = 'replace') {
+  if (mode === 'replace') {
+    grid.innerHTML = '';
+  }
 
-  if (events.length === 0) {
-    grid.innerHTML = '<div class="error-msg">No events found.</div>';
+  if (!events || events.length === 0) {
+    if (mode === 'replace') {
+      grid.innerHTML = '<div class="error-msg">No events found.</div>';
+    }
     return;
   }
 
