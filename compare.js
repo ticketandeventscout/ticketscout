@@ -3,7 +3,7 @@
 // Multi-source comparison
 // ===========================
 
-const SEATGEEK_CLIENT_ID = 'YOUR_SEATGEEK_CLIENT_ID';
+const SEATGEEK_CLIENT_ID = 'NTkyNzcwNzd8MTc4MjY0MDgwNS43MjA5MDU4';
 
 // ===========================
 // Compare prices across sources
@@ -12,7 +12,6 @@ const SEATGEEK_CLIENT_ID = 'YOUR_SEATGEEK_CLIENT_ID';
 async function comparePrices(eventName, venueCity) {
   const results = [];
 
-  // Fetch SeatGeek prices
   try {
     const sg = await fetchSeatGeekPrices(eventName, venueCity);
     if (sg) results.push(sg);
@@ -28,7 +27,7 @@ async function comparePrices(eventName, venueCity) {
 // ===========================
 
 async function fetchSeatGeekPrices(keyword, city) {
-  const url = `https://api.seatgeek.com/2/events?q=${encodeURIComponent(keyword)}&venue.city=${encodeURIComponent(city)}&client_id=${SEATGEEK_CLIENT_ID}&per_page=1`;
+  const url = `https://api.seatgeek.com/2/events?q=${encodeURIComponent(keyword)}&venue.city=${encodeURIComponent(city)}&client_id=${SEATGEEK_CLIENT_ID}&per_page=3`;
 
   const response = await fetch(url);
   const data = await response.json();
@@ -80,32 +79,32 @@ function renderComparePanel(eventName, tmPrice, tmUrl, venueCity) {
     </div>
     <div style="font-size:13px; color:#555; margin-bottom:14px; line-height:1.4;">${eventName}</div>
     <div id="compare-rows">
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;" data-price="${tmPrice || 0}">
         <span style="font-size:13px; color:#1a1a1a; font-weight:500;">Ticketmaster</span>
         <div style="text-align:right;">
-          <div style="font-size:14px; font-weight:600; color:#1a6fc4;">${tmPrice ? `£${Math.round(tmPrice)}` : 'See site'}</div>
+          <div class="price-label" style="font-size:14px; font-weight:600; color:#1a6fc4;">${tmPrice ? `£${Math.round(tmPrice)}` : 'See site'}</div>
           <a href="${tmUrl}" target="_blank" rel="noopener noreferrer"
             style="font-size:11px; color:#1a6fc4;">Buy now →</a>
         </div>
       </div>
       <div id="extra-prices" style="margin-top:4px;">
-        <div style="font-size:12px; color:#aaa; padding:8px 0;">Loading more prices…</div>
+        <div style="font-size:12px; color:#aaa; padding:8px 0;">Loading SeatGeek prices…</div>
       </div>
     </div>
     <div style="margin-top:14px; font-size:11px; color:#aaa; text-align:center;">
-      Prices shown are from verified sellers
+      Prices from verified sellers only
     </div>
   `;
 
   document.body.appendChild(panel);
 
-  // Load additional sources
+  // Load SeatGeek prices
   comparePrices(eventName, venueCity).then(results => {
     const container = document.getElementById('extra-prices');
     if (!container) return;
 
     if (results.length === 0) {
-      container.innerHTML = '<div style="font-size:12px; color:#aaa; padding:8px 0;">No additional prices found</div>';
+      container.innerHTML = '<div style="font-size:12px; color:#aaa; padding:8px 0;">No additional prices found for this event</div>';
       return;
     }
 
@@ -113,10 +112,11 @@ function renderComparePanel(eventName, tmPrice, tmUrl, venueCity) {
     results.forEach(result => {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;';
+      row.dataset.price = result.price;
       row.innerHTML = `
         <span style="font-size:13px; color:#1a1a1a; font-weight:500;">${result.source}</span>
         <div style="text-align:right;">
-          <div style="font-size:14px; font-weight:600; color:#1a6fc4;">${result.label}</div>
+          <div class="price-label" style="font-size:14px; font-weight:600; color:#1a6fc4;">${result.label}</div>
           <a href="${result.url}" target="_blank" rel="noopener noreferrer"
             style="font-size:11px; color:#1a6fc4;">Buy now →</a>
         </div>
@@ -129,7 +129,7 @@ function renderComparePanel(eventName, tmPrice, tmUrl, venueCity) {
 }
 
 // ===========================
-// Highlight the lowest price
+// Highlight lowest price
 // ===========================
 
 function highlightBestPrice() {
@@ -139,13 +139,12 @@ function highlightBestPrice() {
   let lowest = Infinity;
   rows.forEach(row => {
     const price = parseFloat(row.dataset.price);
-    if (price < lowest) lowest = price;
+    if (price > 0 && price < lowest) lowest = price;
   });
 
   rows.forEach(row => {
     const price = parseFloat(row.dataset.price);
     if (price === lowest) {
-      row.querySelector('.price-label').style.color = '#1a6fc4';
       const badge = document.createElement('span');
       badge.textContent = 'Best price';
       badge.style.cssText = `
@@ -156,6 +155,7 @@ function highlightBestPrice() {
         padding: 2px 8px;
         border-radius: 20px;
         margin-left: 6px;
+        vertical-align: middle;
       `;
       row.querySelector('.price-label').appendChild(badge);
     }
@@ -168,7 +168,7 @@ function highlightBestPrice() {
 
 function attachCompareListeners() {
   document.querySelectorAll('.event-card').forEach(card => {
-    card.addEventListener('click', function (e) {
+    card.addEventListener('click', function(e) {
       e.preventDefault();
 
       const name = this.querySelector('.event-name')?.textContent || '';
@@ -184,16 +184,13 @@ function attachCompareListeners() {
 }
 
 // ===========================
-// Re-attach listeners after
-// new events are rendered
+// Watch for new event cards
 // ===========================
-
-const originalRenderEvents = window.renderEvents;
-const observer = new MutationObserver(() => {
-  attachCompareListeners();
-});
 
 const grid = document.getElementById('events-grid');
 if (grid) {
+  const observer = new MutationObserver(() => {
+    attachCompareListeners();
+  });
   observer.observe(grid, { childList: true });
 }
