@@ -1,9 +1,7 @@
 // ===========================
 // TicketScout — Price Compare
-// Multi-source comparison
+// Multi-source comparison (via server-side proxy)
 // ===========================
-
-const SEATGEEK_CLIENT_ID = 'NTkyNzcwNzd8MTc4MjY0MDgwNS43MjA5MDU4';
 
 // ===========================
 // Compare prices across sources
@@ -23,16 +21,19 @@ async function comparePrices(eventName, venueCity) {
 }
 
 // ===========================
-// SeatGeek price fetch
+// SeatGeek price fetch — via our own /api/seatgeek proxy
+// (keeps the SeatGeek client ID server-side, and the proxy
+// already restricts results to GB venues)
 // ===========================
 
 async function fetchSeatGeekPrices(keyword, city) {
-  const url = `https://api.seatgeek.com/2/events?q=${encodeURIComponent(keyword)}&venue.city=${encodeURIComponent(city)}&client_id=${SEATGEEK_CLIENT_ID}&per_page=3`;
+  const params = new URLSearchParams({ q: keyword, per_page: '3' });
+  if (city) params.set('city', city);
 
-  const response = await fetch(url);
+  const response = await fetch(`/api/seatgeek?${params.toString()}`);
   const data = await response.json();
 
-  if (!data.events || data.events.length === 0) return null;
+  if (data.error || !data.events || data.events.length === 0) return null;
 
   const event = data.events[0];
   const price = event.stats?.lowest_price;
@@ -104,7 +105,7 @@ function renderComparePanel(eventName, tmPrice, tmUrl, venueCity) {
     if (!container) return;
 
     if (results.length === 0) {
-      container.innerHTML = '<div style="font-size:12px; color:#aaa; padding:8px 0;">No additional prices found for this event</div>';
+      container.innerHTML = '<div style="font-size:12px; color:#aaa; padding:8px 0;">No additional UK prices found for this event</div>';
       return;
     }
 

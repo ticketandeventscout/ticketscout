@@ -1,10 +1,7 @@
 // ===========================
-// TicketScout — Events API
-// Ticketmaster Integration
+// TicketScout — Events
+// Ticketmaster Integration (via server-side proxy)
 // ===========================
-
-const TM_API_KEY = 'e4z0SYTdtzxO1Pi2K5gOMiiTAO2Sa8Qa';
-const TM_BASE_URL = 'https://app.ticketmaster.com/discovery/v2';
 
 // Category map — converts our pill filters to Ticketmaster segment names
 const CATEGORY_MAP = {
@@ -24,7 +21,8 @@ const CATEGORY_ICONS = {
 };
 
 // ===========================
-// Fetch events from Ticketmaster
+// Fetch events via our own /api/ticketmaster proxy
+// (keeps the Ticketmaster API key server-side)
 // ===========================
 
 async function fetchEvents(keyword = '', segmentName = '') {
@@ -32,13 +30,18 @@ async function fetchEvents(keyword = '', segmentName = '') {
   grid.innerHTML = '<div class="loading">Loading events…</div>';
 
   try {
-    let url = `${TM_BASE_URL}/events.json?apikey=${TM_API_KEY}&countryCode=GB&size=12&sort=date,asc`;
+    const params = new URLSearchParams({ size: '12' });
+    if (keyword) params.set('keyword', keyword);
+    if (segmentName) params.set('segmentName', segmentName);
 
-    if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
-    if (segmentName) url += `&segmentName=${encodeURIComponent(segmentName)}`;
-
-    const response = await fetch(url);
+    const response = await fetch(`/api/ticketmaster?${params.toString()}`);
     const data = await response.json();
+
+    if (data.error) {
+      grid.innerHTML = '<div class="error-msg">Unable to load events right now. Please try again shortly.</div>';
+      console.error('Ticketmaster proxy error:', data.error);
+      return;
+    }
 
     if (!data._embedded || !data._embedded.events) {
       grid.innerHTML = '<div class="error-msg">No events found. Try a different search.</div>';
@@ -49,7 +52,7 @@ async function fetchEvents(keyword = '', segmentName = '') {
 
   } catch (error) {
     grid.innerHTML = '<div class="error-msg">Unable to load events right now. Please try again shortly.</div>';
-    console.error('Ticketmaster API error:', error);
+    console.error('Ticketmaster fetch error:', error);
   }
 }
 
@@ -71,7 +74,6 @@ function renderEvents(events) {
     const image = getBestImage(event.images);
     const segment = event.classifications?.[0]?.segment?.name || 'default';
     const minPrice = event.priceRanges?.[0]?.min;
-    const currency = event.priceRanges?.[0]?.currency || 'GBP';
     const priceDisplay = minPrice
       ? `From £${Math.round(minPrice)}`
       : 'Check site for prices';
