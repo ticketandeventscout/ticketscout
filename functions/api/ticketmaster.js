@@ -31,6 +31,9 @@ export async function onRequestGet({ request, env }) {
     tmUrl.searchParams.set('size', incoming.searchParams.get('size') || '12');
     tmUrl.searchParams.set('sort', 'date,asc');
 
+    const page = incoming.searchParams.get('page');
+    if (page) tmUrl.searchParams.set('page', page);
+
     const keyword = incoming.searchParams.get('keyword');
     if (keyword) tmUrl.searchParams.set('keyword', keyword);
 
