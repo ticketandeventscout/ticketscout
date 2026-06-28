@@ -21,9 +21,9 @@ export async function onRequestGet({ request, env }) {
   sgUrl.searchParams.set('client_id', clientId);
   sgUrl.searchParams.set('per_page', incoming.searchParams.get('per_page') || '3');
 
-  // Restrict to GB venues — note SeatGeek's inventory is US/Canada-first,
-  // so coverage for UK events will be thinner than Ticketmaster regardless.
-  sgUrl.searchParams.set('venue.country', 'GB');
+  // No country restriction — left open so results can expand internationally later.
+  // Note: SeatGeek's inventory is US/Canada-first, so UK coverage will still be
+  // thinner than Ticketmaster's regardless of filtering.
 
   const q = incoming.searchParams.get('q');
   if (q) sgUrl.searchParams.set('q', q);

@@ -35,9 +35,9 @@
       <div class="search-bar">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         <input type="text" id="search-input" placeholder="Search for an artist, team, or event…" />
-        <button id="search-btn" onclick="searchEvents()">Search</button>
+        <button id="search-btn" onclick="handleSearch()">Search</button>
       </div>
-      <div class="cat-row">
+      <div class="cat-row" id="cat-row">
         <button class="cat-pill active" onclick="filterCategory(this, 'all')">All events</button>
         <button class="cat-pill" onclick="filterCategory(this, 'music')">Concerts</button>
         <button class="cat-pill" onclick="filterCategory(this, 'sports')">Sports</button>
@@ -67,16 +67,17 @@
     </div>
   </div>
 
-  <!-- Events Section -->
+  <!-- Events / Search / Artist / Detail Section (content swapped by router) -->
   <section class="section">
-    <h2 class="section-title">Trending events in the UK</h2>
+    <div id="view-breadcrumb" class="view-breadcrumb" style="display:none;"></div>
+    <h2 class="section-title" id="results-title">Trending events in the UK</h2>
     <div class="events-grid" id="events-grid">
       <div class="loading">Loading events…</div>
     </div>
   </section>
 
   <!-- How It Works -->
-  <section class="how-section">
+  <section class="how-section" id="how-section">
     <h2 class="section-title" style="text-align:center;">How TicketScout works</h2>
     <div class="steps">
       <div class="step">

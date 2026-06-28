@@ -15,23 +15,32 @@ export async function onRequestGet({ request, env }) {
   }
 
   const incoming = new URL(request.url);
-  const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
+  const eventId = incoming.searchParams.get('id');
 
-  tmUrl.searchParams.set('apikey', apiKey);
-  tmUrl.searchParams.set('countryCode', 'GB');
-  tmUrl.searchParams.set('size', incoming.searchParams.get('size') || '12');
-  tmUrl.searchParams.set('sort', 'date,asc');
+  let tmUrl;
 
-  // Pass through only the params the frontend is allowed to set
-  const keyword = incoming.searchParams.get('keyword');
-  if (keyword) tmUrl.searchParams.set('keyword', keyword);
+  if (eventId) {
+    // Single event lookup — used by event detail pages
+    tmUrl = new URL(`https://app.ticketmaster.com/discovery/v2/events/${encodeURIComponent(eventId)}.json`);
+    tmUrl.searchParams.set('apikey', apiKey);
+  } else {
+    // Event search — used for trending/category browsing and per-artist event lists
+    tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
+    tmUrl.searchParams.set('apikey', apiKey);
+    tmUrl.searchParams.set('countryCode', 'GB');
+    tmUrl.searchParams.set('size', incoming.searchParams.get('size') || '12');
+    tmUrl.searchParams.set('sort', 'date,asc');
 
-  const segmentName = incoming.searchParams.get('segmentName');
-  if (segmentName) tmUrl.searchParams.set('segmentName', segmentName);
+    const keyword = incoming.searchParams.get('keyword');
+    if (keyword) tmUrl.searchParams.set('keyword', keyword);
 
-  // Used later once we add the "select artist -> their events" flow
-  const attractionId = incoming.searchParams.get('attractionId');
-  if (attractionId) tmUrl.searchParams.set('attractionId', attractionId);
+    const segmentName = incoming.searchParams.get('segmentName');
+    if (segmentName) tmUrl.searchParams.set('segmentName', segmentName);
+
+    // Setting this guarantees results belong to exactly one artist/attraction
+    const attractionId = incoming.searchParams.get('attractionId');
+    if (attractionId) tmUrl.searchParams.set('attractionId', attractionId);
+  }
 
   try {
     const tmResponse = await fetch(tmUrl.toString());

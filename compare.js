@@ -1,10 +1,8 @@
 // ===========================
 // TicketScout — Price Compare
-// Multi-source comparison (via server-side proxy)
-// ===========================
-
-// ===========================
-// Compare prices across sources
+// Renders inline on the event detail page (no more floating popup —
+// since each event now has its own real page, the comparison lives
+// directly on it)
 // ===========================
 
 async function comparePrices(eventName, venueCity) {
@@ -20,12 +18,8 @@ async function comparePrices(eventName, venueCity) {
   return results;
 }
 
-// ===========================
 // SeatGeek price fetch — via our own /api/seatgeek proxy
-// (keeps the SeatGeek client ID server-side, and the proxy
-// already restricts results to GB venues)
-// ===========================
-
+// (keeps the SeatGeek client ID server-side)
 async function fetchSeatGeekPrices(keyword, city) {
   const params = new URLSearchParams({ q: keyword, per_page: '3' });
   if (city) params.set('city', city);
@@ -37,7 +31,6 @@ async function fetchSeatGeekPrices(keyword, city) {
 
   const event = data.events[0];
   const price = event.stats?.lowest_price;
-
   if (!price) return null;
 
   return {
@@ -48,93 +41,59 @@ async function fetchSeatGeekPrices(keyword, city) {
   };
 }
 
-// ===========================
-// Render comparison panel
-// ===========================
+// Renders the comparison block into a given container element on the event detail page
+function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity) {
+  if (!container) return;
 
-function renderComparePanel(eventName, tmPrice, tmUrl, venueCity) {
-  const existing = document.getElementById('compare-panel');
-  if (existing) existing.remove();
-
-  const panel = document.createElement('div');
-  panel.id = 'compare-panel';
-  panel.style.cssText = `
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    background: #ffffff;
-    border: 1px solid #c8dff5;
-    border-radius: 12px;
-    padding: 20px 24px;
-    width: 300px;
-    box-shadow: 0 8px 32px rgba(26,111,196,0.15);
-    z-index: 999;
-    font-family: 'Inter', sans-serif;
-  `;
-
-  panel.innerHTML = `
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-      <span style="font-size:14px; font-weight:600; color:#1a1a1a;">Price comparison</span>
-      <span onclick="document.getElementById('compare-panel').remove()"
-        style="cursor:pointer; color:#888; font-size:18px; line-height:1;">✕</span>
-    </div>
-    <div style="font-size:13px; color:#555; margin-bottom:14px; line-height:1.4;">${eventName}</div>
-    <div id="compare-rows">
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;" data-price="${tmPrice || 0}">
-        <span style="font-size:13px; color:#1a1a1a; font-weight:500;">Ticketmaster</span>
-        <div style="text-align:right;">
-          <div class="price-label" style="font-size:14px; font-weight:600; color:#1a6fc4;">${tmPrice ? `£${Math.round(tmPrice)}` : 'See site'}</div>
-          <a href="${tmUrl}" target="_blank" rel="noopener noreferrer"
-            style="font-size:11px; color:#1a6fc4;">Buy now →</a>
+  container.innerHTML = `
+    <div class="compare-block">
+      <div class="compare-title">Price comparison</div>
+      <div id="compare-rows">
+        <div class="compare-row" data-price="${tmPrice || 0}">
+          <span class="compare-source">Ticketmaster</span>
+          <div class="compare-right">
+            <div class="price-label">${tmPrice ? `£${Math.round(tmPrice)}` : 'See site'}</div>
+            <a href="${tmUrl}" target="_blank" rel="noopener noreferrer" class="compare-buy">Buy now →</a>
+          </div>
+        </div>
+        <div id="extra-prices">
+          <div class="compare-loading">Loading other sources…</div>
         </div>
       </div>
-      <div id="extra-prices" style="margin-top:4px;">
-        <div style="font-size:12px; color:#aaa; padding:8px 0;">Loading SeatGeek prices…</div>
-      </div>
-    </div>
-    <div style="margin-top:14px; font-size:11px; color:#aaa; text-align:center;">
-      Prices from verified sellers only
+      <div class="compare-footnote">Prices from verified sellers only</div>
     </div>
   `;
 
-  document.body.appendChild(panel);
-
-  // Load SeatGeek prices
   comparePrices(eventName, venueCity).then(results => {
-    const container = document.getElementById('extra-prices');
-    if (!container) return;
+    const extra = document.getElementById('extra-prices');
+    if (!extra) return;
 
     if (results.length === 0) {
-      container.innerHTML = '<div style="font-size:12px; color:#aaa; padding:8px 0;">No additional UK prices found for this event</div>';
+      extra.innerHTML = '<div class="compare-loading">No additional prices found for this event</div>';
       return;
     }
 
-    container.innerHTML = '';
+    extra.innerHTML = '';
     results.forEach(result => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;';
+      row.className = 'compare-row';
       row.dataset.price = result.price;
       row.innerHTML = `
-        <span style="font-size:13px; color:#1a1a1a; font-weight:500;">${result.source}</span>
-        <div style="text-align:right;">
-          <div class="price-label" style="font-size:14px; font-weight:600; color:#1a6fc4;">${result.label}</div>
-          <a href="${result.url}" target="_blank" rel="noopener noreferrer"
-            style="font-size:11px; color:#1a6fc4;">Buy now →</a>
+        <span class="compare-source">${result.source}</span>
+        <div class="compare-right">
+          <div class="price-label">${result.label}</div>
+          <a href="${result.url}" target="_blank" rel="noopener noreferrer" class="compare-buy">Buy now →</a>
         </div>
       `;
-      container.appendChild(row);
+      extra.appendChild(row);
     });
 
     highlightBestPrice();
   });
 }
 
-// ===========================
-// Highlight lowest price
-// ===========================
-
 function highlightBestPrice() {
-  const rows = document.querySelectorAll('#compare-panel [data-price]');
+  const rows = document.querySelectorAll('#compare-rows .compare-row');
   if (rows.length === 0) return;
 
   let lowest = Infinity;
@@ -148,50 +107,8 @@ function highlightBestPrice() {
     if (price === lowest) {
       const badge = document.createElement('span');
       badge.textContent = 'Best price';
-      badge.style.cssText = `
-        background: #e8f2fc;
-        color: #185fa5;
-        font-size: 10px;
-        font-weight: 500;
-        padding: 2px 8px;
-        border-radius: 20px;
-        margin-left: 6px;
-        vertical-align: middle;
-      `;
-      row.querySelector('.price-label').appendChild(badge);
+      badge.className = 'best-price-badge';
+      row.querySelector('.price-label')?.appendChild(badge);
     }
   });
-}
-
-// ===========================
-// Attach compare to cards
-// ===========================
-
-function attachCompareListeners() {
-  document.querySelectorAll('.event-card').forEach(card => {
-    card.addEventListener('click', function(e) {
-      e.preventDefault();
-
-      const name = this.querySelector('.event-name')?.textContent || '';
-      const priceText = this.querySelector('.event-price')?.textContent || '';
-      const price = parseFloat(priceText.replace(/[^0-9.]/g, '')) || null;
-      const url = this.href || '#';
-      const metaText = this.querySelector('.event-meta')?.textContent || '';
-      const city = metaText.split('·')[1]?.trim() || 'London';
-
-      renderComparePanel(name, price, url, city);
-    });
-  });
-}
-
-// ===========================
-// Watch for new event cards
-// ===========================
-
-const grid = document.getElementById('events-grid');
-if (grid) {
-  const observer = new MutationObserver(() => {
-    attachCompareListeners();
-  });
-  observer.observe(grid, { childList: true });
 }
