@@ -132,8 +132,10 @@ async function refreshCache(env) {
       success: true,
       rowsCached: rows.length,
       chunks: chunks.length,
+      skipped,
       elapsedMs: elapsed,
-      cachedAt: new Date().toISOString()
+      cachedAt: new Date().toISOString(),
+      sampleRow: rows[0] || null  // include first row so we can verify field mapping
     };
 
     console.log('Gigsberg cache refresh complete:', JSON.stringify(result));
@@ -189,7 +191,15 @@ async function parseCsvStream(stream) {
           if (!line.trim()) continue;
 
           const fields = parseCsvLine(line);
-          if (fields.length < COLUMNS.length - 5) { skipped++; continue; }
+
+          // DEBUG: log first row's field count to diagnose column mismatch
+          if (rows.length === 0 && skipped === 0) {
+            console.log(`First data row field count: ${fields.length}, expected: ${COLUMNS.length}`);
+            console.log(`First few fields: ${fields.slice(0, 5).join(' | ')}`);
+          }
+
+          // Accept any row with at least 8 fields (enough to have name + price + url)
+          if (fields.length < 8) { skipped++; continue; }
 
           const row = {};
           COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
@@ -211,7 +221,12 @@ async function parseCsvStream(stream) {
 
           const price = parsePrice(row.display_price || row.search_price || row.store_price);
 
-          if (isTicketLike && isAvailable && price !== null) {
+          // TEMP: keep all rows with a name and url so we can see what's in the feed
+          // even if category/price filters don't match
+          const hasName = (row.product_name || '').trim().length > 0;
+          const hasUrl = (row.aw_deep_link || '').trim().length > 0;
+
+          if (hasName && hasUrl) {
             rows.push({
               product_name:      row.product_name,
               aw_deep_link:      row.aw_deep_link,
@@ -221,8 +236,14 @@ async function parseCsvStream(stream) {
               currency:          row.currency,
               merchant_category: row.merchant_category,
               category_name:     row.category_name,
-              last_updated:      row.last_updated
+              last_updated:      row.last_updated,
+              _debug_fields:     fields.length,
+              _debug_price:      price,
+              _debug_ticket:     isTicketLike,
+              _debug_available:  isAvailable
             });
+          } else {
+            skipped++;
           }
         }
       }
