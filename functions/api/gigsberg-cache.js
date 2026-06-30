@@ -93,12 +93,18 @@ async function refreshCache(env) {
       new DecompressionStream('gzip')
     );
 
-    const { rows, skipped } = await parseCsvStream(decompressedStream);
+    // ── DIAGNOSTIC: capture first 2000 chars of raw decompressed text ──
+    // Split the stream so we can both inspect and parse it
+    const [diagStream, parseStream] = decompressedStream.tee();
+    const diagText = await new Response(diagStream).text().then(t => t.slice(0, 2000)).catch(() => 'failed');
+    console.log('RAW FEED START:', JSON.stringify(diagText));
+
+    const { rows, skipped } = await parseCsvStream(parseStream);
     console.log(`Feed parsed: ${rows.length} ticket rows, ${skipped} skipped`);
 
     if (rows.length === 0) {
       console.error('Parsed feed produced zero rows — aborting KV write');
-      return { success: false, error: 'Zero rows parsed — feed may be malformed', skipped };
+      return { success: false, error: 'Zero rows parsed — feed may be malformed', skipped, diagText };
     }
 
     // ── Step 3: Write to KV in chunks ─────────────────────────────────
