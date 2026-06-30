@@ -56,6 +56,7 @@ export async function onRequestGet({ request, env }) {
 
   const incoming = new URL(request.url);
   const q = incoming.searchParams.get('q');
+  const debug = incoming.searchParams.get('debug') === '1';
 
   if (!q) {
     return jsonResponse({ error: 'q (event name) is required.' }, 400);
@@ -65,6 +66,28 @@ export async function onRequestGet({ request, env }) {
     const rows = await fetchFeed(feedUrl, env);
     if (!rows) {
       return jsonResponse({ error: 'Feed unavailable.' }, 502);
+    }
+
+    if (debug) {
+      // Surface internal state so we can see exactly what the parser
+      // produced without digging through Cloudflare logs
+      const sample = rows.slice(0, 5).map(r => ({
+        product_name: r.product_name,
+        merchant_category: r.merchant_category,
+        category_name: r.category_name,
+        display_price: r.display_price,
+        search_price: r.search_price
+      }));
+      const nameMatches = rows.filter(r =>
+        (r.product_name || '').toLowerCase().includes(q.toLowerCase())
+      ).slice(0, 5).map(r => r.product_name);
+
+      return jsonResponse({
+        totalRowsParsed: rows.length,
+        sampleRows: sample,
+        rowsContainingQuery: nameMatches,
+        queryReceived: q
+      }, 200);
     }
 
     const match = findBestMatch(rows, q);
