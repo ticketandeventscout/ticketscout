@@ -93,12 +93,12 @@ async function refreshCache(env) {
       new DecompressionStream('gzip')
     );
 
-    const rows = await parseCsvStream(decompressedStream);
-    console.log(`Feed parsed: ${rows.length} ticket rows`);
+    const { rows, skipped } = await parseCsvStream(decompressedStream);
+    console.log(`Feed parsed: ${rows.length} ticket rows, ${skipped} skipped`);
 
     if (rows.length === 0) {
       console.error('Parsed feed produced zero rows — aborting KV write');
-      return { success: false, error: 'Zero rows parsed — feed may be malformed' };
+      return { success: false, error: 'Zero rows parsed — feed may be malformed', skipped };
     }
 
     // ── Step 3: Write to KV in chunks ─────────────────────────────────
@@ -169,64 +169,66 @@ async function parseCsvStream(stream) {
       // Decode this chunk and append to our line buffer
       buffer += decoder.decode(value, { stream: true });
 
-      // Process all complete lines in the buffer
-      let newlineIndex;
-      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newlineIndex).replace(/\r$/, '');
-        buffer = buffer.slice(newlineIndex + 1);
+      // Process all complete lines in the buffer, respecting quoted fields
+      // that may contain embedded newlines
+      let searchFrom = 0;
+      let inQuotes = false;
 
-        if (isFirstLine) {
-          isFirstLine = false; // skip header row
-          continue;
-        }
+      for (let ci = 0; ci < buffer.length; ci++) {
+        const ch = buffer[ci];
+        if (ch === '"') inQuotes = !inQuotes;
+        if (ch === '\n' && !inQuotes) {
+          const line = buffer.slice(searchFrom, ci).replace(/\r$/, '');
+          searchFrom = ci + 1;
 
-        if (!line.trim()) continue;
+          if (isFirstLine) {
+            isFirstLine = false;
+            continue;
+          }
 
-        const fields = parseCsvLine(line);
+          if (!line.trim()) continue;
 
-        // Tolerate small field count mismatches
-        if (fields.length < COLUMNS.length - 5) {
-          skipped++;
-          continue;
-        }
+          const fields = parseCsvLine(line);
+          if (fields.length < COLUMNS.length - 5) { skipped++; continue; }
 
-        const row = {};
-        COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
+          const row = {};
+          COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
 
-        // Pre-filter: ticket/event categories only
-        const category = [
-          row.merchant_category,
-          row.category_name,
-          row.merchant_product_category_path
-        ].join(' ').toLowerCase();
+          const category = [
+            row.merchant_category,
+            row.category_name,
+            row.merchant_product_category_path
+          ].join(' ').toLowerCase();
 
-        const isTicketLike =
-          /ticket|event|concert|festival|theatre|theater|sport|gig|show|match|tour|comedy/.test(category);
+          const isTicketLike =
+            /ticket|event|concert|festival|theatre|theater|sport|gig|show|match|tour|comedy/.test(category);
 
-        // Availability and price checks
-        const inStock = row.in_stock?.toLowerCase();
-        const forSale = row.is_for_sale?.toLowerCase();
-        const isAvailable =
-          inStock !== 'false' && inStock !== '0' &&
-          forSale !== 'false' && forSale !== '0';
+          const inStock = row.in_stock?.toLowerCase();
+          const forSale = row.is_for_sale?.toLowerCase();
+          const isAvailable =
+            inStock !== 'false' && inStock !== '0' &&
+            forSale !== 'false' && forSale !== '0';
 
-        const price = parsePrice(row.display_price || row.search_price || row.store_price);
+          const price = parsePrice(row.display_price || row.search_price || row.store_price);
 
-        if (isTicketLike && isAvailable && price !== null) {
-          // Only store the fields the reader actually needs
-          rows.push({
-            product_name:  row.product_name,
-            aw_deep_link:  row.aw_deep_link,
-            display_price: row.display_price,
-            search_price:  row.search_price,
-            store_price:   row.store_price,
-            currency:      row.currency,
-            merchant_category: row.merchant_category,
-            category_name: row.category_name,
-            last_updated:  row.last_updated
-          });
+          if (isTicketLike && isAvailable && price !== null) {
+            rows.push({
+              product_name:      row.product_name,
+              aw_deep_link:      row.aw_deep_link,
+              display_price:     row.display_price,
+              search_price:      row.search_price,
+              store_price:       row.store_price,
+              currency:          row.currency,
+              merchant_category: row.merchant_category,
+              category_name:     row.category_name,
+              last_updated:      row.last_updated
+            });
+          }
         }
       }
+
+      // Keep only the unprocessed remainder in the buffer
+      buffer = buffer.slice(searchFrom);
     }
 
     // Process any remaining partial line in the buffer
@@ -257,7 +259,7 @@ async function parseCsvStream(stream) {
   }
 
   console.log(`Stream parse complete: ${rows.length} rows kept, ${skipped} skipped`);
-  return rows;
+  return { rows, skipped };
 }
 
 // ===========================
