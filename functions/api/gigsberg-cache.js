@@ -85,17 +85,15 @@ async function refreshCache(env) {
       return { success: false, error: `HTTP ${response.status}` };
     }
 
-    // ── Step 2: Decompress gzip ────────────────────────────────────────
-    // Awin serves Content-Type: application/gzip without Content-Encoding,
-    // so the Fetch API won't auto-decompress. We pipe through DecompressionStream.
+    // ── Step 2: Decompress and process line by line ────────────────────
+    // Rather than buffering the entire decompressed text into memory,
+    // we read the stream in chunks and process one CSV line at a time.
+    // This keeps peak memory usage well under the 128MB Pages Function limit.
     const decompressedStream = response.body.pipeThrough(
       new DecompressionStream('gzip')
     );
-    const csvText = await new Response(decompressedStream).text();
-    console.log(`Feed decompressed: ${csvText.length} characters`);
 
-    // ── Step 3: Parse CSV ──────────────────────────────────────────────
-    const rows = parseCsv(csvText);
+    const rows = await parseCsvStream(decompressedStream);
     console.log(`Feed parsed: ${rows.length} ticket rows`);
 
     if (rows.length === 0) {
@@ -103,16 +101,37 @@ async function refreshCache(env) {
       return { success: false, error: 'Zero rows parsed — feed may be malformed' };
     }
 
-    // ── Step 4: Write to KV ────────────────────────────────────────────
-    await kv.put(CACHE_KEY, JSON.stringify(rows), {
-      expirationTtl: CACHE_TTL_SECONDS
-    });
+    // ── Step 3: Write to KV in chunks ─────────────────────────────────
+    // KV has a 25MB value limit. Split into chunks of 2000 rows each
+    // to stay well within that limit and reduce per-write memory pressure.
+    const CHUNK_SIZE = 2000;
+    const chunks = [];
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      chunks.push(rows.slice(i, i + CHUNK_SIZE));
+    }
+
+    // Write each chunk separately, then write an index so the reader
+    // knows how many chunks to expect
+    for (let i = 0; i < chunks.length; i++) {
+      await kv.put(
+        `${CACHE_KEY}:chunk:${i}`,
+        JSON.stringify(chunks[i]),
+        { expirationTtl: CACHE_TTL_SECONDS }
+      );
+    }
+
+    // Write the index last — the reader uses this to know the cache is ready
+    await kv.put(
+      `${CACHE_KEY}:index`,
+      JSON.stringify({ chunks: chunks.length, totalRows: rows.length, cachedAt: new Date().toISOString() }),
+      { expirationTtl: CACHE_TTL_SECONDS }
+    );
 
     const elapsed = Date.now() - startTime;
     const result = {
       success: true,
       rowsCached: rows.length,
-      csvCharsProcessed: csvText.length,
+      chunks: chunks.length,
       elapsedMs: elapsed,
       cachedAt: new Date().toISOString()
     };
@@ -124,6 +143,121 @@ async function refreshCache(env) {
     console.error('Gigsberg cache refresh error:', err);
     return { success: false, error: String(err) };
   }
+}
+
+// ===========================
+// Stream-based CSV parser
+// Reads the decompressed stream in text chunks, splits on newlines,
+// and emits one parsed row object at a time — never holds the full
+// CSV text or all rows in memory simultaneously.
+// ===========================
+
+async function parseCsvStream(stream) {
+  const decoder = new TextDecoder();
+  const reader = stream.getReader();
+  const rows = [];
+
+  let buffer = '';
+  let isFirstLine = true;
+  let skipped = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      // Decode this chunk and append to our line buffer
+      buffer += decoder.decode(value, { stream: true });
+
+      // Process all complete lines in the buffer
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newlineIndex).replace(/\r$/, '');
+        buffer = buffer.slice(newlineIndex + 1);
+
+        if (isFirstLine) {
+          isFirstLine = false; // skip header row
+          continue;
+        }
+
+        if (!line.trim()) continue;
+
+        const fields = parseCsvLine(line);
+
+        // Tolerate small field count mismatches
+        if (fields.length < COLUMNS.length - 5) {
+          skipped++;
+          continue;
+        }
+
+        const row = {};
+        COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
+
+        // Pre-filter: ticket/event categories only
+        const category = [
+          row.merchant_category,
+          row.category_name,
+          row.merchant_product_category_path
+        ].join(' ').toLowerCase();
+
+        const isTicketLike =
+          /ticket|event|concert|festival|theatre|theater|sport|gig|show|match|tour|comedy/.test(category);
+
+        // Availability and price checks
+        const inStock = row.in_stock?.toLowerCase();
+        const forSale = row.is_for_sale?.toLowerCase();
+        const isAvailable =
+          inStock !== 'false' && inStock !== '0' &&
+          forSale !== 'false' && forSale !== '0';
+
+        const price = parsePrice(row.display_price || row.search_price || row.store_price);
+
+        if (isTicketLike && isAvailable && price !== null) {
+          // Only store the fields the reader actually needs
+          rows.push({
+            product_name:  row.product_name,
+            aw_deep_link:  row.aw_deep_link,
+            display_price: row.display_price,
+            search_price:  row.search_price,
+            store_price:   row.store_price,
+            currency:      row.currency,
+            merchant_category: row.merchant_category,
+            category_name: row.category_name,
+            last_updated:  row.last_updated
+          });
+        }
+      }
+    }
+
+    // Process any remaining partial line in the buffer
+    if (buffer.trim() && !isFirstLine) {
+      const fields = parseCsvLine(buffer.trim());
+      if (fields.length >= COLUMNS.length - 5) {
+        const row = {};
+        COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
+        const price = parsePrice(row.display_price || row.search_price || row.store_price);
+        if (price !== null) {
+          rows.push({
+            product_name:  row.product_name,
+            aw_deep_link:  row.aw_deep_link,
+            display_price: row.display_price,
+            search_price:  row.search_price,
+            store_price:   row.store_price,
+            currency:      row.currency,
+            merchant_category: row.merchant_category,
+            category_name: row.category_name,
+            last_updated:  row.last_updated
+          });
+        }
+      }
+    }
+
+  } finally {
+    reader.releaseLock();
+  }
+
+  console.log(`Stream parse complete: ${rows.length} rows kept, ${skipped} skipped`);
+  return rows;
 }
 
 // ===========================

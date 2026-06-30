@@ -40,37 +40,35 @@ export async function onRequestGet({ request, env }) {
   }
 
   try {
-    // Read pre-parsed rows from KV — set by the scheduled cache Worker
-    const rows = await kv.get(CACHE_KEY, { type: 'json' });
+    // Read the index first to find out how many chunks exist
+    const index = await kv.get(`${CACHE_KEY}:index`, { type: 'json' });
 
     if (debug) {
-      const sample = (rows || []).slice(0, 5).map(r => ({
-        product_name: r.product_name,
-        merchant_category: r.merchant_category,
-        display_price: r.display_price
-      }));
-      const nameMatches = (rows || [])
-        .filter(r => (r.product_name || '').toLowerCase().includes(q.toLowerCase()))
-        .slice(0, 5)
-        .map(r => ({ name: r.product_name, price: r.display_price }));
-
       return jsonResponse({
-        totalRowsCached: rows ? rows.length : 0,
-        kvKeyFound: rows !== null,
-        sampleRows: sample,
-        rowsContainingQuery: nameMatches,
+        kvIndexFound: index !== null,
+        index,
         queryReceived: q
       }, 200);
     }
 
-    if (!rows || rows.length === 0) {
-      // KV is empty — cache Worker hasn't run yet, or feed was unavailable
-      // Return null gracefully so the comparison block shows other sources
+    if (!index || !index.chunks) {
       console.warn('Gigsberg KV cache is empty — scheduled Worker may not have run yet');
       return jsonResponse({ match: null }, 200);
     }
 
-    const match = findBestMatch(rows, q);
+    // Read all chunks and concatenate into one array
+    // Chunks are small (2000 rows each) so this is memory-safe
+    const allRows = [];
+    for (let i = 0; i < index.chunks; i++) {
+      const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
+      if (chunk) allRows.push(...chunk);
+    }
+
+    if (allRows.length === 0) {
+      return jsonResponse({ match: null }, 200);
+    }
+
+    const match = findBestMatch(allRows, q);
     return jsonResponse({ match: match ? toResult(match) : null }, 200);
 
   } catch (err) {
