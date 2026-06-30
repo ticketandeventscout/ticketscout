@@ -139,7 +139,19 @@ async function fetchFeed(feedUrl, env, debugInfo = null) {
 
   if (!response.ok) return null;
 
-  const csvText = await response.text();
+  const contentType = response.headers.get('content-type') || '';
+  const isGzip = contentType.includes('gzip') || feedUrl.includes('compression/gzip');
+
+  let csvText;
+  if (isGzip && response.body) {
+    // Awin serves Content-Type: application/gzip but does NOT set
+    // Content-Encoding: gzip, so the Fetch API won't auto-decompress it.
+    // We have to manually pipe the raw bytes through DecompressionStream.
+    const decompressedStream = response.body.pipeThrough(new DecompressionStream('gzip'));
+    csvText = await new Response(decompressedStream).text();
+  } else {
+    csvText = await response.text();
+  }
 
   if (debugInfo) {
     debugInfo.csvTextLength = csvText.length;
