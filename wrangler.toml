@@ -1,0 +1,43 @@
+# ===========================
+# TicketScout — Cloudflare Pages / Workers configuration
+# ===========================
+#
+# This file configures:
+#   1. KV namespace binding — GIGSBERG_KV is available to both the
+#      scheduled cache Worker and the /api/gigsberg Function
+#   2. Cron trigger — runs the gigsberg-cache Worker every 6 hours
+#      to refresh the feed data in KV
+#
+# After adding this file to your repo, Cloudflare Pages will pick up
+# the KV binding automatically on next deploy.
+# The cron trigger requires one manual step — see note below.
+# ===========================
+
+name = "ticketscout"
+compatibility_date = "2024-01-01"
+
+# ── KV namespace bindings ────────────────────────────────────────────────
+# Makes env.GIGSBERG_KV available in all Functions and Workers.
+# The binding name (GIGSBERG_KV) must match exactly what the code uses.
+
+[[kv_namespaces]]
+binding = "GIGSBERG_KV"
+id = "bc766f3f7b284869a0b249a590eb4fcf"
+
+# ── Cron triggers ────────────────────────────────────────────────────────
+# Runs functions/scheduled/gigsberg-cache.js every 6 hours.
+# Cron syntax: minute hour day-of-month month day-of-week
+# "0 */6 * * *" = at minute 0, every 6th hour
+
+[triggers]
+crons = ["0 */6 * * *"]
+
+# ── Note on cron triggers with Cloudflare Pages ──────────────────────────
+# Cloudflare Pages does not yet support cron triggers natively via
+# wrangler.toml in the same way standalone Workers do.
+# After deploying, you will need to manually set up the cron trigger
+# in the Cloudflare dashboard:
+#   Workers & Pages → ticketscout → Settings → Triggers → Cron Triggers
+#   → Add Cron Trigger → "0 */6 * * *"
+# Point it at the scheduled function path: /scheduled/gigsberg-cache
+# =========================================================================
