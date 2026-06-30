@@ -43,25 +43,29 @@ export async function onRequestGet({ request, env }) {
     // Read the index first to find out how many chunks exist
     const index = await kv.get(`${CACHE_KEY}:index`, { type: 'json' });
 
-    if (debug) {
-      return jsonResponse({
-        kvIndexFound: index !== null,
-        index,
-        queryReceived: q
-      }, 200);
-    }
-
     if (!index || !index.chunks) {
       console.warn('Gigsberg KV cache is empty — scheduled Worker may not have run yet');
       return jsonResponse({ match: null }, 200);
     }
 
     // Read all chunks and concatenate into one array
-    // Chunks are small (2000 rows each) so this is memory-safe
     const allRows = [];
     for (let i = 0; i < index.chunks; i++) {
       const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
       if (chunk) allRows.push(...chunk);
+    }
+
+    if (debug) {
+      const nameMatches = allRows
+        .filter(r => (r.product_name || '').toLowerCase().includes(q.toLowerCase()))
+        .slice(0, 5)
+        .map(r => ({ name: r.product_name, price: r.display_price, url: r.aw_deep_link }));
+      return jsonResponse({
+        kvIndexFound: true,
+        totalRowsLoaded: allRows.length,
+        rowsContainingQuery: nameMatches,
+        queryReceived: q
+      }, 200);
     }
 
     if (allRows.length === 0) {
