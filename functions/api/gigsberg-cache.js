@@ -19,26 +19,6 @@
 //   GIGSBERG_KV        — KV namespace binding (set in wrangler.toml)
 // ===========================
 
-// Column order exactly as configured in the Awin datafeed URL —
-// must stay in sync with functions/api/gigsberg.js
-const COLUMNS = [
-  'aw_deep_link', 'product_name', 'aw_product_id', 'merchant_product_id',
-  'merchant_image_url', 'description', 'merchant_category', 'search_price',
-  'merchant_name', 'merchant_id', 'category_name', 'category_id',
-  'aw_image_url', 'currency', 'store_price', 'delivery_cost',
-  'merchant_deep_link', 'language', 'last_updated', 'display_price',
-  'data_feed_id', 'brand_name', 'brand_id', 'colour',
-  'product_short_description', 'specifications', 'condition',
-  'product_model', 'model_number', 'dimensions', 'keywords',
-  'promotional_text', 'product_type', 'commission_group',
-  'merchant_product_category_path', 'merchant_product_second_category',
-  'merchant_product_third_category', 'rrp_price', 'saving',
-  'savings_percent', 'base_price', 'base_price_amount', 'base_price_text',
-  'product_price_old', 'in_stock', 'stock_quantity', 'valid_from',
-  'valid_to', 'is_for_sale', 'web_offer', 'pre_order', 'stock_status',
-  'size_stock_status', 'size_stock_amount'
-];
-
 const CACHE_KEY = 'gigsberg:feed:latest';
 const CACHE_TTL_SECONDS = 7 * 60 * 60; // 7 hours (slightly longer than the 6hr cron interval)
 
@@ -93,18 +73,17 @@ async function refreshCache(env) {
       new DecompressionStream('gzip')
     );
 
-    // ── DIAGNOSTIC: capture first 2000 chars of raw decompressed text ──
-    // Split the stream so we can both inspect and parse it
-    const [diagStream, parseStream] = decompressedStream.tee();
-    const diagText = await new Response(diagStream).text().then(t => t.slice(0, 2000)).catch(() => 'failed');
-    console.log('RAW FEED START:', JSON.stringify(diagText));
+    // ── Step 2: Decompress and parse line by line ──────────────────────
+    const decompressedStream = response.body.pipeThrough(
+      new DecompressionStream('gzip')
+    );
 
-    const { rows, skipped } = await parseCsvStream(parseStream);
+    const { rows, skipped } = await parseCsvStream(decompressedStream);
     console.log(`Feed parsed: ${rows.length} ticket rows, ${skipped} skipped`);
 
     if (rows.length === 0) {
       console.error('Parsed feed produced zero rows — aborting KV write');
-      return { success: false, error: 'Zero rows parsed — feed may be malformed', skipped, diagText };
+      return { success: false, error: 'Zero rows parsed — feed may be malformed', skipped };
     }
 
     // ── Step 3: Write to KV in chunks ─────────────────────────────────
@@ -155,9 +134,14 @@ async function refreshCache(env) {
 
 // ===========================
 // Stream-based CSV parser
-// Reads the decompressed stream in text chunks, splits on newlines,
-// and emits one parsed row object at a time — never holds the full
-// CSV text or all rows in memory simultaneously.
+// The Awin feed for Gigsberg is NOT a standard columnar CSV.
+// Each data row has exactly 3 fields:
+//   1. aw_deep_link  — affiliate tracking URL
+//   2. product_name  — performer name (e.g. "Metallica")
+//   3. json_blob     — all other data as a JSON object with double-escaped quotes
+//
+// Example row:
+//   https://www.awin1.com/pclick.php?p=123&a=2960641&m=102707,"Metallica","{""price"":""222.80"",""merchantCategory"":""Concert"",...}"
 // ===========================
 
 async function parseCsvStream(stream) {
@@ -174,11 +158,9 @@ async function parseCsvStream(stream) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      // Decode this chunk and append to our line buffer
       buffer += decoder.decode(value, { stream: true });
 
-      // Process all complete lines in the buffer, respecting quoted fields
-      // that may contain embedded newlines
+      // Split on newlines that are NOT inside a quoted field
       let searchFrom = 0;
       let inQuotes = false;
 
@@ -189,96 +171,25 @@ async function parseCsvStream(stream) {
           const line = buffer.slice(searchFrom, ci).replace(/\r$/, '');
           searchFrom = ci + 1;
 
-          if (isFirstLine) {
-            isFirstLine = false;
-            continue;
-          }
-
+          if (isFirstLine) { isFirstLine = false; continue; }
           if (!line.trim()) continue;
 
-          const fields = parseCsvLine(line);
-
-          // DEBUG: log first row's field count to diagnose column mismatch
-          if (rows.length === 0 && skipped === 0) {
-            console.log(`First data row field count: ${fields.length}, expected: ${COLUMNS.length}`);
-            console.log(`First few fields: ${fields.slice(0, 5).join(' | ')}`);
-          }
-
-          // Accept any row with at least 8 fields (enough to have name + price + url)
-          if (fields.length < 8) { skipped++; continue; }
-
-          const row = {};
-          COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
-
-          const category = [
-            row.merchant_category,
-            row.category_name,
-            row.merchant_product_category_path
-          ].join(' ').toLowerCase();
-
-          const isTicketLike =
-            /ticket|event|concert|festival|theatre|theater|sport|gig|show|match|tour|comedy/.test(category);
-
-          const inStock = row.in_stock?.toLowerCase();
-          const forSale = row.is_for_sale?.toLowerCase();
-          const isAvailable =
-            inStock !== 'false' && inStock !== '0' &&
-            forSale !== 'false' && forSale !== '0';
-
-          const price = parsePrice(row.display_price || row.search_price || row.store_price);
-
-          // TEMP: keep all rows with a name and url so we can see what's in the feed
-          // even if category/price filters don't match
-          const hasName = (row.product_name || '').trim().length > 0;
-          const hasUrl = (row.aw_deep_link || '').trim().length > 0;
-
-          if (hasName && hasUrl) {
-            rows.push({
-              product_name:      row.product_name,
-              aw_deep_link:      row.aw_deep_link,
-              display_price:     row.display_price,
-              search_price:      row.search_price,
-              store_price:       row.store_price,
-              currency:          row.currency,
-              merchant_category: row.merchant_category,
-              category_name:     row.category_name,
-              last_updated:      row.last_updated,
-              _debug_fields:     fields.length,
-              _debug_price:      price,
-              _debug_ticket:     isTicketLike,
-              _debug_available:  isAvailable
-            });
+          const row = parseGigsbergRow(line);
+          if (row) {
+            rows.push(row);
           } else {
             skipped++;
           }
         }
       }
 
-      // Keep only the unprocessed remainder in the buffer
       buffer = buffer.slice(searchFrom);
     }
 
-    // Process any remaining partial line in the buffer
+    // Handle any remaining line in buffer
     if (buffer.trim() && !isFirstLine) {
-      const fields = parseCsvLine(buffer.trim());
-      if (fields.length >= COLUMNS.length - 5) {
-        const row = {};
-        COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
-        const price = parsePrice(row.display_price || row.search_price || row.store_price);
-        if (price !== null) {
-          rows.push({
-            product_name:  row.product_name,
-            aw_deep_link:  row.aw_deep_link,
-            display_price: row.display_price,
-            search_price:  row.search_price,
-            store_price:   row.store_price,
-            currency:      row.currency,
-            merchant_category: row.merchant_category,
-            category_name: row.category_name,
-            last_updated:  row.last_updated
-          });
-        }
-      }
+      const row = parseGigsbergRow(buffer.trim());
+      if (row) rows.push(row);
     }
 
   } finally {
@@ -289,103 +200,67 @@ async function parseCsvStream(stream) {
   return { rows, skipped };
 }
 
-// ===========================
-// CSV parsing
-// Handles quoted fields containing embedded commas and newlines.
-// Only keeps rows that look like ticket/event listings.
-// ===========================
+// Parses a single Gigsberg CSV row in the format:
+// <aw_deep_link>,"<product_name>","<json_blob_with_doubled_quotes>"
+// Returns a normalised row object or null if the row should be skipped.
+function parseGigsbergRow(line) {
+  // Split into 3 fields using the CSV parser
+  const fields = parseCsvLine(line);
+  if (fields.length < 3) return null;
 
-function parseCsv(text) {
-  const lines = splitCsvLines(text);
-  if (lines.length < 2) return [];
+  const awDeepLink   = fields[0].trim();
+  const productName  = fields[1].trim();
+  const jsonRaw      = fields[2].trim();
 
-  // Skip header row (line 0) — we rely on the known COLUMNS order
-  const dataLines = lines.slice(1);
-  const rows = [];
-  let skipped = 0;
+  if (!awDeepLink || !productName) return null;
 
-  for (const line of dataLines) {
-    if (!line.trim()) continue;
-
-    const fields = parseCsvLine(line);
-
-    // Tolerate small mismatches in field count (trailing empty fields
-    // are common in Awin feeds)
-    if (fields.length < COLUMNS.length - 5) {
-      skipped++;
-      continue;
-    }
-
-    const row = {};
-    COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
-
-    // Pre-filter to ticket/event-like rows only
-    const category = [
-      row.merchant_category,
-      row.category_name,
-      row.merchant_product_category_path
-    ].join(' ').toLowerCase();
-
-    const isTicketLike =
-      /ticket|event|concert|festival|theatre|theater|sport|gig|show|match|tour|comedy/.test(category);
-
-    // Keep only in-stock, for-sale rows
-    const inStock = row.in_stock?.toLowerCase();
-    const forSale = row.is_for_sale?.toLowerCase();
-    const isAvailable =
-      inStock !== 'false' && inStock !== '0' &&
-      forSale !== 'false' && forSale !== '0';
-
-    // Only keep rows with a usable price
-    const hasPrice = parsePrice(
-      row.display_price || row.search_price || row.store_price
-    ) !== null;
-
-    if (isTicketLike && isAvailable && hasPrice) {
-      // Store only the fields the /api/gigsberg Function actually needs
-      // to keep KV storage and read times minimal
-      rows.push({
-        product_name:     row.product_name,
-        aw_deep_link:     row.aw_deep_link,
-        display_price:    row.display_price,
-        search_price:     row.search_price,
-        store_price:      row.store_price,
-        currency:         row.currency,
-        merchant_category: row.merchant_category,
-        category_name:    row.category_name,
-        last_updated:     row.last_updated
-      });
-    }
+  // The JSON blob uses doubled quotes for escaping (standard CSV quoting),
+  // which parseCsvLine already unescapes — so jsonRaw should be valid JSON.
+  let data = {};
+  try {
+    data = JSON.parse(jsonRaw);
+  } catch (e) {
+    // If JSON parse fails, try to extract just the price via regex as fallback
+    const priceMatch = jsonRaw.match(/"price"\s*:\s*"([0-9.]+)"/);
+    if (priceMatch) data = { price: priceMatch[1] };
   }
 
-  console.log(`CSV parse complete: ${rows.length} rows kept, ${skipped} skipped`);
-  return rows;
+  const price = parsePrice(data.price || data.storePrice || data.rrpPrice);
+  if (!price) return null;
+
+  const category = (data.merchantCategory || data.normalisedMerchantCategory || '').toLowerCase();
+  const isTicketLike =
+    /ticket|event|concert|festival|theatre|theater|sport|gig|show|match|tour|comedy/.test(category)
+    || category === ''; // include uncategorised rows — all Gigsberg products are tickets
+
+  if (!isTicketLike) return null;
+
+  // Availability — default to available if fields are missing
+  const inStock = data.inStock;
+  const forSale = data.isForSale;
+  const isAvailable =
+    inStock !== false && inStock !== 0 && inStock !== '0' &&
+    forSale !== false && forSale !== 0 && forSale !== '0';
+
+  if (!isAvailable) return null;
+
+  return {
+    product_name:      productName,
+    aw_deep_link:      awDeepLink,
+    display_price:     String(price),
+    search_price:      String(price),
+    store_price:       String(price),
+    currency:          data.currency || 'GBP',
+    merchant_category: data.merchantCategory || '',
+    category_name:     data.networkCategory || '',
+    last_updated:      data.validFrom || ''
+  };
 }
 
 function parsePrice(raw) {
   if (!raw) return null;
   const num = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
   return isNaN(num) || num <= 0 ? null : num;
-}
-
-function splitCsvLines(text) {
-  const lines = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (char === '"') inQuotes = !inQuotes;
-    if (char === '\n' && !inQuotes) {
-      lines.push(current);
-      current = '';
-    } else if (char !== '\r') {
-      current += char;
-    }
-  }
-  if (current.trim()) lines.push(current);
-
-  return lines;
 }
 
 function parseCsvLine(line) {
