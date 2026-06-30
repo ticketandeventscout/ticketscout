@@ -63,9 +63,10 @@ export async function onRequestGet({ request, env }) {
   }
 
   try {
-    const rows = await fetchFeed(feedUrl, env);
+    const debugInfo = debug ? {} : null;
+    const rows = await fetchFeed(feedUrl, env, debugInfo);
     if (!rows) {
-      return jsonResponse({ error: 'Feed unavailable.' }, 502);
+      return jsonResponse({ error: 'Feed unavailable.', debugInfo }, 502);
     }
 
     if (debug) {
@@ -86,7 +87,8 @@ export async function onRequestGet({ request, env }) {
         totalRowsParsed: rows.length,
         sampleRows: sample,
         rowsContainingQuery: nameMatches,
-        queryReceived: q
+        queryReceived: q,
+        debugInfo
       }, 200);
     }
 
@@ -107,13 +109,16 @@ export async function onRequestGet({ request, env }) {
 // Feed fetching — KV cache first, falls back to direct fetch + decompress
 // ===========================
 
-async function fetchFeed(feedUrl, env) {
+async function fetchFeed(feedUrl, env, debugInfo = null) {
   // Try KV cache first (stores parsed JSON rows, not raw CSV, to skip
   // re-parsing 17k rows on every request within the cache window)
   if (env.GIGSBERG_KV) {
     try {
       const cached = await env.GIGSBERG_KV.get(CACHE_KEY, { type: 'json' });
-      if (cached) return cached;
+      if (cached) {
+        if (debugInfo) debugInfo.source = 'kv-cache';
+        return cached;
+      }
     } catch (e) {
       console.warn('KV read failed, falling back to direct fetch:', e);
     }
@@ -122,9 +127,25 @@ async function fetchFeed(feedUrl, env) {
   // Fetch fresh — gzip is decompressed automatically by the Fetch API
   // since Awin serves it with Content-Encoding: gzip
   const response = await fetch(feedUrl);
+
+  if (debugInfo) {
+    debugInfo.source = 'direct-fetch';
+    debugInfo.httpStatus = response.status;
+    debugInfo.httpOk = response.ok;
+    debugInfo.contentType = response.headers.get('content-type');
+    debugInfo.contentEncoding = response.headers.get('content-encoding');
+    debugInfo.contentLength = response.headers.get('content-length');
+  }
+
   if (!response.ok) return null;
 
   const csvText = await response.text();
+
+  if (debugInfo) {
+    debugInfo.csvTextLength = csvText.length;
+    debugInfo.csvFirst500Chars = csvText.slice(0, 500);
+  }
+
   const rows = parseCsv(csvText);
 
   if (env.GIGSBERG_KV && rows.length) {
