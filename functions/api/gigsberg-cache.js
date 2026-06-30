@@ -48,7 +48,7 @@ export default {
     ctx.waitUntil(refreshCache(env));
   },
 
-  // Also allow manual trigger via GET /scheduled/gigsberg-cache?trigger=1
+  // Also allow manual trigger via GET /api/gigsberg-cache?trigger=1
   // Useful for testing without waiting for the cron to fire
   async fetch(request, env) {
     const url = new URL(request.url);
