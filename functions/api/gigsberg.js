@@ -132,22 +132,35 @@ function parseCsv(text) {
   const dataLines = lines.slice(1);
 
   const rows = [];
+  let skippedCount = 0;
+
   for (const line of dataLines) {
     if (!line.trim()) continue;
     const fields = parseCsvLine(line);
-    if (fields.length < COLUMNS.length) continue; // skip malformed rows
+
+    // Be tolerant of small column count mismatches (trailing empty fields
+    // are common in Awin feeds) rather than dropping the row outright —
+    // pad short rows, truncate long ones
+    if (fields.length < COLUMNS.length - 5) {
+      skippedCount++;
+      continue; // genuinely malformed, skip
+    }
 
     const row = {};
     COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ''; });
 
     // Only keep rows that look like tickets/events (cheap pre-filter to
     // keep the in-memory/cached row count down)
-    const category = `${row.merchant_category} ${row.category_name}`.toLowerCase();
-    const isTicketLike = /ticket|event|concert|festival|theatre|sport|gig|show/.test(category)
-      || /ticket|event|concert|festival|theatre|gig|show/.test(row.product_name.toLowerCase());
+    const category = `${row.merchant_category} ${row.category_name} ${row.merchant_product_category_path}`.toLowerCase();
+    const nameCheck = (row.product_name || '').toLowerCase();
+    const isTicketLike =
+      /ticket|event|concert|festival|theatre|theater|sport|gig|show|match|tour|comedy/.test(category) ||
+      /ticket|event|concert|festival|theatre|theater|gig|show|tour/.test(nameCheck);
 
     if (isTicketLike) rows.push(row);
   }
+
+  console.log(`Gigsberg feed parsed: ${rows.length} rows kept, ${skippedCount} malformed rows skipped`);
 
   return rows;
 }
@@ -221,7 +234,7 @@ function findBestMatch(rows, query) {
       if (normName === normQuery)              score = 100;
       else if (normName.startsWith(normQuery)) score = 60;
       else if (normName.includes(normQuery))   score = 30;
-      else if (normQuery.includes(normName) && normName.length > 4) score = 20;
+      else if (normQuery.includes(normName) && normName.length > 5) score = 20;
       return { row, score };
     })
     .filter(r => r.score > 0)
