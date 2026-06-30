@@ -102,6 +102,30 @@ const ADAPTERS = [
     }
   },
 
+  {
+    source: 'Gigsberg',
+
+    buildUrl(eventName, venueCity) {
+      const params = new URLSearchParams({ q: eventName });
+      return `/api/gigsberg?${params.toString()}`;
+    },
+
+    normalise(data, eventName) {
+      if (data.error || !data.match) return null;
+
+      const match = data.match;
+      if (!match.price || !match.url) return null;
+
+      return {
+        source:    'Gigsberg',
+        price:     Math.round(match.price),
+        currency:  match.currency || 'GBP',
+        url:       match.url,
+        available: true
+      };
+    }
+  },
+
   // ── Future adapters go here ──────────────────────────────────────────────
   //
   // {
