@@ -65,15 +65,8 @@ async function refreshCache(env) {
       return { success: false, error: `HTTP ${response.status}` };
     }
 
-    // ── Step 2: Decompress and process line by line ────────────────────
-    // Rather than buffering the entire decompressed text into memory,
-    // we read the stream in chunks and process one CSV line at a time.
-    // This keeps peak memory usage well under the 128MB Pages Function limit.
-    const decompressedStream = response.body.pipeThrough(
-      new DecompressionStream('gzip')
-    );
-
     // ── Step 2: Decompress and parse line by line ──────────────────────
+    // Stream line-by-line to avoid loading the full CSV into memory.
     const decompressedStream = response.body.pipeThrough(
       new DecompressionStream('gzip')
     );
