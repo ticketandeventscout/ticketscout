@@ -42,26 +42,20 @@ const COLUMNS = [
 const CACHE_KEY = 'gigsberg:feed:latest';
 const CACHE_TTL_SECONDS = 7 * 60 * 60; // 7 hours (slightly longer than the 6hr cron interval)
 
-export default {
-  // Cron trigger entry point
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(refreshCache(env));
-  },
-
-  // Also allow manual trigger via GET /api/gigsberg-cache?trigger=1
-  // Useful for testing without waiting for the cron to fire
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    if (url.searchParams.get('trigger') !== '1') {
-      return new Response('Add ?trigger=1 to manually run the cache refresh.', { status: 200 });
-    }
-    const result = await refreshCache(env);
-    return new Response(JSON.stringify(result), {
+export async function onRequestGet({ request, env }) {
+  const url = new URL(request.url);
+  if (url.searchParams.get('trigger') !== '1') {
+    return new Response('Add ?trigger=1 to manually run the cache refresh.', {
       status: 200,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'text/plain' }
     });
   }
-};
+  const result = await refreshCache(env);
+  return new Response(JSON.stringify(result), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
 
 // ===========================
 // Main cache refresh logic
