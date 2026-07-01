@@ -64,10 +64,14 @@ export async function onRequestGet({ request, env }) {
           url: r.aw_deep_link
         }));
 
+      // Also run the actual date-filtered match to show what would be returned
+      const actualMatch = findBestMatches(allRows, q, date, venue);
+
       return jsonResponse({
         totalRowsLoaded: allRows.length,
         kvIndex: index,
         rowsMatchingQuery: nameMatches,
+        dateFilteredResult: actualMatch.map(toResult),
         queryReceived: q,
         dateFilter: date,
         venueFilter: venue
