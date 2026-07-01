@@ -103,21 +103,27 @@ const ADAPTERS = [
   },
 
   {
-    source: 'Gigsberg',
+    // Awin category adapter — covers ALL approved Awin ticket merchants
+    // in one call (currently: Gigsberg UK + Theatre Tickets Direct).
+    // New approved Awin merchants appear automatically with no code changes.
+    source: 'Awin',
 
     buildUrl(eventName, venueCity) {
       const params = new URLSearchParams({ q: eventName });
-      return `/api/gigsberg?${params.toString()}`;
+      return `/api/awin-category?${params.toString()}`;
     },
 
     normalise(data, eventName) {
-      if (data.error || !data.match) return null;
+      if (data.error || !data.matches?.length) return null;
 
-      const match = data.match;
+      // awin-category returns the best match already — use it directly
+      const match = data.matches[0];
       if (!match.price || !match.url) return null;
 
+      // Use merchant_name as the display source so users see "Gigsberg" or
+      // "Theatre Tickets Direct" rather than the generic "Awin" label
       return {
-        source:    'Gigsberg',
+        source:    match.merchant_name || 'Awin',
         price:     Math.round(match.price),
         currency:  match.currency || 'GBP',
         url:       match.url,
