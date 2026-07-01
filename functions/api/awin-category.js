@@ -23,6 +23,8 @@ export async function onRequestGet({ request, env }) {
   const incoming = new URL(request.url);
   const q     = incoming.searchParams.get('q');
   const debug = incoming.searchParams.get('debug') === '1';
+  const date  = incoming.searchParams.get('date') || '';  // YYYY-MM-DD from Ticketmaster
+  const venue = incoming.searchParams.get('venue') || '';
 
   if (!q) return jsonResponse({ error: 'q (event name) is required.' }, 400);
 
@@ -54,6 +56,7 @@ export async function onRequestGet({ request, env }) {
           product_name: r.product_name,
           primary_artist: r.primary_artist,
           event_name: r.event_name,
+          event_date: r.event_date,
           price: r.price,
           merchant: r.merchant_name,
           url: r.aw_deep_link
@@ -63,11 +66,13 @@ export async function onRequestGet({ request, env }) {
         totalRowsLoaded: allRows.length,
         kvIndex: index,
         rowsMatchingQuery: nameMatches,
-        queryReceived: q
+        queryReceived: q,
+        dateFilter: date,
+        venueFilter: venue
       }, 200);
     }
 
-    const matches = findBestMatches(allRows, q);
+    const matches = findBestMatches(allRows, q, date, venue);
     if (matches.length === 0) return jsonResponse({ matches: [] }, 200);
 
     return jsonResponse({ matches: matches.map(toResult) }, 200);
@@ -79,8 +84,16 @@ export async function onRequestGet({ request, env }) {
 }
 
 // ===========================
-// Matching — returns up to one result per merchant, lowest price wins
-// Uses primary_artist / event_name when available, falls back to product_name
+// Matching — finds the best price for a specific event
+//
+// Strategy:
+//   1. Score all rows by name match (primary_artist / event_name / product_name)
+//   2. If a target date is provided, prefer rows whose event_date is within
+//      3 days of the target (handles date format differences and timezone edge
+//      cases). Rows with no date are kept as fallback only.
+//   3. Among date-matched rows, return the lowest price.
+//   4. If no date-matched rows exist, fall back to lowest price across all
+//      name-matched rows (better than no result).
 // ===========================
 
 function normaliseName(str) {
@@ -90,7 +103,6 @@ function normaliseName(str) {
 function scoreRow(row, query) {
   const normQuery = normaliseName(query);
 
-  // Build a list of name fields to check, in priority order
   const candidates = [
     row.primary_artist,
     row.event_name,
@@ -109,21 +121,44 @@ function scoreRow(row, query) {
   return best;
 }
 
-function findBestMatches(rows, query) {
-  // Score all rows
+// Returns true if rowDate (string, any format) is within `windowDays` of targetDate (YYYY-MM-DD)
+function isDateMatch(rowDate, targetDate, windowDays = 3) {
+  if (!rowDate || !targetDate) return false;
+  try {
+    const target = new Date(targetDate);
+    const row    = new Date(rowDate);
+    if (isNaN(target.getTime()) || isNaN(row.getTime())) return false;
+    const diffMs   = Math.abs(target.getTime() - row.getTime());
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    return diffDays <= windowDays;
+  } catch {
+    return false;
+  }
+}
+
+function findBestMatches(rows, query, targetDate, venueName) {
+  // Score all rows by name
   const scored = rows
     .map(row => ({ row, score: scoreRow(row, query) }))
-    .filter(r => r.score > 0)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return a.row.price - b.row.price; // lower price wins among equal scores
-    });
+    .filter(r => r.score > 0);
 
   if (scored.length === 0) return [];
 
-  // Return the single best match overall (lowest price among highest score)
-  // The compare.js adapter will call this once and use the result
-  return [scored[0].row];
+  // Split into date-matched and fallback groups
+  const dateMatched = targetDate
+    ? scored.filter(r => isDateMatch(r.row.event_date, targetDate))
+    : [];
+
+  // Use date-matched group if we have results; otherwise fall back to all matches
+  const pool = dateMatched.length > 0 ? dateMatched : scored;
+
+  // Sort by score desc, then price asc
+  pool.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.row.price - b.row.price;
+  });
+
+  return [pool[0].row];
 }
 
 function toResult(row) {

@@ -30,9 +30,7 @@ const ADAPTERS = [
     source: 'SeatGeek',
 
     // Build the URL for our server-side proxy
-    buildUrl(eventName, venueCity) {
-      const params = new URLSearchParams({ q: eventName, per_page: '5' });
-      if (venueCity) params.set('city', venueCity);
+    buildUrl(eventName, venueCity, eventDate, venueName) {
       return `/api/seatgeek?${params.toString()}`;
     },
 
@@ -70,9 +68,7 @@ const ADAPTERS = [
   {
     source: 'Skiddle',
 
-    buildUrl(eventName, venueCity) {
-      // Search the top sellers feed first; festivals feed searched server-side
-      // as a fallback when no match is found in top sellers
+    buildUrl(eventName, venueCity, eventDate, venueName) {
       const params = new URLSearchParams({ q: eventName, feed: 'topsellers' });
       return `/api/skiddle?${params.toString()}`;
     },
@@ -108,8 +104,10 @@ const ADAPTERS = [
     // New approved Awin merchants appear automatically with no code changes.
     source: 'Awin',
 
-    buildUrl(eventName, venueCity) {
+    buildUrl(eventName, venueCity, eventDate, venueName) {
       const params = new URLSearchParams({ q: eventName });
+      if (eventDate) params.set('date', eventDate);
+      if (venueName) params.set('venue', venueName);
       return `/api/awin-category?${params.toString()}`;
     },
 
@@ -154,13 +152,12 @@ const ADAPTERS = [
 // Returns an array of normalised results (nulls and errors silently dropped)
 // ===========================
 
-async function comparePrices(eventName, venueCity) {
+async function comparePrices(eventName, venueCity, eventDate, venueName) {
   const settled = await Promise.allSettled(
     ADAPTERS.map(async adapter => {
-      const url = adapter.buildUrl(eventName, venueCity);
+      const url = adapter.buildUrl(eventName, venueCity, eventDate, venueName);
       const response = await fetch(url);
       const data = await response.json();
-      // normalise may be async (e.g. Skiddle fallback feed fetch)
       return await adapter.normalise(data, eventName);
     })
   );
@@ -177,11 +174,10 @@ async function comparePrices(eventName, venueCity) {
 // (TM data comes from the event detail fetch, not a separate adapter call)
 // ===========================
 
-function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity) {
+function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, eventDate, venueName) {
   if (!container) return;
 
   // Ticketmaster row is rendered immediately (data already available)
-  // All other sources stream in as their adapter calls resolve
   container.innerHTML = `
     <div class="compare-block">
       <div class="compare-title">Compare prices</div>
@@ -195,7 +191,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity) {
     </div>
   `;
 
-  comparePrices(eventName, venueCity).then(results => {
+  comparePrices(eventName, venueCity, eventDate, venueName).then(results => {
     const slot = document.getElementById('adapter-prices');
     if (!slot) return;
 
