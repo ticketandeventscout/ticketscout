@@ -136,6 +136,19 @@ function isDateMatch(rowDate, targetDate, windowDays = 3) {
   }
 }
 
+// Extracts a date string from Gigsberg's description field
+// Format: "Event Type: Concert, Venue: London Stadium, Date: 2026-07-03, Time: 19:00:00"
+function extractDateFromDescription(description) {
+  if (!description) return '';
+  const match = description.match(/Date:\s*(\d{4}-\d{2}-\d{2})/i);
+  return match ? match[1] : '';
+}
+
+// Returns the best date available for a row — prefers event_date, falls back to description
+function getRowDate(row) {
+  return row.event_date || extractDateFromDescription(row.description) || '';
+}
+
 function findBestMatches(rows, query, targetDate, venueName) {
   // Score all rows by name
   const scored = rows
@@ -146,7 +159,7 @@ function findBestMatches(rows, query, targetDate, venueName) {
 
   // Split into date-matched and fallback groups
   const dateMatched = targetDate
-    ? scored.filter(r => isDateMatch(r.row.event_date, targetDate))
+    ? scored.filter(r => isDateMatch(getRowDate(r.row), targetDate))
     : [];
 
   // Use date-matched group if we have results; otherwise fall back to all matches

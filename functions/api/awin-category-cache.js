@@ -38,6 +38,7 @@ const COL = {
   in_stock:       44,
   is_for_sale:    48,
   merchant_category: 6,
+  description:    5,  // "Event Type: Concert, Venue: London Stadium, Date: 2026-07-03..."
   // Ticket-specific (filled by some merchants)
   primary_artist: 54,
   event_name:     57,
@@ -215,14 +216,15 @@ function parseRow(line) {
   const merchantName = (fields[COL.merchant_name] || '').trim();
 
   return {
-    product_name:    productName,
-    aw_deep_link:    awDeepLink,
-    price:           price,
-    currency:        fields[COL.currency] || 'GBP',
-    merchant_name:   merchantName,
-    merchant_id:     fields[COL.merchant_id] || '',
-    category_name:   fields[COL.category_name] || '',
+    product_name:      productName,
+    aw_deep_link:      awDeepLink,
+    price:             price,
+    currency:          fields[COL.currency] || 'GBP',
+    merchant_name:     merchantName,
+    merchant_id:       fields[COL.merchant_id] || '',
+    category_name:     fields[COL.category_name] || '',
     merchant_category: fields[COL.merchant_category] || '',
+    description:       (fields[COL.description] || '').slice(0, 300), // capped to keep KV lean
     // Ticket-specific fields (populated by some merchants)
     primary_artist:  (fields[COL.primary_artist] || '').trim(),
     event_name:      (fields[COL.event_name]     || '').trim(),
