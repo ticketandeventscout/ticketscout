@@ -191,7 +191,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
           <div class="compare-loading">Checking prices…</div>
         </div>
       </div>
-      <div class="compare-footnote">Prices shown are the lowest available from each seller and may exclude booking fees. Always confirm on the seller's site before purchasing.</div>
+      <div class="compare-footnote">Prices shown are the lowest available from each seller and may exclude booking fees. Resale platform prices may differ from the original ticket price. Always confirm on the seller's site before purchasing.</div>
     </div>
   `;
 
