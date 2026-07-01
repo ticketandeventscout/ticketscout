@@ -177,14 +177,18 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
 function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, eventDate, venueName) {
   if (!container) return;
 
-  // Ticketmaster row is rendered immediately (data already available)
+  // Render the shell immediately with a loading state — TM row is NOT
+  // rendered yet because we need to know what other adapters return first.
+  // TM display rules (decided once adapter results are in):
+  //   1. No other sellers found prices → show TM as the only option (even without a price)
+  //   2. Other sellers found prices AND TM has a price → show TM (it adds to the comparison)
+  //   3. Other sellers found prices AND TM has no price → hide TM (no commission + no value)
   container.innerHTML = `
     <div class="compare-block">
       <div class="compare-title">Compare prices</div>
       <div id="compare-rows">
-        ${buildRow('Ticketmaster', tmPrice, tmUrl)}
         <div id="adapter-prices">
-          <div class="compare-loading">Checking other sellers…</div>
+          <div class="compare-loading">Checking prices…</div>
         </div>
       </div>
       <div class="compare-footnote">Prices shown are the lowest available from each seller and may exclude booking fees. Always confirm on the seller's site before purchasing.</div>
@@ -198,12 +202,15 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     const withPrices = results.filter(r => r.available && r.price);
 
     if (withPrices.length === 0) {
-      slot.innerHTML = '<div class="compare-loading">No additional prices found for this event</div>';
+      // No other sellers — show TM as the only source (even if no price)
+      slot.innerHTML = buildRow('Ticketmaster', tmPrice, tmUrl);
     } else {
+      // Other sellers have prices — only include TM if it also has a price
       slot.innerHTML = '';
+      if (tmPrice) {
+        slot.insertAdjacentHTML('beforeend', buildRow('Ticketmaster', tmPrice, tmUrl));
+      }
       withPrices.forEach(result => {
-        const row = document.createElement('div');
-        row.outerHTML; // force parse
         slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url));
       });
     }
