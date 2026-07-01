@@ -57,6 +57,8 @@ export async function onRequestGet({ request, env }) {
           primary_artist: r.primary_artist,
           event_name: r.event_name,
           event_date: r.event_date,
+          description: r.description || '(empty)',
+          extracted_date: extractDateFromDescription(r.description),
           price: r.price,
           merchant: r.merchant_name,
           url: r.aw_deep_link
