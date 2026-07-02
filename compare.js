@@ -298,4 +298,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
+}         
