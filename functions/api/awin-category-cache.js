@@ -58,11 +58,116 @@ export async function onRequestGet({ request, env }) {
       headers: { 'Content-Type': 'text/plain' }
     });
   }
+
+  // Debug mode: ?trigger=1&debug=ftn
+  // Returns the first 3 raw rows from Football TicketNet UK
+  // so we can inspect their column layout without a full cache refresh
+  const debug = url.searchParams.get('debug');
+  if (debug === 'ftn') {
+    const result = await debugFeedRows(env, 'Football Ticket');
+    return new Response(JSON.stringify(result, null, 2), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   const result = await refreshCache(env);
   return new Response(JSON.stringify(result), {
     status: 200,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+// ===========================
+// Debug helper — fetches the feed and returns the first few raw rows
+// from a named merchant so we can inspect their column layout
+// Usage: /api/awin-category-cache?trigger=1&debug=ftn
+// ===========================
+
+async function debugFeedRows(env, merchantFilter) {
+  const feedUrl = env.AWIN_CATEGORY_FEED_URL;
+  if (!feedUrl) return { error: 'Missing AWIN_CATEGORY_FEED_URL' };
+
+  try {
+    const response = await fetch(feedUrl);
+    if (!response.ok) return { error: `HTTP ${response.status}` };
+
+    const decompressedStream = response.body.pipeThrough(new DecompressionStream('gzip'));
+    const decoder = new TextDecoder();
+    const reader = decompressedStream.getReader();
+
+    let buffer = '';
+    let headers = null;
+    let matchedRows = [];
+    let totalLines = 0;
+    let isFirstLine = true;
+
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let searchFrom = 0;
+      let inQuotes = false;
+
+      for (let ci = 0; ci < buffer.length; ci++) {
+        const ch = buffer[ci];
+        if (ch === '"') inQuotes = !inQuotes;
+        if (ch === '\n' && !inQuotes) {
+          const line = buffer.slice(searchFrom, ci).replace(/\r$/, '');
+          searchFrom = ci + 1;
+
+          if (isFirstLine) {
+            isFirstLine = false;
+            headers = parseCsvLine(line);
+            continue;
+          }
+
+          if (!line.trim()) continue;
+          totalLines++;
+
+          const fields = parseCsvLine(line);
+          const merchantName = (fields[8] || '').trim();
+
+          if (merchantName.toLowerCase().includes(merchantFilter.toLowerCase())) {
+            matchedRows.push({
+              fieldCount: fields.length,
+              merchantName,
+              col0_aw_deep_link:       fields[0],
+              col1_product_name:       fields[1],
+              col6_merchant_category:  fields[6],
+              col7_search_price:       fields[7],
+              col13_currency:          fields[13],
+              col14_store_price:       fields[14],
+              col19_display_price:     fields[19],
+              col44_in_stock:          fields[44],
+              col48_is_for_sale:       fields[48],
+              col54_primary_artist:    fields[54],
+              col56_event_date:        fields[56],
+              col57_event_name:        fields[57],
+              col62_min_price:         fields[62],
+              first25Fields:           fields.slice(0, 25)
+            });
+            if (matchedRows.length >= 3) break outer;
+          }
+        }
+      }
+      buffer = buffer.slice(searchFrom);
+    }
+
+    reader.releaseLock();
+
+    return {
+      totalLinesScanned: totalLines,
+      headerCount: headers?.length,
+      headers: headers?.slice(0, 25),
+      matchedRows
+    };
+
+  } catch (err) {
+    return { error: String(err) };
+  }
 }
 
 async function refreshCache(env) {
