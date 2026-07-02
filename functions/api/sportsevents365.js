@@ -2,80 +2,85 @@
 // TicketScout — Server-side SportsEvents365 adapter
 // Runs as a Cloudflare Pages Function at /api/sportsevents365
 //
-// SE365 API structure (v2):
-//   - No free-text event search exists — events are found via participant ID
-//   - Flow: search participants by name → get participant ID → fetch their events
-//   - Participants endpoint: GET /participants (paginated, 3739 total in sandbox)
-//   - Events endpoint: GET /events/participant/{participantId}
-//   - Tickets endpoint: GET /tickets/{eventId}
+// SE365 API flow (confirmed from full API docs):
+//   1. Look up participant ID from KV cache (built by /api/sportsevents365-cache)
+//   2. Call GET /events/participant/{id} with date filters to get upcoming events
+//   3. Each event already includes minTicketPrice.price and eventUrl — no extra call needed
 //
-// Auth: Basic Auth header + apiKey query param on every request
+// Key API facts from docs:
+//   - Date format: dd/mm/yyyy (NOT YYYY-MM-DD)
+//   - Event response includes: dateOfEvent, timeOfEvent, eventUrl, minTicketPrice{price,currency}
+//   - Currency can be requested via ?currency=GBP
+//   - Affiliate URL: ticket.sportsevents365.com/event/{id}?affid={affiliateId}
 //
 // Required env vars (Cloudflare Pages → Settings → Variables and secrets):
 //   SE365_API_KEY                — API key (Secret)
 //   SE365_HTTP_USERNAME          — HTTP username (Secret)
 //   SE365_HTTP_PASSWORD          — HTTP password (Secret)
-//   SE365_HTTP_SOURCE            — HTTP source identifier e.g. "TICKETSCOUT" (Secret)
 //   SPORTSEVENTS365_AFFILIATE_ID — affiliate tracking ID = dvqg90rd8vv1f
-//
-// Sandbox:    https://api-v2.sandbox365.com
-// Production: https://api-v2.sportsevents365.com
-// Set SE365_PROD=true in Cloudflare env vars to switch to production
+//   GIGSBERG_KV                  — KV namespace (shared, already exists)
+//   SE365_PROD                   — set to 'true' to use production API
 // ===========================
 
 const SANDBOX_BASE    = 'https://api-v2.sandbox365.com';
 const PRODUCTION_BASE = 'https://api-v2.sportsevents365.com';
+const CACHE_KEY       = 'se365:participants:latest';
 
 export async function onRequestGet({ request, env }) {
   const apiKey      = env.SE365_API_KEY;
   const httpUser    = env.SE365_HTTP_USERNAME;
   const httpPass    = env.SE365_HTTP_PASSWORD;
   const affiliateId = env.SPORTSEVENTS365_AFFILIATE_ID;
+  const kv          = env.GIGSBERG_KV;
   const isProd      = env.SE365_PROD === 'true';
 
   if (!apiKey || !httpUser || !httpPass) {
     return jsonResponse({ error: 'SE365 credentials not configured.' }, 500);
   }
+  if (!kv) {
+    return jsonResponse({ error: 'GIGSBERG_KV binding not configured.' }, 500);
+  }
 
   const baseUrl   = isProd ? PRODUCTION_BASE : SANDBOX_BASE;
   const basicAuth = btoa(`${httpUser}:${httpPass}`);
+  const headers   = {
+    'Authorization': `Basic ${basicAuth}`,
+    'Accept': 'application/json'
+  };
 
   const incoming = new URL(request.url);
   const q        = incoming.searchParams.get('q');
-  const date     = incoming.searchParams.get('date') || '';
+  const date     = incoming.searchParams.get('date') || ''; // YYYY-MM-DD from Ticketmaster
   const debug    = incoming.searchParams.get('debug') === '1';
 
   if (!q) {
     return jsonResponse({ error: 'q (event name) is required.' }, 400);
   }
 
-  const headers = {
-    'Authorization': `Basic ${basicAuth}`,
-    'Accept': 'application/json'
-  };
-
   try {
-    // ── Step 1: Search participants across multiple pages ──────────────────
-    // SE365 /participants does not filter by name server-side — we must
-    // fetch pages and find the best match ourselves. We search up to 5 pages
-    // (50 participants) which covers most common team/performer names.
-    const participant = await findParticipant(baseUrl, apiKey, headers, q);
+    // ── Step 1: Look up participant ID from KV cache ───────────────────────
+    const cacheRaw = await kv.get(CACHE_KEY);
+    if (!cacheRaw) {
+      console.warn('SE365 participant cache is empty — run /api/sportsevents365-cache?trigger=1');
+      return jsonResponse({ match: null, reason: 'cache_empty' }, 200);
+    }
+
+    const lookup      = JSON.parse(cacheRaw);
+    const participant = findParticipant(lookup, q);
 
     if (debug) {
-      // In debug mode, also fetch events for the matched participant if found
+      // Show lookup result and raw events for debugging
       let eventsData = null;
       if (participant) {
-        const eventsUrl = new URL(`${baseUrl}/events/participant/${participant.id}`);
-        eventsUrl.searchParams.set('apiKey', apiKey);
-        const eventsResp = await fetch(eventsUrl.toString(), { headers });
-        eventsData = await eventsResp.json();
+        const evUrl = buildEventsUrl(baseUrl, apiKey, participant.id, date);
+        const evResp = await fetch(evUrl, { headers });
+        eventsData = await evResp.json();
       }
-
       return jsonResponse({
         debug: true,
-        baseUrl,
         query: q,
         participantFound: participant || null,
+        cacheEntries: Object.keys(lookup).length,
         eventsData
       }, 200);
     }
@@ -84,11 +89,9 @@ export async function onRequestGet({ request, env }) {
       return jsonResponse({ match: null }, 200);
     }
 
-    // ── Step 2: Fetch events for the matched participant ───────────────────
-    const eventsUrl = new URL(`${baseUrl}/events/participant/${participant.id}`);
-    eventsUrl.searchParams.set('apiKey', apiKey);
-
-    const eventsResp = await fetch(eventsUrl.toString(), { headers });
+    // ── Step 2: Fetch upcoming events for this participant ─────────────────
+    const eventsUrl  = buildEventsUrl(baseUrl, apiKey, participant.id, date);
+    const eventsResp = await fetch(eventsUrl, { headers });
 
     if (!eventsResp.ok) {
       console.error(`SE365 events error: ${eventsResp.status}`);
@@ -96,42 +99,38 @@ export async function onRequestGet({ request, env }) {
     }
 
     const eventsData = await eventsResp.json();
-    const events     = eventsData?.data || eventsData?.events || [];
+
+    // SE365 events endpoint returns an array directly or wrapped in data
+    const events = Array.isArray(eventsData)
+      ? eventsData
+      : (eventsData?.data || eventsData?.events || []);
 
     if (events.length === 0) {
       return jsonResponse({ match: null }, 200);
     }
 
-    // ── Step 3: Pick the best event (date match preferred, then soonest) ──
+    // ── Step 3: Pick the best event ────────────────────────────────────────
+    // Prefer date match if we have a target date; otherwise return soonest
     const event = findBestEvent(events, date);
     if (!event) {
       return jsonResponse({ match: null }, 200);
     }
 
-    // ── Step 4: Fetch tickets for the event to get the lowest price ────────
-    const ticketsUrl = new URL(`${baseUrl}/tickets/${event.id}`);
-    ticketsUrl.searchParams.set('apiKey', apiKey);
-
-    const ticketsResp = await fetch(ticketsUrl.toString(), { headers });
-    let lowestPrice = null;
-    let eventUrl    = buildEventUrl(event, affiliateId);
-
-    if (ticketsResp.ok) {
-      const ticketsData = await ticketsResp.json();
-      lowestPrice = extractLowestPrice(ticketsData);
-      // If tickets return a direct URL, prefer that over the participant URL
-      const ticketUrl = extractTicketUrl(ticketsData, affiliateId);
-      if (ticketUrl) eventUrl = ticketUrl;
-    }
+    // ── Step 4: Build result — price and URL are in the event object ───────
+    // minTicketPrice.price is the lowest available price (already confirmed in docs)
+    // eventUrl is the direct SE365 event page
+    const price    = event.minTicketPrice?.price || null;
+    const currency = event.minTicketPrice?.currency || 'GBP';
+    const eventUrl = buildAffiliateUrl(event, affiliateId);
 
     return jsonResponse({
       match: {
-        name:     event.name || event.title || '',
+        name:     event.name || '',
         url:      eventUrl,
-        price:    lowestPrice ? Math.round(lowestPrice) : null,
-        currency: 'GBP',
-        date:     getEventDate(event),
-        venue:    event.venue?.name || event.venueName || null
+        price:    price ? Math.round(price) : null,
+        currency,
+        date:     event.dateOfEvent || '',
+        venue:    event.venue?.name || null
       }
     }, 200);
 
@@ -142,136 +141,148 @@ export async function onRequestGet({ request, env }) {
 }
 
 // ===========================
-// Participant search — pages through results to find best name match
-// SE365 does not support server-side name filtering on /participants
-// so we fetch pages until we find a match or exhaust the search budget
+// Participant lookup — searches KV cache by name
+// Tries exact match first, then partial matches
 // ===========================
 
-async function findParticipant(baseUrl, apiKey, headers, query) {
+function findParticipant(lookup, query) {
   const normQuery = normaliseName(query);
-  const MAX_PAGES = 5; // search up to 50 participants (10 per page)
+  if (!normQuery) return null;
 
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const url = new URL(`${baseUrl}/participants`);
-    url.searchParams.set('apiKey', apiKey);
-    url.searchParams.set('page', page);
+  // 1. Exact match
+  if (lookup[normQuery]) return lookup[normQuery];
 
-    const resp = await fetch(url.toString(), { headers });
-    if (!resp.ok) break;
+  // 2. Starts-with match
+  const startsWith = Object.entries(lookup).find(([k]) => k.startsWith(normQuery));
+  if (startsWith) return startsWith[1];
 
-    const data         = await resp.json();
-    const participants = data?.data || [];
-    if (participants.length === 0) break;
+  // 3. Contains match (query found within participant name)
+  const contains = Object.entries(lookup).find(([k]) => k.includes(normQuery));
+  if (contains) return contains[1];
 
-    // Score all participants on this page
-    const scored = participants
-      .map(p => ({ p, score: scoreParticipant(p, normQuery) }))
-      .filter(r => r.score > 0);
-
-    if (scored.length > 0) {
-      // Return the best match from this page immediately
-      scored.sort((a, b) => b.score - a.score);
-      return scored[0].p;
-    }
-
-    // If no match this page and there are no more pages, stop
-    const lastPage = data?.meta?.last_page || 1;
-    if (page >= lastPage) break;
-  }
+  // 4. Participant name found within query (e.g. query is "Chelsea vs Arsenal", name is "Chelsea")
+  const within = Object.entries(lookup).find(([k]) => normQuery.includes(k) && k.length > 4);
+  if (within) return within[1];
 
   return null;
 }
 
-function scoreParticipant(participant, normQuery) {
-  const normName = normaliseName(participant.name || '');
-  if (!normName) return 0;
+// ===========================
+// Events URL builder
+// Converts YYYY-MM-DD from Ticketmaster to dd/mm/yyyy for SE365
+// Adds a 30-day window from the event date
+// ===========================
 
-  if (normName === normQuery)                                   return 100;
-  if (normName.startsWith(normQuery))                           return 60;
-  if (normName.includes(normQuery))                             return 30;
-  if (normQuery.includes(normName) && normName.length > 4)      return 20;
-  return 0;
+function buildEventsUrl(baseUrl, apiKey, participantId, targetDate) {
+  const url = new URL(`${baseUrl}/events/participant/${participantId}`);
+  url.searchParams.set('apiKey', apiKey);
+  url.searchParams.set('currency', 'GBP');
+  url.searchParams.set('perPage', '20');
+
+  if (targetDate) {
+    // Convert YYYY-MM-DD → dd/mm/yyyy for SE365
+    const [year, month, day] = targetDate.split('-');
+    if (year && month && day) {
+      // Search ±7 days around the target date
+      const from = new Date(targetDate);
+      from.setDate(from.getDate() - 7);
+      const to = new Date(targetDate);
+      to.setDate(to.getDate() + 7);
+
+      url.searchParams.set('dateFrom', formatDate(from));
+      url.searchParams.set('dateTo',   formatDate(to));
+    }
+  } else {
+    // No target date — get upcoming events (next 90 days)
+    const from = new Date();
+    const to   = new Date();
+    to.setDate(to.getDate() + 90);
+    url.searchParams.set('dateFrom', formatDate(from));
+    url.searchParams.set('dateTo',   formatDate(to));
+  }
+
+  return url.toString();
+}
+
+// Format a Date object as dd/mm/yyyy for SE365
+function formatDate(date) {
+  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
 }
 
 // ===========================
-// Event selection — prefer date match, otherwise return soonest upcoming
+// Event selection
 // ===========================
 
 function findBestEvent(events, targetDate) {
   if (!events.length) return null;
 
-  // Filter to upcoming events only
+  // Parse SE365 date format dd/mm/yyyy into a comparable Date
+  const parseEventDate = (e) => {
+    const raw = e.dateOfEvent || '';
+    if (!raw) return null;
+    const [d, m, y] = raw.split('/');
+    if (!d || !m || !y) return null;
+    return new Date(`${y}-${m}-${d}`);
+  };
+
+  // Filter to upcoming only
   const now = new Date();
   const upcoming = events.filter(e => {
-    const d = new Date(getEventDate(e));
-    return !isNaN(d.getTime()) && d >= now;
+    const d = parseEventDate(e);
+    return d && d >= now;
   });
 
   const pool = upcoming.length > 0 ? upcoming : events;
 
-  // If we have a target date, prefer events within 3 days of it
+  // If we have a target date, find closest event to it
   if (targetDate) {
-    const dateMatched = pool.filter(e => isDateMatch(getEventDate(e), targetDate));
-    if (dateMatched.length > 0) return dateMatched[0];
+    const target = new Date(targetDate);
+    pool.sort((a, b) => {
+      const da = parseEventDate(a);
+      const db = parseEventDate(b);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return Math.abs(da - target) - Math.abs(db - target);
+    });
+  } else {
+    // Return soonest event
+    pool.sort((a, b) => {
+      const da = parseEventDate(a);
+      const db = parseEventDate(b);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da - db;
+    });
   }
 
-  // Otherwise return the soonest event
-  pool.sort((a, b) => new Date(getEventDate(a)) - new Date(getEventDate(b)));
   return pool[0];
 }
 
-function isDateMatch(eventDate, targetDate, windowDays = 3) {
-  if (!eventDate || !targetDate) return false;
-  try {
-    const diffDays = Math.abs(new Date(targetDate) - new Date(eventDate)) / (1000 * 60 * 60 * 24);
-    return diffDays <= windowDays;
-  } catch { return false; }
-}
-
-function getEventDate(event) {
-  return event.date || event.eventDate || event.startDate || event.dateTime || '';
-}
-
 // ===========================
-// Ticket price and URL extraction
+// Affiliate URL builder
+// SE365 event URL format: https://ticket.sportsevents365.com/event/{id}
+// Append affiliate ID as affid parameter
 // ===========================
 
-function extractLowestPrice(ticketsData) {
-  const tickets = ticketsData?.data || ticketsData?.tickets || [];
-  if (!tickets.length) return null;
+function buildAffiliateUrl(event, affiliateId) {
+  // Prefer the eventUrl from the API response
+  const baseUrl = event.eventUrl
+    || `https://ticket.sportsevents365.com/event/${event.id}`;
 
-  const prices = tickets
-    .map(t => parseFloat(t.price || t.priceFrom || t.minPrice || 0))
-    .filter(p => p > 0);
+  if (!affiliateId) return baseUrl;
 
-  return prices.length > 0 ? Math.min(...prices) : null;
-}
-
-function extractTicketUrl(ticketsData, affiliateId) {
-  const tickets = ticketsData?.data || ticketsData?.tickets || [];
-  if (!tickets.length) return null;
-
-  const url = tickets[0]?.url || tickets[0]?.link || tickets[0]?.buyUrl || null;
-  if (!url) return null;
-
-  return appendAffiliateId(url, affiliateId);
-}
-
-function buildEventUrl(event, affiliateId) {
-  const url = event.url || event.link || event.eventUrl || null;
-  if (!url) return null;
-  return appendAffiliateId(url, affiliateId);
-}
-
-function appendAffiliateId(url, affiliateId) {
-  if (!affiliateId || !url) return url;
   try {
-    const u = new URL(url);
+    const u = new URL(baseUrl);
     u.searchParams.set('affid', affiliateId);
     return u.toString();
   } catch {
-    const sep = url.includes('?') ? '&' : '?';
-    return `${url}${sep}affid=${affiliateId}`;
+    const sep = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${sep}affid=${affiliateId}`;
   }
 }
 
