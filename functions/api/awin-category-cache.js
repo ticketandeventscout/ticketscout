@@ -297,9 +297,12 @@ async function parseFeedStream(stream) {
 
 // Parses one CSV line into a normalised row object.
 // Returns null if the row should be skipped.
+// Handles both 73-column feeds (Gigsberg, Theatre Tickets Direct)
+// and 60-column feeds (Football TicketNet UK) — core columns 0-19
+// are identical in both formats so no conditional logic needed.
 function parseRow(line) {
   const fields = parseCsvLine(line);
-  if (fields.length < 20) return null; // too few fields to be valid
+  if (fields.length < 10) return null; // too few fields to be valid
 
   const price = parsePrice(
     fields[COL.search_price] ||
@@ -313,35 +316,40 @@ function parseRow(line) {
   const awDeepLink  = (fields[COL.aw_deep_link]  || '').trim();
   if (!productName || !awDeepLink) return null;
 
-  // Availability checks
+  // Availability checks — both "1"/"0" and "true"/"false" formats used across merchants
   const inStock = fields[COL.in_stock];
   const forSale = fields[COL.is_for_sale];
   if (inStock === '0' || inStock === 'false' || forSale === '0' || forSale === 'false') return null;
 
   const merchantName = (fields[COL.merchant_name] || '').trim();
 
+  // For merchants with fewer than 73 columns, ticket-specific fields
+  // (primary_artist, event_name etc.) will be empty strings — that's fine,
+  // the date is extracted from the description field by awin-category.js
+  const safeGet = (idx) => (idx < fields.length ? (fields[idx] || '').trim() : '');
+
   return {
     product_name:      productName,
     aw_deep_link:      awDeepLink,
     price:             price,
-    currency:          fields[COL.currency] || 'GBP',
+    currency:          safeGet(COL.currency) || 'GBP',
     merchant_name:     merchantName,
-    merchant_id:       fields[COL.merchant_id] || '',
-    category_name:     fields[COL.category_name] || '',
-    merchant_category: fields[COL.merchant_category] || '',
-    description:       (fields[COL.description] || '').slice(0, 300), // capped to keep KV lean
-    // Ticket-specific fields (populated by some merchants)
-    primary_artist:  (fields[COL.primary_artist] || '').trim(),
-    event_name:      (fields[COL.event_name]     || '').trim(),
-    venue_name:      (fields[COL.venue_name]     || '').trim(),
-    event_date:      (fields[COL.event_date]     || '').trim(),
-    event_city:      (fields[COL.event_city]     || '').trim(),
-    event_country:   (fields[COL.event_country]  || '').trim(),
+    merchant_id:       safeGet(COL.merchant_id),
+    category_name:     safeGet(COL.category_name),
+    merchant_category: safeGet(COL.merchant_category),
+    description:       (safeGet(COL.description)).slice(0, 300),
+    primary_artist:    safeGet(COL.primary_artist),
+    event_name:        safeGet(COL.event_name),
+    venue_name:        safeGet(COL.venue_name),
+    event_date:        safeGet(COL.event_date),
+    event_city:        safeGet(COL.event_city),
+    event_country:     safeGet(COL.event_country),
   };
 }
 
 function parsePrice(raw) {
   if (!raw) return null;
+  // Strip currency prefixes (e.g. "GBP68.93", "EUR41.36") and symbols
   const num = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
   return isNaN(num) || num <= 0 ? null : num;
 }
