@@ -37,17 +37,55 @@ export async function onRequestGet({ request, env }) {
     return jsonResponse({ error: 'SE365 credentials not configured.' }, 500);
   }
 
-  const baseUrl = isProd ? PRODUCTION_BASE : SANDBOX_BASE;
-
-  // Build Basic Auth header: Base64("username:password")
+  const baseUrl   = isProd ? PRODUCTION_BASE : SANDBOX_BASE;
   const basicAuth = btoa(`${httpUser}:${httpPass}`);
 
   const incoming = new URL(request.url);
-  const q        = incoming.searchParams.get('q');         // event/team name to search
-  const date     = incoming.searchParams.get('date') || ''; // YYYY-MM-DD from Ticketmaster
+  const q        = incoming.searchParams.get('q');
+  const date     = incoming.searchParams.get('date') || '';
+  const debug    = incoming.searchParams.get('debug') === '1';
 
   if (!q) {
     return jsonResponse({ error: 'q (event name) is required.' }, 400);
+  }
+
+  // Debug mode: ?q=Chelsea&debug=1
+  // Returns raw API responses from both /participants and /events
+  // so we can see exactly what the sandbox returns for a given query
+  if (debug) {
+    try {
+      const participantUrl = new URL(`${baseUrl}/participants`);
+      participantUrl.searchParams.set('apiKey', apiKey);
+      participantUrl.searchParams.set('name', q);
+      participantUrl.searchParams.set('size', '5');
+
+      const pResp = await fetch(participantUrl.toString(), {
+        headers: { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' }
+      });
+      const pData = await pResp.json();
+
+      const eventsUrl = new URL(`${baseUrl}/events`);
+      eventsUrl.searchParams.set('apiKey', apiKey);
+      eventsUrl.searchParams.set('name', q);
+      eventsUrl.searchParams.set('size', '5');
+
+      const eResp = await fetch(eventsUrl.toString(), {
+        headers: { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' }
+      });
+      const eData = await eResp.json();
+
+      return jsonResponse({
+        debug: true,
+        baseUrl,
+        query: q,
+        participantsStatus: pResp.status,
+        participantsResponse: pData,
+        eventsStatus: eResp.status,
+        eventsResponse: eData
+      }, 200);
+    } catch (err) {
+      return jsonResponse({ debug: true, error: String(err) }, 500);
+    }
   }
 
   try {
@@ -325,4 +363,4 @@ function jsonResponse(body, status) {
       'Cache-Control': 'no-store'
     }
   });
-}            
+}
