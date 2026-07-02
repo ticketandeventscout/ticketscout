@@ -130,6 +130,36 @@ const ADAPTERS = [
     }
   },
 
+  {
+    // SportsEvents365 — real-time REST API, sports and shows inventory
+    // Strong on football, F1, rugby, and major international sports events
+    // Approved affiliate: 7% commission, affiliate ID stored in Cloudflare env
+    source: 'SportsEvents365',
+
+    buildUrl(eventName, venueCity, eventDate, venueName) {
+      const params = new URLSearchParams({ q: eventName });
+      if (eventDate) params.set('date', eventDate);
+      return `/api/sportsevents365?${params.toString()}`;
+    },
+
+    normalise(data, eventName) {
+      if (data.error || !data.match) return null;
+
+      const match = data.match;
+      if (!match.url) return null;
+
+      // Price may be null if SE365 doesn't return one — still surface the seller
+      // with a "See site" fallback so the user knows it's available
+      return {
+        source:    'SportsEvents365',
+        price:     match.price || null,
+        currency:  match.currency || 'GBP',
+        url:       match.url,
+        available: true
+      };
+    }
+  },
+
   // ── Future adapters go here ──────────────────────────────────────────────
   //
   // {
