@@ -53,10 +53,11 @@ const GENERIC_NAMES = new Set([
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   if (url.searchParams.get('trigger') !== '1') {
-    return text('Add ?trigger=1 to run the page discovery job.');
+    return text('Add ?trigger=1 to run the page discovery job.\nOptional: &source=ticketmaster|awin|skiddle|se365 to run one source at a time.\nOptional: &dry=1 for dry run (no commits).');
   }
 
   const dryRun = url.searchParams.get('dry') === '1';
+  const source = url.searchParams.get('source') || 'all'; // default: all sources
 
   const apiKey      = env.TM_API_KEY;
   const githubToken = env.GITHUB_TOKEN;
@@ -92,188 +93,177 @@ export async function onRequestGet({ request, env }) {
 
     // ══════════════════════════════════════════════════════════════════════
     // SOURCE 1: Ticketmaster — trending events + recent on-sales
-    // Discovers: artists (attractions) + venues
     // ══════════════════════════════════════════════════════════════════════
-    try {
-      const tmEvents = await fetchTicketmasterEvents(apiKey);
-      results.sources.ticketmaster = tmEvents.length;
+    if (source === 'all' || source === 'ticketmaster') {
+      try {
+        const tmEvents = await fetchTicketmasterEvents(apiKey);
+        results.sources.ticketmaster = tmEvents.length;
 
-      for (const event of tmEvents) {
-        const segment = event.classifications?.[0]?.segment?.name || '';
-        const genre   = getGenre(event);
+        for (const event of tmEvents) {
+          const genre = getGenre(event);
 
-        // Extract attractions (artists)
-        for (const attraction of (event._embedded?.attractions || [])) {
-          if (!isValidName(attraction.name)) continue;
-          const slug = toSlug(attraction.name);
-          if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
-          if (isTribute(attraction.name)) {
-            results.skipped.push({ source: 'TM', type: 'artist', name: attraction.name, reason: 'tribute' });
-            continue;
-          }
-          newArtists.set(slug, {
-            slug, name: attraction.name, search: attraction.name,
-            genre, description: generateArtistDescription(attraction.name, genre),
-            source: 'ticketmaster'
-          });
-        }
-
-        // Extract venue
-        const venue = event._embedded?.venues?.[0];
-        if (venue?.name && venue?.id) {
-          const slug = toSlug(venue.name);
-          if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
-            newVenues.set(slug, {
-              slug, name: venue.name,
-              city: venue.city?.name || '',
-              country: venue.country?.name || '',
-              venueId: venue.id,
-              description: generateVenueDescription(venue.name, venue.city?.name || '', venue.country?.name || ''),
+          for (const attraction of (event._embedded?.attractions || [])) {
+            if (!isValidName(attraction.name)) continue;
+            const slug = toSlug(attraction.name);
+            if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
+            if (isTribute(attraction.name)) {
+              results.skipped.push({ source: 'TM', type: 'artist', name: attraction.name, reason: 'tribute' });
+              continue;
+            }
+            newArtists.set(slug, {
+              slug, name: attraction.name, search: attraction.name,
+              genre, description: generateArtistDescription(attraction.name, genre),
               source: 'ticketmaster'
             });
           }
+
+          const venue = event._embedded?.venues?.[0];
+          if (venue?.name && venue?.id) {
+            const slug = toSlug(venue.name);
+            if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
+              newVenues.set(slug, {
+                slug, name: venue.name,
+                city: venue.city?.name || '',
+                country: venue.country?.name || '',
+                venueId: venue.id,
+                description: generateVenueDescription(venue.name, venue.city?.name || '', venue.country?.name || ''),
+                source: 'ticketmaster'
+              });
+            }
+          }
         }
+      } catch (err) {
+        results.errors.push({ source: 'ticketmaster', error: String(err) });
       }
-    } catch (err) {
-      results.errors.push({ source: 'ticketmaster', error: String(err) });
     }
 
     // ══════════════════════════════════════════════════════════════════════
     // SOURCE 2: Awin category feed (KV cache)
-    // Covers: Gigsberg UK, Theatre Tickets Direct, Football TicketNet UK,
-    //         and any future approved Awin merchants automatically
-    // Discovers: artists (product_name / primary_artist) + venues
     // ══════════════════════════════════════════════════════════════════════
-    try {
-      const awinIndex = await kv.get(`${AWIN_CACHE_KEY}:index`, { type: 'json' });
-      if (awinIndex?.chunks) {
-        let awinRowCount = 0;
+    if (source === 'all' || source === 'awin') {
+      try {
+        const awinIndex = await kv.get(`${AWIN_CACHE_KEY}:index`, { type: 'json' });
+        if (awinIndex?.chunks) {
+          let awinRowCount = 0;
 
-        for (let i = 0; i < awinIndex.chunks; i++) {
-          const chunk = await kv.get(`${AWIN_CACHE_KEY}:chunk:${i}`, { type: 'json' });
-          if (!chunk) continue;
+          for (let i = 0; i < awinIndex.chunks; i++) {
+            const chunk = await kv.get(`${AWIN_CACHE_KEY}:chunk:${i}`, { type: 'json' });
+            if (!chunk) continue;
 
-          for (const row of chunk) {
-            awinRowCount++;
-            const artistName = row.primary_artist || row.product_name || '';
-            const venueName  = row.venue_name || '';
-            const merchantCat = (row.merchant_category || '').toLowerCase();
+            for (const row of chunk) {
+              awinRowCount++;
+              const artistName = row.primary_artist || row.product_name || '';
+              const venueName  = row.venue_name || '';
+              const merchantCat = (row.merchant_category || '').toLowerCase();
 
-            // Artist from Awin feed
-            if (isValidName(artistName)) {
-              const slug = toSlug(artistName);
-              if (slug && !knownArtists.has(slug) && !newArtists.has(slug) && !isTribute(artistName)) {
-                // Determine genre from merchant category
-                const genre = awinGenre(merchantCat, row.category_name);
-                newArtists.set(slug, {
-                  slug, name: artistName, search: artistName,
-                  genre, description: generateArtistDescription(artistName, genre),
-                  source: `awin:${row.merchant_name || 'unknown'}`
-                });
+              if (isValidName(artistName)) {
+                const slug = toSlug(artistName);
+                if (slug && !knownArtists.has(slug) && !newArtists.has(slug) && !isTribute(artistName)) {
+                  const genre = awinGenre(merchantCat, row.category_name);
+                  newArtists.set(slug, {
+                    slug, name: artistName, search: artistName,
+                    genre, description: generateArtistDescription(artistName, genre),
+                    source: `awin:${row.merchant_name || 'unknown'}`
+                  });
+                }
               }
-            }
 
-            // Venue from Awin feed
-            if (venueName && venueName.length > 3) {
-              const slug = toSlug(venueName);
-              if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
-                const city = row.event_city || '';
-                newVenues.set(slug, {
-                  slug, name: venueName, city,
-                  country: row.event_country || 'GB',
-                  venueId: '',
-                  description: generateVenueDescription(venueName, city, ''),
-                  source: `awin:${row.merchant_name || 'unknown'}`
-                });
+              if (venueName && venueName.length > 3) {
+                const slug = toSlug(venueName);
+                if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
+                  const city = row.event_city || '';
+                  newVenues.set(slug, {
+                    slug, name: venueName, city,
+                    country: row.event_country || 'GB',
+                    venueId: '',
+                    description: generateVenueDescription(venueName, city, ''),
+                    source: `awin:${row.merchant_name || 'unknown'}`
+                  });
+                }
               }
             }
           }
+          results.sources.awin = awinRowCount;
+        } else {
+          results.sources.awin = 'cache_empty';
         }
-        results.sources.awin = awinRowCount;
-      } else {
-        results.sources.awin = 'cache_empty';
+      } catch (err) {
+        results.errors.push({ source: 'awin', error: String(err) });
       }
-    } catch (err) {
-      results.errors.push({ source: 'awin', error: String(err) });
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SOURCE 3: SportsEvents365 participant cache (KV)
-    // Covers: football teams, F1 drivers, rugby, boxing, cricket, MMA etc.
-    // Discovers: sports artists/teams (these become /concert/ pages for now,
-    //            future: dedicated /sport/ pages)
-    // Note: only active when SE365_PROD=true (production credentials live)
+    // SOURCE 3: SportsEvents365 participant cache
     // ══════════════════════════════════════════════════════════════════════
-    try {
-      const isProd = env.SE365_PROD === 'true';
-      const se365Cache = await kv.get(SE365_CACHE_KEY);
+    if (source === 'all' || source === 'se365') {
+      try {
+        const isProd = env.SE365_PROD === 'true';
+        const se365Cache = await kv.get(SE365_CACHE_KEY);
 
-      if (se365Cache && isProd) {
-        const participants = JSON.parse(se365Cache);
-        const participantList = Object.values(participants);
-        results.sources.sportsevents365 = participantList.length;
+        if (se365Cache && isProd) {
+          const participants = JSON.parse(se365Cache);
+          const participantList = Object.values(participants);
+          results.sources.sportsevents365 = participantList.length;
 
-        for (const p of participantList) {
-          if (!p.name || p.name.length < 3) continue;
-          const slug = toSlug(p.name);
-          if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
-          if (isTribute(p.name)) continue;
+          for (const p of participantList) {
+            if (!isValidName(p.name)) continue;
+            const slug = toSlug(p.name);
+            if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
+            if (isTribute(p.name)) continue;
 
-          // Map SE365 event type to genre
-          const genre = se365Genre(p.eventTypeId);
-          newArtists.set(slug, {
-            slug, name: p.name, search: p.name,
-            genre, description: generateArtistDescription(p.name, genre),
-            source: 'sportsevents365'
-          });
-        }
-      } else if (!isProd) {
-        results.sources.sportsevents365 = 'sandbox_skipped';
-      } else {
-        results.sources.sportsevents365 = 'cache_empty';
-      }
-    } catch (err) {
-      results.errors.push({ source: 'sportsevents365', error: String(err) });
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // SOURCE 4: Skiddle — festivals and club night events
-    // Covers: UK festivals, smaller venues not on Ticketmaster
-    // Discovers: artists + venues from Skiddle's topsellers feed
-    // ══════════════════════════════════════════════════════════════════════
-    try {
-      const skiddleEvents = await fetchSkiddleEvents();
-      results.sources.skiddle = skiddleEvents.length;
-
-      for (const event of skiddleEvents) {
-        // Artist from Skiddle
-        if (isValidName(event.name)) {
-          const slug = toSlug(event.name);
-          if (slug && !knownArtists.has(slug) && !newArtists.has(slug) && !isTribute(event.name)) {
+            const genre = se365Genre(p.eventTypeId);
             newArtists.set(slug, {
-              slug, name: event.name, search: event.name,
-              genre: 'Live Music',
-              description: generateArtistDescription(event.name, 'Live Music'),
-              source: 'skiddle'
+              slug, name: p.name, search: p.name,
+              genre, description: generateArtistDescription(p.name, genre),
+              source: 'sportsevents365'
             });
           }
+        } else if (!isProd) {
+          results.sources.sportsevents365 = 'sandbox_skipped';
+        } else {
+          results.sources.sportsevents365 = 'cache_empty';
         }
-
-        // Venue from Skiddle
-        if (event.venue && event.venue.length > 3) {
-          const slug = toSlug(event.venue);
-          if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
-            newVenues.set(slug, {
-              slug, name: event.venue, city: '', country: 'GB',
-              venueId: '',
-              description: generateVenueDescription(event.venue, '', 'UK'),
-              source: 'skiddle'
-            });
-          }
-        }
+      } catch (err) {
+        results.errors.push({ source: 'sportsevents365', error: String(err) });
       }
-    } catch (err) {
-      results.errors.push({ source: 'skiddle', error: String(err) });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SOURCE 4: Skiddle
+    // ══════════════════════════════════════════════════════════════════════
+    if (source === 'all' || source === 'skiddle') {
+      try {
+        const skiddleEvents = await fetchSkiddleEvents();
+        results.sources.skiddle = skiddleEvents.length;
+
+        for (const event of skiddleEvents) {
+          if (isValidName(event.name)) {
+            const slug = toSlug(event.name);
+            if (slug && !knownArtists.has(slug) && !newArtists.has(slug) && !isTribute(event.name)) {
+              newArtists.set(slug, {
+                slug, name: event.name, search: event.name,
+                genre: 'Live Music',
+                description: generateArtistDescription(event.name, 'Live Music'),
+                source: 'skiddle'
+              });
+            }
+          }
+
+          if (event.venue && event.venue.length > 3) {
+            const slug = toSlug(event.venue);
+            if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
+              newVenues.set(slug, {
+                slug, name: event.venue, city: '', country: 'GB',
+                venueId: '',
+                description: generateVenueDescription(event.venue, '', 'UK'),
+                source: 'skiddle'
+              });
+            }
+          }
+        }
+      } catch (err) {
+        results.errors.push({ source: 'skiddle', error: String(err) });
+      }
     }
 
     // ── Summary ────────────────────────────────────────────────────────────
