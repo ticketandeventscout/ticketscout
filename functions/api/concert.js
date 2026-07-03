@@ -82,8 +82,11 @@ export async function onRequestGet({ request, env }) {
         const best = scored[0].attraction;
         attractionId = best.id;
         const images = best.images || [];
-        const preferred = images.find(img => img.ratio === '16_9' && img.width > 500);
-        tmImage = preferred?.url || images[0]?.url || null;
+        // Prefer largest 16:9 image for hero background quality
+        const sixteenNine = images
+          .filter(img => img.ratio === '16_9' && img.width > 500)
+          .sort((a, b) => (b.width || 0) - (a.width || 0));
+        tmImage = sixteenNine[0]?.url || images.find(img => img.width > 500)?.url || images[0]?.url || null;
       }
     } catch (err) {
       console.error('TM attraction lookup error:', err);
