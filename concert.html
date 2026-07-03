@@ -424,8 +424,18 @@
 
     function getSlug() {
       // URL is /concert/[slug] — extract the last path segment
-      const parts = window.location.pathname.split('/').filter(Boolean);
-      return parts[parts.length - 1] || null;
+      // window.location.pathname returns e.g. "/concert/coldplay"
+      const pathname = window.location.pathname;
+      console.log('Concert page pathname:', pathname);
+
+      const parts = pathname.split('/').filter(Boolean);
+      console.log('Path parts:', parts);
+
+      // parts should be ['concert', 'coldplay'] — we want the last element
+      const slug = parts.length >= 2 ? parts[parts.length - 1] : null;
+      console.log('Extracted slug:', slug);
+
+      return slug;
     }
 
     function handleSearch() {
@@ -528,16 +538,28 @@
 
     async function init() {
       const slug = getSlug();
-      if (!slug) {
-        window.location.href = '/';
+      console.log('Init with slug:', slug);
+
+      if (!slug || slug === 'concert') {
+        // No slug — show generic concerts page rather than redirecting
+        document.getElementById('genre-badge').textContent = 'Concerts';
+        document.getElementById('artist-name').textContent = 'Concert Tickets';
+        document.getElementById('artist-sub').textContent = 'Compare ticket prices across verified sellers';
+        document.getElementById('events-container').innerHTML =
+          '<div class="no-events"><p>Search for an artist above to compare ticket prices.</p></div>';
         return;
       }
 
       // Load artist data from our API
       try {
         const resp = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
+        console.log('API response status:', resp.status);
+
         if (!resp.ok) {
-          window.location.href = '/';
+          document.getElementById('genre-badge').textContent = 'Concerts';
+          document.getElementById('artist-name').textContent = 'Artist not found';
+          document.getElementById('events-container').innerHTML =
+            '<div class="no-events"><p>We couldn\'t find this artist. <a href="/">Search from the homepage</a>.</p></div>';
           return;
         }
 
