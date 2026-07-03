@@ -205,6 +205,16 @@
       display: inline-block;
     }
 
+    .event-list-cta--buy {
+      font-size: 13px;
+      font-weight: 500;
+      color: #ffffff;
+      background: #1a6fc4;
+      padding: 7px 16px;
+      border-radius: 6px;
+      display: inline-block;
+    }
+
     /* Sidebar */
     .artist-sidebar {
       position: sticky;
@@ -621,7 +631,15 @@
         const city = venue?.city?.name || '';
         const location = [venueName, city].filter(Boolean).join(' · ');
         const minPrice = e.priceRanges?.[0]?.min;
-        const priceDisplay = minPrice ? `From £${Math.round(minPrice)}` : 'Check prices';
+
+        // If price available — show price + "Compare prices →" badge
+        // If no price — show larger "Buy tickets" button only (nothing to compare yet)
+        const rightHtml = minPrice ? `
+          <div class="event-list-price">From £${Math.round(minPrice)}</div>
+          <span class="event-list-cta">Compare prices →</span>
+        ` : `
+          <span class="event-list-cta event-list-cta--buy">Buy tickets →</span>
+        `;
 
         return `
           <a class="event-list-item" href="/#/event/${e.id}">
@@ -630,8 +648,7 @@
               <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
             </div>
             <div class="event-list-right">
-              <div class="event-list-price">${priceDisplay}</div>
-              <span class="event-list-cta">Compare prices →</span>
+              ${rightHtml}
             </div>
           </a>`;
       }).join('');

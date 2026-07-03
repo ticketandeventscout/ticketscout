@@ -52,16 +52,36 @@ export async function onRequestGet({ request, env }) {
       const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/attractions.json');
       tmUrl.searchParams.set('apikey', apiKey);
       tmUrl.searchParams.set('keyword', artist.search);
-      tmUrl.searchParams.set('size', '1');
+      tmUrl.searchParams.set('size', '10'); // fetch more so we can filter properly
 
       const tmResp = await fetch(tmUrl.toString());
       const tmData = await tmResp.json();
       const attractions = tmData?._embedded?.attractions || [];
 
       if (attractions.length > 0) {
-        attractionId = attractions[0].id;
-        // Get the best image from TM for use on the page
-        const images = attractions[0].images || [];
+        // Score attractions — exact name match wins, tribute acts penalised
+        const TRIBUTE_KEYWORDS = ['tribute', 'salute', 'legacy', 'experience', 'revival',
+          'forever', 'reunion', 'story of', 'performed by', 'feat.', 'vs.', ' vs '];
+
+        const normSearch = artist.search.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+
+        const scored = attractions.map(a => {
+          const normName = (a.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+          let score = 0;
+          if (normName === normSearch)             score = 100;
+          else if (normName.startsWith(normSearch)) score = 50;
+          else if (normName.includes(normSearch))   score = 20;
+
+          // Penalise tribute acts heavily
+          const isTribute = TRIBUTE_KEYWORDS.some(kw => a.name.toLowerCase().includes(kw));
+          if (isTribute) score -= 60;
+
+          return { attraction: a, score };
+        }).sort((a, b) => b.score - a.score);
+
+        const best = scored[0].attraction;
+        attractionId = best.id;
+        const images = best.images || [];
         const preferred = images.find(img => img.ratio === '16_9' && img.width > 500);
         tmImage = preferred?.url || images[0]?.url || null;
       }
