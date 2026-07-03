@@ -1,40 +1,37 @@
 // ===========================
-// TicketScout — Automatic page discovery and deployment
+// TicketScout — Page discovery and auto-deployment
 // Runs as a Cloudflare Pages Function at /api/discover-pages
 //
-// Triggered weekly by cron-job.org:
-//   https://ticketscout.co.uk/api/discover-pages?trigger=1
+// TWO PHASES — run separately to stay within Cloudflare's 30s limit:
 //
-// Data sources (all inclusive):
-//   1. Ticketmaster API    — trending UK events, artist + venue discovery
-//   2. Awin category feed  — KV cache (Gigsberg, Theatre Tickets Direct,
-//                            Football TicketNet UK, future merchants)
-//   3. SportsEvents365     — KV participant cache (3,739 sports teams/athletes)
-//   4. Skiddle             — XML feed (festivals, club nights, smaller venues)
+// PHASE 1 — DISCOVER (source-specific, fast, no GitHub calls):
+//   ?trigger=1&source=ticketmaster   — fetch TM trending events, queue new artists/venues to KV
+//   ?trigger=1&source=se365          — queue SE365 participants to KV (prod only)
+//   ?trigger=1&source=skiddle        — disabled (poor data quality — event names not artist names)
+//   NOTE: Awin discovery is handled automatically by awin-category-cache.js
+//         during its 6-hourly feed refresh — no separate job needed
 //
-// For each new artist/venue discovered across ALL sources:
-//   - Generates an HTML page file
-//   - Commits directly to GitHub via GitHub API
-//   - Cloudflare auto-deploys on push — pages live within 60 seconds
+// PHASE 2 — COMMIT (reads pending queue from KV, commits to GitHub):
+//   ?trigger=1&phase=commit          — commit all pending pages to GitHub
+//
+// Cron schedule (cron-job.org):
+//   Mon 00:00 — ?trigger=1&source=ticketmaster
+//   Mon 00:10 — ?trigger=1&phase=commit          (after TM discovery + Awin cache writes)
+//   Mon 00:15 — ?trigger=1&source=se365          (prod only — no-op until SE365_PROD=true)
 //
 // Required env vars:
-//   TM_API_KEY           — Ticketmaster API key (Secret)
-//   GITHUB_TOKEN         — GitHub Personal Access Token with repo scope (Secret)
-//   GIGSBERG_KV          — KV namespace (holds Awin feed + SE365 participant cache)
-//   SE365_API_KEY        — SE365 API key (Secret) — used once production is live
-//   SE365_HTTP_USERNAME  — SE365 HTTP username (Secret)
-//   SE365_HTTP_PASSWORD  — SE365 HTTP password (Secret)
-//   SE365_PROD           — set to 'true' to use SE365 production API
-//   SKIDDLE_AFFILIATE_TAG — Skiddle affiliate tag
-//   GITHUB_OWNER         — e.g. ticketandeventscout (plain text)
-//   GITHUB_REPO          — e.g. ticketscout (plain text)
-//   GITHUB_BRANCH        — e.g. main (plain text)
+//   TM_API_KEY     — Ticketmaster API key (Secret)
+//   GITHUB_TOKEN   — GitHub Personal Access Token with repo scope (Secret)
+//   GIGSBERG_KV    — KV namespace
+//   GITHUB_OWNER   — e.g. ticketandeventscout (plain text)
+//   GITHUB_REPO    — e.g. ticketscout (plain text)
+//   GITHUB_BRANCH  — e.g. main (plain text)
+//   SE365_PROD     — set 'true' to enable SE365 discovery
 // ===========================
 
-const KNOWN_ARTISTS_KEY = 'autodiscover:artists:known';
-const KNOWN_VENUES_KEY  = 'autodiscover:venues:known';
-const AWIN_CACHE_KEY    = 'awin:category:latest';
-const SE365_CACHE_KEY   = 'se365:participants:latest';
+const PENDING_KEY      = 'autodiscover:awin:pending';
+const KNOWN_KEY        = 'autodiscover:artists:known';
+const KNOWN_VENUES_KEY = 'autodiscover:venues:known';
 
 const TRIBUTE_KEYWORDS = [
   'tribute', 'salute', 'legacy', 'experience', 'revival', 'forever',
@@ -42,370 +39,270 @@ const TRIBUTE_KEYWORDS = [
   'greatest hits', 'live band', 'orchestra plays', 'ultimate'
 ];
 
-// Generic organisation/league names that aren't performers or shows
 const GENERIC_NAMES = new Set([
   'nfl', 'nba', 'nhl', 'mlb', 'mls', 'ufc', 'wwe', 'pga', 'nascar',
   'premier league', 'champions league', 'europa league', 'la liga',
-  'serie a', 'bundesliga', 'ligue 1', 'formula 1', 'formula one',
-  'six nations', 'rugby world cup', 'cricket world cup'
+  'serie a', 'bundesliga', 'ligue 1', 'formula 1', 'formula one'
 ]);
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   if (url.searchParams.get('trigger') !== '1') {
-    return text('Add ?trigger=1 to run the page discovery job.\nOptional: &source=ticketmaster|awin|skiddle|se365 to run one source at a time.\nOptional: &dry=1 for dry run (no commits).');
+    return text([
+      'TicketScout page discovery — usage:',
+      '  ?trigger=1&source=ticketmaster  — discover from Ticketmaster, queue to KV',
+      '  ?trigger=1&source=se365         — discover from SE365, queue to KV',
+      '  ?trigger=1&phase=commit         — commit queued pages to GitHub',
+      '  &dry=1                          — dry run, no writes',
+      '',
+      'NOTE: Awin discovery runs automatically via awin-category-cache — no separate job needed.'
+    ].join('\n'));
   }
 
   const dryRun = url.searchParams.get('dry') === '1';
-  const source = url.searchParams.get('source') || 'all'; // default: all sources
+  const source = url.searchParams.get('source') || '';
+  const phase  = url.searchParams.get('phase')  || 'discover';
 
-  const apiKey      = env.TM_API_KEY;
-  const githubToken = env.GITHUB_TOKEN;
   const kv          = env.GIGSBERG_KV;
+  const githubToken = env.GITHUB_TOKEN;
   const owner       = env.GITHUB_OWNER  || 'ticketandeventscout';
   const repo        = env.GITHUB_REPO   || 'ticketscout';
   const branch      = env.GITHUB_BRANCH || 'main';
 
-  if (!apiKey)      return json({ error: 'Missing TM_API_KEY' }, 500);
-  if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
-  if (!kv)          return json({ error: 'Missing GIGSBERG_KV' }, 500);
+  if (!kv) return json({ error: 'Missing GIGSBERG_KV' }, 500);
 
-  const startTime = Date.now();
-  const results = {
-    sources:    {},
-    newArtists: [],
-    newVenues:  [],
-    skipped:    [],
-    errors:     [],
-    dryRun,
-    elapsedMs:  0
-  };
+  // ── COMMIT PHASE ──────────────────────────────────────────────────────────
+  if (phase === 'commit') {
+    if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
+    return await commitPendingPages(kv, githubToken, owner, repo, branch, dryRun);
+  }
 
-  try {
-    // ── Load known artists and venues from KV ─────────────────────────────
-    let knownArtists = new Set();
-    let knownVenues  = new Set();
-    try { const ka = await kv.get(KNOWN_ARTISTS_KEY); if (ka) knownArtists = new Set(JSON.parse(ka)); } catch {}
-    try { const kv2 = await kv.get(KNOWN_VENUES_KEY);  if (kv2) knownVenues  = new Set(JSON.parse(kv2)); } catch {}
+  // ── DISCOVER PHASE ────────────────────────────────────────────────────────
+  const apiKey = env.TM_API_KEY;
+  if (!apiKey) return json({ error: 'Missing TM_API_KEY' }, 500);
 
-    const newArtists = new Map(); // slug → artist data
-    const newVenues  = new Map(); // slug → venue data
+  // Load known sets to avoid re-queuing already-created pages
+  let knownArtists = new Set();
+  let knownVenues  = new Set();
+  try { const k = await kv.get(KNOWN_KEY);        if (k) knownArtists = new Set(JSON.parse(k)); } catch {}
+  try { const k = await kv.get(KNOWN_VENUES_KEY); if (k) knownVenues  = new Set(JSON.parse(k)); } catch {}
 
-    // ══════════════════════════════════════════════════════════════════════
-    // SOURCE 1: Ticketmaster — trending events + recent on-sales
-    // ══════════════════════════════════════════════════════════════════════
-    if (source === 'all' || source === 'ticketmaster') {
-      try {
-        const tmEvents = await fetchTicketmasterEvents(apiKey);
-        results.sources.ticketmaster = tmEvents.length;
+  const newArtists = new Map();
+  const newVenues  = new Map();
+  const results    = { source, skipped: [], errors: [] };
 
-        for (const event of tmEvents) {
-          const genre = getGenre(event);
+  // ── Ticketmaster ──────────────────────────────────────────────────────────
+  if (source === 'ticketmaster') {
+    try {
+      const events = await fetchTicketmasterEvents(apiKey);
+      results.eventsScanned = events.length;
 
-          for (const attraction of (event._embedded?.attractions || [])) {
-            if (!isValidName(attraction.name)) continue;
-            const slug = toSlug(attraction.name);
-            if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
-            if (isTribute(attraction.name)) {
-              results.skipped.push({ source: 'TM', type: 'artist', name: attraction.name, reason: 'tribute' });
-              continue;
-            }
-            newArtists.set(slug, {
-              slug, name: attraction.name, search: attraction.name,
-              genre, description: generateArtistDescription(attraction.name, genre),
+      for (const event of events) {
+        const genre = getGenre(event);
+
+        for (const attraction of (event._embedded?.attractions || [])) {
+          if (!isValidName(attraction.name) || isTribute(attraction.name)) continue;
+          const slug = toSlug(attraction.name);
+          if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
+          newArtists.set(slug, {
+            slug, name: attraction.name, search: attraction.name,
+            genre, description: generateArtistDescription(attraction.name, genre),
+            source: 'ticketmaster'
+          });
+        }
+
+        const venue = event._embedded?.venues?.[0];
+        if (venue?.name && venue?.id) {
+          const slug = toSlug(venue.name);
+          if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
+            newVenues.set(slug, {
+              slug, name: venue.name,
+              city: venue.city?.name || '',
+              country: venue.country?.name || '',
+              venueId: venue.id,
+              description: generateVenueDescription(venue.name, venue.city?.name || '', venue.country?.name || ''),
               source: 'ticketmaster'
             });
           }
-
-          const venue = event._embedded?.venues?.[0];
-          if (venue?.name && venue?.id) {
-            const slug = toSlug(venue.name);
-            if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
-              newVenues.set(slug, {
-                slug, name: venue.name,
-                city: venue.city?.name || '',
-                country: venue.country?.name || '',
-                venueId: venue.id,
-                description: generateVenueDescription(venue.name, venue.city?.name || '', venue.country?.name || ''),
-                source: 'ticketmaster'
-              });
-            }
-          }
         }
-      } catch (err) {
-        results.errors.push({ source: 'ticketmaster', error: String(err) });
       }
+    } catch (err) {
+      results.errors.push({ source: 'ticketmaster', error: String(err) });
     }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // SOURCE 2: Awin category feed (KV cache)
-    // ══════════════════════════════════════════════════════════════════════
-    if (source === 'all' || source === 'awin') {
-      try {
-        const chunkParam = url.searchParams.get('chunk');
-        const singleChunk = chunkParam !== null ? parseInt(chunkParam) : null;
-
-        const awinIndex = await kv.get(`${AWIN_CACHE_KEY}:index`, { type: 'json' });
-        if (awinIndex?.chunks) {
-          let awinRowCount = 0;
-
-          // If a specific chunk is requested, only process that one
-          // This prevents timeouts when the full feed is too large
-          const chunksToProcess = singleChunk !== null
-            ? [singleChunk]
-            : Array.from({ length: awinIndex.chunks }, (_, i) => i);
-
-          for (const i of chunksToProcess) {
-            const chunk = await kv.get(`${AWIN_CACHE_KEY}:chunk:${i}`, { type: 'json' });
-            if (!chunk) continue;
-
-            for (const row of chunk) {
-              awinRowCount++;
-              const artistName  = row.primary_artist || row.product_name || '';
-              const venueName   = row.venue_name || '';
-              const merchantCat = (row.merchant_category || '').toLowerCase();
-
-              if (isValidName(artistName)) {
-                const slug = toSlug(artistName);
-                if (slug && !knownArtists.has(slug) && !newArtists.has(slug) && !isTribute(artistName)) {
-                  const genre = awinGenre(merchantCat, row.category_name);
-                  newArtists.set(slug, {
-                    slug, name: artistName, search: artistName,
-                    genre, description: generateArtistDescription(artistName, genre),
-                    source: `awin:${row.merchant_name || 'unknown'}`
-                  });
-                }
-              }
-
-              if (venueName && venueName.length > 3) {
-                const slug = toSlug(venueName);
-                if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
-                  const city = row.event_city || '';
-                  newVenues.set(slug, {
-                    slug, name: venueName, city,
-                    country: row.event_country || 'GB',
-                    venueId: '',
-                    description: generateVenueDescription(venueName, city, ''),
-                    source: `awin:${row.merchant_name || 'unknown'}`
-                  });
-                }
-              }
-            }
-          }
-          results.sources.awin = `${awinRowCount} rows (chunk${singleChunk !== null ? ' ' + singleChunk : 's 0-' + (awinIndex.chunks - 1)})`;
-        } else {
-          results.sources.awin = 'cache_empty';
-        }
-      } catch (err) {
-        results.errors.push({ source: 'awin', error: String(err) });
-      }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // SOURCE 3: SportsEvents365 participant cache
-    // ══════════════════════════════════════════════════════════════════════
-    if (source === 'all' || source === 'se365') {
-      try {
-        const isProd = env.SE365_PROD === 'true';
-        const se365Cache = await kv.get(SE365_CACHE_KEY);
-
-        if (se365Cache && isProd) {
-          const participants = JSON.parse(se365Cache);
-          const participantList = Object.values(participants);
-          results.sources.sportsevents365 = participantList.length;
-
-          for (const p of participantList) {
-            if (!isValidName(p.name)) continue;
-            const slug = toSlug(p.name);
-            if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
-            if (isTribute(p.name)) continue;
-
-            const genre = se365Genre(p.eventTypeId);
-            newArtists.set(slug, {
-              slug, name: p.name, search: p.name,
-              genre, description: generateArtistDescription(p.name, genre),
-              source: 'sportsevents365'
-            });
-          }
-        } else if (!isProd) {
-          results.sources.sportsevents365 = 'sandbox_skipped';
-        } else {
-          results.sources.sportsevents365 = 'cache_empty';
-        }
-      } catch (err) {
-        results.errors.push({ source: 'sportsevents365', error: String(err) });
-      }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    // SOURCE 4: Skiddle
-    // ══════════════════════════════════════════════════════════════════════
-    if (source === 'all' || source === 'skiddle') {
-      try {
-        const skiddleEvents = await fetchSkiddleEvents();
-        results.sources.skiddle = skiddleEvents.length;
-
-        for (const event of skiddleEvents) {
-          if (isValidName(event.name)) {
-            const slug = toSlug(event.name);
-            if (slug && !knownArtists.has(slug) && !newArtists.has(slug) && !isTribute(event.name)) {
-              newArtists.set(slug, {
-                slug, name: event.name, search: event.name,
-                genre: 'Live Music',
-                description: generateArtistDescription(event.name, 'Live Music'),
-                source: 'skiddle'
-              });
-            }
-          }
-
-          if (event.venue && event.venue.length > 3) {
-            const slug = toSlug(event.venue);
-            if (slug && !knownVenues.has(slug) && !newVenues.has(slug)) {
-              newVenues.set(slug, {
-                slug, name: event.venue, city: '', country: 'GB',
-                venueId: '',
-                description: generateVenueDescription(event.venue, '', 'UK'),
-                source: 'skiddle'
-              });
-            }
-          }
-        }
-      } catch (err) {
-        results.errors.push({ source: 'skiddle', error: String(err) });
-      }
-    }
-
-    // ── Summary ────────────────────────────────────────────────────────────
-    const artistsToCreate = [...newArtists.values()];
-    const venuesToCreate  = [...newVenues.values()];
-
-    console.log(`Discovery complete: ${artistsToCreate.length} new artists, ${venuesToCreate.length} new venues`);
-
-    if (artistsToCreate.length === 0 && venuesToCreate.length === 0) {
-      return json({
-        ...results,
-        message: 'No new pages to create — all discovered artists and venues already exist',
-        elapsedMs: Date.now() - startTime
-      }, 200);
-    }
-
-    if (dryRun) {
-      return json({
-        ...results,
-        newArtists: artistsToCreate.map(a => ({ slug: a.slug, name: a.name, genre: a.genre, source: a.source })),
-        newVenues:  venuesToCreate.map(v => ({ slug: v.slug, name: v.name, city: v.city, source: v.source })),
-        message: 'Dry run — no files committed. Remove &dry=1 to deploy.',
-        elapsedMs: Date.now() - startTime
-      }, 200);
-    }
-
-    // ── Commit to GitHub ───────────────────────────────────────────────────
-    const github = new GitHubAPI(githubToken, owner, repo, branch);
-
-    for (const artist of artistsToCreate) {
-      try {
-        await github.createFile(
-          `concert/${artist.slug}.html`,
-          generateArtistPageHtml(artist.slug),
-          `Auto-add concert page: ${artist.name} [${artist.source}]`
-        );
-        results.newArtists.push({ slug: artist.slug, name: artist.name, genre: artist.genre, source: artist.source });
-        knownArtists.add(artist.slug);
-      } catch (err) {
-        results.errors.push({ type: 'artist', slug: artist.slug, error: String(err) });
-      }
-    }
-
-    for (const venue of venuesToCreate) {
-      try {
-        await github.createFile(
-          `venue/${venue.slug}.html`,
-          generateVenuePageHtml(venue.slug),
-          `Auto-add venue page: ${venue.name} [${venue.source}]`
-        );
-        results.newVenues.push({ slug: venue.slug, name: venue.name, city: venue.city, source: venue.source });
-        knownVenues.add(venue.slug);
-      } catch (err) {
-        results.errors.push({ type: 'venue', slug: venue.slug, error: String(err) });
-      }
-    }
-
-    // Update concert.js with new artist entries
-    if (artistsToCreate.length > 0) {
-      try {
-        await updateArtistDataFile(github, artistsToCreate);
-      } catch (err) {
-        results.errors.push({ type: 'concert-data-file', error: String(err) });
-      }
-    }
-
-    // Update venue.js with new venue entries
-    if (venuesToCreate.length > 0) {
-      try {
-        await updateVenueDataFile(github, venuesToCreate);
-      } catch (err) {
-        results.errors.push({ type: 'venue-data-file', error: String(err) });
-      }
-    }
-
-    // Save updated known sets to KV
-    await kv.put(KNOWN_ARTISTS_KEY, JSON.stringify([...knownArtists]));
-    await kv.put(KNOWN_VENUES_KEY,  JSON.stringify([...knownVenues]));
-
-    results.elapsedMs = Date.now() - startTime;
-    return json(results, 200);
-
-  } catch (err) {
-    console.error('discover-pages error:', err);
-    return json({ error: String(err), elapsedMs: Date.now() - startTime }, 500);
   }
+
+  // ── SportsEvents365 ───────────────────────────────────────────────────────
+  if (source === 'se365') {
+    const isProd = env.SE365_PROD === 'true';
+    if (!isProd) {
+      return json({ message: 'SE365 discovery skipped — SE365_PROD is not true', source }, 200);
+    }
+    try {
+      const se365Cache = await kv.get('se365:participants:latest');
+      if (se365Cache) {
+        const participants = Object.values(JSON.parse(se365Cache));
+        results.participantsScanned = participants.length;
+        for (const p of participants) {
+          if (!isValidName(p.name) || isTribute(p.name)) continue;
+          const slug = toSlug(p.name);
+          if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
+          const genre = se365Genre(p.eventTypeId);
+          newArtists.set(slug, {
+            slug, name: p.name, search: p.name,
+            genre, description: generateArtistDescription(p.name, genre),
+            source: 'sportsevents365'
+          });
+        }
+      } else {
+        results.errors.push({ source: 'se365', error: 'Participant cache empty' });
+      }
+    } catch (err) {
+      results.errors.push({ source: 'se365', error: String(err) });
+    }
+  }
+
+  const artistList = [...newArtists.values()];
+  const venueList  = [...newVenues.values()];
+
+  if (dryRun) {
+    return json({
+      ...results,
+      dryRun: true,
+      newArtists: artistList.map(a => ({ slug: a.slug, name: a.name, genre: a.genre })),
+      newVenues:  venueList.map(v => ({ slug: v.slug, name: v.name, city: v.city })),
+      message: 'Dry run — nothing written. Remove &dry=1 to queue for commit.'
+    }, 200);
+  }
+
+  if (artistList.length === 0 && venueList.length === 0) {
+    return json({ ...results, message: 'No new pages discovered — all already known.' }, 200);
+  }
+
+  // Merge with existing pending queue (may include items from Awin cache refresh)
+  let existing = { artists: [], venues: [] };
+  try { const ep = await kv.get(PENDING_KEY); if (ep) existing = JSON.parse(ep); } catch {}
+
+  await kv.put(PENDING_KEY, JSON.stringify({
+    artists:   [...existing.artists, ...artistList],
+    venues:    [...existing.venues,  ...venueList],
+    updatedAt: new Date().toISOString()
+  }), { expirationTtl: 8 * 60 * 60 });
+
+  return json({
+    ...results,
+    queued: { artists: artistList.length, venues: venueList.length },
+    message: 'Queued for commit. Run ?trigger=1&phase=commit to deploy to GitHub.'
+  }, 200);
 }
 
 // ===========================
-// Data source fetchers
+// Commit phase — reads pending queue and commits to GitHub
+// Clears the queue and updates the known sets after committing
+// ===========================
+
+async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun) {
+  const pendingRaw = await kv.get(PENDING_KEY);
+  if (!pendingRaw) {
+    return json({ message: 'No pending pages to commit.', committed: 0 }, 200);
+  }
+
+  const pending = JSON.parse(pendingRaw);
+  const artists = pending.artists || [];
+  const venues  = pending.venues  || [];
+
+  if (artists.length === 0 && venues.length === 0) {
+    return json({ message: 'Pending queue is empty.', committed: 0 }, 200);
+  }
+
+  if (dryRun) {
+    return json({
+      dryRun: true,
+      pending: {
+        artists: artists.map(a => ({ slug: a.slug, name: a.name })),
+        venues:  venues.map(v => ({ slug: v.slug, name: v.name }))
+      },
+      message: 'Dry run — nothing committed. Remove &dry=1 to deploy.'
+    }, 200);
+  }
+
+  const github    = new GitHubAPI(githubToken, owner, repo, branch);
+  const committed = { artists: [], venues: [], errors: [] };
+
+  // Load known sets to update after committing
+  let knownArtists = new Set();
+  let knownVenues  = new Set();
+  try { const k = await kv.get(KNOWN_KEY);        if (k) knownArtists = new Set(JSON.parse(k)); } catch {}
+  try { const k = await kv.get(KNOWN_VENUES_KEY); if (k) knownVenues  = new Set(JSON.parse(k)); } catch {}
+
+  for (const artist of artists) {
+    try {
+      await github.createFile(
+        `concert/${artist.slug}.html`,
+        generateArtistPageHtml(artist.slug),
+        `Auto-add concert page: ${artist.name} [${artist.source}]`
+      );
+      committed.artists.push(artist.slug);
+      knownArtists.add(artist.slug);
+    } catch (err) {
+      committed.errors.push({ type: 'artist', slug: artist.slug, error: String(err) });
+    }
+  }
+
+  for (const venue of venues) {
+    try {
+      await github.createFile(
+        `venue/${venue.slug}.html`,
+        generateVenuePageHtml(venue.slug),
+        `Auto-add venue page: ${venue.name} [${venue.source}]`
+      );
+      committed.venues.push(venue.slug);
+      knownVenues.add(venue.slug);
+    } catch (err) {
+      committed.errors.push({ type: 'venue', slug: venue.slug, error: String(err) });
+    }
+  }
+
+  // Update concert.js and venue.js data files
+  if (artists.length > 0) {
+    try { await updateArtistDataFile(github, artists); } catch (err) {
+      committed.errors.push({ type: 'concert-data', error: String(err) });
+    }
+  }
+  if (venues.length > 0) {
+    try { await updateVenueDataFile(github, venues); } catch (err) {
+      committed.errors.push({ type: 'venue-data', error: String(err) });
+    }
+  }
+
+  // Clear the pending queue and save updated known sets
+  await kv.delete(PENDING_KEY);
+  await kv.put(KNOWN_KEY,        JSON.stringify([...knownArtists]));
+  await kv.put(KNOWN_VENUES_KEY, JSON.stringify([...knownVenues]));
+
+  return json({ committed, message: 'Done — pages committed to GitHub and deploying via Cloudflare.' }, 200);
+}
+
+// ===========================
+// Ticketmaster fetcher
 // ===========================
 
 async function fetchTicketmasterEvents(apiKey) {
   const events = [];
-  const seen = new Set();
-
+  const seen   = new Set();
   for (const sort of ['relevance,desc', 'onSaleStartDate,desc']) {
-    const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
-    tmUrl.searchParams.set('apikey', apiKey);
-    tmUrl.searchParams.set('countryCode', 'GB');
-    tmUrl.searchParams.set('size', '50');
-    tmUrl.searchParams.set('sort', sort);
-
+    const u = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
+    u.searchParams.set('apikey', apiKey);
+    u.searchParams.set('countryCode', 'GB');
+    u.searchParams.set('size', '50');
+    u.searchParams.set('sort', sort);
     try {
-      const resp = await fetch(tmUrl.toString());
+      const resp = await fetch(u.toString());
       const data = await resp.json();
       for (const e of (data?._embedded?.events || [])) {
         if (!seen.has(e.id)) { seen.add(e.id); events.push(e); }
       }
     } catch {}
   }
-
-  return events;
-}
-
-async function fetchSkiddleEvents() {
-  const events = [];
-  try {
-    const resp = await fetch('http://xml.skiddlecdn.co.uk/xml/affiliates/topsellers.xml');
-    if (!resp.ok) return events;
-    const xml = await resp.text();
-    const blocks = xml.match(/<event[\s\S]*?<\/event>/gi) || [];
-
-    for (const block of blocks.slice(0, 100)) {
-      const get = tag => {
-        const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
-        return m ? m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/, '$1').trim() : '';
-      };
-      const name  = get('name') || get('eventname') || get('title');
-      const venue = get('venue') || get('venuename');
-      if (name) events.push({ name, venue });
-    }
-  } catch {}
   return events;
 }
 
@@ -415,10 +312,8 @@ async function fetchSkiddleEvents() {
 
 class GitHubAPI {
   constructor(token, owner, repo, branch) {
-    this.token = token; this.owner = owner;
-    this.repo = repo;   this.branch = branch;
+    this.token = token; this.owner = owner; this.repo = repo; this.branch = branch;
   }
-
   async request(method, path, body) {
     const resp = await fetch(`https://api.github.com${path}`, {
       method,
@@ -430,28 +325,18 @@ class GitHubAPI {
       },
       body: body ? JSON.stringify(body) : undefined
     });
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(`GitHub ${method} ${path} → ${resp.status}: ${err}`);
-    }
+    if (!resp.ok) throw new Error(`GitHub ${method} ${path} → ${resp.status}: ${await resp.text()}`);
     return resp.json();
   }
-
   async getFileSha(path) {
     try {
-      const data = await this.request('GET',
-        `/repos/${this.owner}/${this.repo}/contents/${path}?ref=${this.branch}`);
-      return data.sha;
+      const d = await this.request('GET', `/repos/${this.owner}/${this.repo}/contents/${path}?ref=${this.branch}`);
+      return d.sha;
     } catch { return null; }
   }
-
   async createFile(path, content, message) {
     const sha  = await this.getFileSha(path);
-    const body = {
-      message,
-      content: btoa(unescape(encodeURIComponent(content))),
-      branch: this.branch
-    };
+    const body = { message, content: btoa(unescape(encodeURIComponent(content))), branch: this.branch };
     if (sha) body.sha = sha;
     return this.request('PUT', `/repos/${this.owner}/${this.repo}/contents/${path}`, body);
   }
@@ -461,37 +346,35 @@ class GitHubAPI {
 // Data file updaters
 // ===========================
 
-async function updateArtistDataFile(github, newArtists) {
-  const path = 'functions/api/concert.js';
-  const current = await github.request('GET',
-    `/repos/${github.owner}/${github.repo}/contents/${path}?ref=${github.branch}`);
+async function updateArtistDataFile(github, artists) {
+  const path    = 'functions/api/concert.js';
+  const current = await github.request('GET', `/repos/${github.owner}/${github.repo}/contents/${path}?ref=${github.branch}`);
   const content = decodeURIComponent(escape(atob(current.content)));
-  const newEntries = newArtists.map(a =>
+  const entries = artists.map(a =>
     `  { slug: '${a.slug}', name: '${esc(a.name)}', search: '${esc(a.search)}', genre: '${esc(a.genre)}', description: '${esc(a.description)}' },`
   ).join('\n');
-  const updated = content.replace(/(\];\s*\nexport default)/, `${newEntries}\n];\nexport default`);
-  await github.createFile(path, updated, `Auto-update artists: ${newArtists.map(a => a.name).join(', ')}`);
+  const updated = content.replace(/(\];\s*\nexport default)/, `${entries}\n];\nexport default`);
+  await github.createFile(path, updated, `Auto-update artists: ${artists.map(a => a.name).join(', ')}`);
 }
 
-async function updateVenueDataFile(github, newVenues) {
+async function updateVenueDataFile(github, venues) {
   const path = 'functions/api/venue.js';
   let content = '';
-  let isNew = false;
+  let isNew   = false;
   try {
-    const current = await github.request('GET',
-      `/repos/${github.owner}/${github.repo}/contents/${path}?ref=${github.branch}`);
+    const current = await github.request('GET', `/repos/${github.owner}/${github.repo}/contents/${path}?ref=${github.branch}`);
     content = decodeURIComponent(escape(atob(current.content)));
   } catch { isNew = true; content = generateBaseVenueJs(); }
 
-  const newEntries = newVenues.map(v =>
+  const entries = venues.map(v =>
     `  { slug: '${v.slug}', name: '${esc(v.name)}', city: '${esc(v.city)}', country: '${esc(v.country)}', venueId: '${v.venueId}', description: '${esc(v.description)}' },`
   ).join('\n');
 
   const updated = isNew
-    ? content.replace('// VENUES_PLACEHOLDER', newEntries)
-    : content.replace(/(\];\s*\nexport default)/, `${newEntries}\n];\nexport default`);
+    ? content.replace('// VENUES_PLACEHOLDER', entries)
+    : content.replace(/(\];\s*\nexport default)/, `${entries}\n];\nexport default`);
 
-  await github.createFile(path, updated, `Auto-update venues: ${newVenues.map(v => v.name).join(', ')}`);
+  await github.createFile(path, updated, `Auto-update venues: ${venues.map(v => v.name).join(', ')}`);
 }
 
 // ===========================
@@ -502,144 +385,77 @@ function generateArtistPageHtml(slug) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Loading\u2026</title>
   <script>window.__CONCERT_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
-<body>
-  <script>
-    async function loadTemplate() {
-      const r = await fetch('/concert.html');
-      const html = await r.text();
-      const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
-      if (!m) return;
-      document.body.innerHTML = m[1];
-      document.body.querySelectorAll('script').forEach(function(o) {
-        var s = document.createElement('script');
-        if (o.src) s.src = o.src; else s.textContent = o.textContent;
-        document.body.appendChild(s); o.remove();
-      });
-    }
-    loadTemplate();
-  </script>
-</body>
-</html>`;
+<body><script>
+  (async function() {
+    const r = await fetch('/concert.html');
+    const html = await r.text();
+    const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
+    if (!m) return;
+    document.body.innerHTML = m[1];
+    document.body.querySelectorAll('script').forEach(function(o) {
+      var s = document.createElement('script');
+      if (o.src) s.src = o.src; else s.textContent = o.textContent;
+      document.body.appendChild(s); o.remove();
+    });
+  })();
+</script></body></html>`;
 }
 
 function generateVenuePageHtml(slug) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Loading\u2026</title>
   <script>window.__VENUE_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
-<body>
-  <script>
-    async function loadTemplate() {
-      const r = await fetch('/venue.html');
-      const html = await r.text();
-      const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
-      if (!m) return;
-      document.body.innerHTML = m[1];
-      document.body.querySelectorAll('script').forEach(function(o) {
-        var s = document.createElement('script');
-        if (o.src) s.src = o.src; else s.textContent = o.textContent;
-        document.body.appendChild(s); o.remove();
-      });
-    }
-    loadTemplate();
-  </script>
-</body>
-</html>`;
+<body><script>
+  (async function() {
+    const r = await fetch('/venue.html');
+    const html = await r.text();
+    const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
+    if (!m) return;
+    document.body.innerHTML = m[1];
+    document.body.querySelectorAll('script').forEach(function(o) {
+      var s = document.createElement('script');
+      if (o.src) s.src = o.src; else s.textContent = o.textContent;
+      document.body.appendChild(s); o.remove();
+    });
+  })();
+</script></body></html>`;
 }
 
 function generateBaseVenueJs() {
-  return `// ===========================
-// TicketScout — Venue Data
-// Auto-managed by /api/discover-pages
-// ===========================
-
-const VENUES = [
-// VENUES_PLACEHOLDER
-];
-
-export async function onRequestGet({ request, env }) {
-  const url  = new URL(request.url);
-  const slug = url.searchParams.get('slug');
-  if (!slug) return jsonResponse({ error: 'slug is required' }, 400);
-
-  const venue = VENUES.find(v => v.slug === slug.toLowerCase());
-  if (!venue)  return jsonResponse({ error: 'Venue not found' }, 404);
-
-  const apiKey = env.TM_API_KEY;
-  let events = [];
-
-  if (apiKey && venue.venueId) {
-    try {
-      const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
-      tmUrl.searchParams.set('apikey', apiKey);
-      tmUrl.searchParams.set('venueId', venue.venueId);
-      tmUrl.searchParams.set('size', '20');
-      tmUrl.searchParams.set('sort', 'date,asc');
-      const tmResp = await fetch(tmUrl.toString());
-      const tmData = await tmResp.json();
-      events = tmData?._embedded?.events || [];
-    } catch (err) { console.error('TM venue events error:', err); }
-  }
-
-  return jsonResponse({ venue, events }, 200);
-}
-
-function jsonResponse(body, status) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' }
-  });
-}
-
-export default VENUES;
-`;
+  return `// TicketScout — Venue Data (auto-managed)\nconst VENUES = [\n// VENUES_PLACEHOLDER\n];\nexport async function onRequestGet({ request, env }) {\n  const url = new URL(request.url);\n  const slug = url.searchParams.get('slug');\n  if (!slug) return jsonResponse({ error: 'slug required' }, 400);\n  const venue = VENUES.find(v => v.slug === slug.toLowerCase());\n  if (!venue) return jsonResponse({ error: 'Venue not found' }, 404);\n  const apiKey = env.TM_API_KEY;\n  let events = [];\n  if (apiKey && venue.venueId) {\n    try {\n      const u = new URL('https://app.ticketmaster.com/discovery/v2/events.json');\n      u.searchParams.set('apikey', apiKey);\n      u.searchParams.set('venueId', venue.venueId);\n      u.searchParams.set('size', '20');\n      u.searchParams.set('sort', 'date,asc');\n      const resp = await fetch(u.toString());\n      const data = await resp.json();\n      events = data?._embedded?.events || [];\n    } catch {}\n  }\n  return jsonResponse({ venue, events }, 200);\n}\nfunction jsonResponse(body, status) {\n  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } });\n}\nexport default VENUES;\n`;
 }
 
 // ===========================
-// Content generators
+// Content / genre helpers
 // ===========================
 
 function generateArtistDescription(name, genre) {
   const g = genre.toLowerCase();
-  if (g.includes('football') || g.includes('soccer')) {
-    return `${name} are a professional football club with a passionate global fanbase. Use TicketScout to compare ticket prices for upcoming ${name} matches across verified sellers.`;
-  }
-  if (g.includes('rugby')) {
-    return `${name} are a professional rugby team known for their competitive performances and loyal supporters. Compare ticket prices for ${name} matches across all verified sellers on TicketScout.`;
-  }
-  if (g.includes('boxing') || g.includes('mma')) {
-    return `${name} is a professional fighter known for exciting bouts and a dedicated global following. Use TicketScout to find and compare tickets for upcoming ${name} events.`;
-  }
-  if (g.includes('theatre') || g.includes('musical')) {
-    return `${name} is a celebrated theatre production known for its captivating performances and widespread critical acclaim. Compare ticket prices across verified sellers on TicketScout.`;
-  }
-  if (g.includes('rock') || g.includes('metal')) {
+  if (g.includes('football') || g.includes('soccer'))
+    return `${name} are a professional football club with a passionate global fanbase. Compare ticket prices for upcoming matches across verified sellers on TicketScout.`;
+  if (g.includes('theatre') || g.includes('musical'))
+    return `${name} is a celebrated production known for its captivating performances and widespread critical acclaim. Compare ticket prices across verified sellers on TicketScout.`;
+  if (g.includes('rock') || g.includes('metal'))
     return `${name} are celebrated for their powerful live performances and devoted global fanbase. Their shows consistently sell out major venues and festivals worldwide.`;
-  }
-  return `${name} are a renowned ${genre} act known for their captivating live performances. Their shows attract fans from around the world and regularly sell out major venues.`;
+  return `${name} are a renowned ${genre} act known for their captivating live performances. Compare ticket prices across verified sellers on TicketScout.`;
 }
 
 function generateVenueDescription(name, city, country) {
   const location = city || country || 'the UK';
-  return `${name} is one of ${location}'s premier live event venues, hosting concerts, sports events, theatre shows and more throughout the year. Compare ticket prices from verified sellers for all upcoming events at ${name} on TicketScout.`;
+  return `${name} is one of ${location}'s premier live event venues. Compare ticket prices from verified sellers for all upcoming events at ${name} on TicketScout.`;
 }
-
-// ===========================
-// Genre mappers
-// ===========================
 
 function getGenre(event) {
   const sub     = event.classifications?.[0]?.subGenre?.name || '';
@@ -650,34 +466,16 @@ function getGenre(event) {
   return segment || 'Live Music';
 }
 
-function awinGenre(merchantCategory, categoryName) {
-  const cat = (merchantCategory + ' ' + (categoryName || '')).toLowerCase();
-  if (cat.includes('football') || cat.includes('soccer')) return 'Football';
-  if (cat.includes('concert') || cat.includes('music'))   return 'Live Music';
-  if (cat.includes('theatre') || cat.includes('theater') || cat.includes('musical')) return 'Theatre';
-  if (cat.includes('comedy'))  return 'Comedy';
-  if (cat.includes('sport'))   return 'Sports';
-  return 'Live Events';
-}
-
 function se365Genre(eventTypeId) {
-  const map = {
-    1000: 'Football', 1002: 'Basketball', 1005: 'Baseball',
-    1014: 'Boxing',   1019: 'Cricket',    1035: 'MMA',
-    1001: 'Tennis',   1006: 'Ice Hockey', 1007: 'American Football',
-    1008: 'Rugby',    1009: 'Golf',       1010: 'Motorsport'
-  };
+  const map = { 1000: 'Football', 1002: 'Basketball', 1005: 'Baseball', 1014: 'Boxing',
+    1019: 'Cricket', 1035: 'MMA', 1001: 'Tennis', 1006: 'Ice Hockey',
+    1007: 'American Football', 1008: 'Rugby', 1009: 'Golf', 1010: 'Motorsport' };
   return map[eventTypeId] || 'Sports';
 }
 
-// ===========================
-// Helpers
-// ===========================
-
 function toSlug(name) {
-  // Strip bracketed location/edition suffixes e.g. "(NY)", "(London)", "(UK Tour)"
-  const cleaned = (name || '').replace(/\s*\([^)]*\)\s*/g, '').trim();
-  return cleaned
+  return (name || '')
+    .replace(/\s*\([^)]*\)\s*/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
@@ -689,16 +487,13 @@ function toSlug(name) {
 function isValidName(name) {
   if (!name || name.length < 3) return false;
   const slug = toSlug(name);
-  // Reject pure numeric slugs (e.g. "1536", "2026")
   if (/^\d+$/.test(slug)) return false;
-  // Reject generic league/organisation names
   if (GENERIC_NAMES.has(name.toLowerCase().trim())) return false;
   return true;
 }
 
 function isTribute(name) {
-  const lower = (name || '').toLowerCase();
-  return TRIBUTE_KEYWORDS.some(kw => lower.includes(kw));
+  return TRIBUTE_KEYWORDS.some(kw => (name || '').toLowerCase().includes(kw));
 }
 
 function esc(str) {
@@ -711,7 +506,6 @@ function text(msg) {
 
 function json(body, status) {
   return new Response(JSON.stringify(body, null, 2), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+    status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
 }
