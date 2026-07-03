@@ -42,6 +42,14 @@ const TRIBUTE_KEYWORDS = [
   'greatest hits', 'live band', 'orchestra plays', 'ultimate'
 ];
 
+// Generic organisation/league names that aren't performers or shows
+const GENERIC_NAMES = new Set([
+  'nfl', 'nba', 'nhl', 'mlb', 'mls', 'ufc', 'wwe', 'pga', 'nascar',
+  'premier league', 'champions league', 'europa league', 'la liga',
+  'serie a', 'bundesliga', 'ligue 1', 'formula 1', 'formula one',
+  'six nations', 'rugby world cup', 'cricket world cup'
+]);
+
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   if (url.searchParams.get('trigger') !== '1') {
@@ -96,6 +104,7 @@ export async function onRequestGet({ request, env }) {
 
         // Extract attractions (artists)
         for (const attraction of (event._embedded?.attractions || [])) {
+          if (!isValidName(attraction.name)) continue;
           const slug = toSlug(attraction.name);
           if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
           if (isTribute(attraction.name)) {
@@ -151,7 +160,7 @@ export async function onRequestGet({ request, env }) {
             const merchantCat = (row.merchant_category || '').toLowerCase();
 
             // Artist from Awin feed
-            if (artistName && artistName.length > 2) {
+            if (isValidName(artistName)) {
               const slug = toSlug(artistName);
               if (slug && !knownArtists.has(slug) && !newArtists.has(slug) && !isTribute(artistName)) {
                 // Determine genre from merchant category
@@ -238,7 +247,7 @@ export async function onRequestGet({ request, env }) {
 
       for (const event of skiddleEvents) {
         // Artist from Skiddle
-        if (event.name && event.name.length > 2) {
+        if (isValidName(event.name)) {
           const slug = toSlug(event.name);
           if (slug && !knownArtists.has(slug) && !newArtists.has(slug) && !isTribute(event.name)) {
             newArtists.set(slug, {
@@ -667,13 +676,25 @@ function se365Genre(eventTypeId) {
 // ===========================
 
 function toSlug(name) {
-  return (name || '')
+  // Strip bracketed location/edition suffixes e.g. "(NY)", "(London)", "(UK Tour)"
+  const cleaned = (name || '').replace(/\s*\([^)]*\)\s*/g, '').trim();
+  return cleaned
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .slice(0, 60);
+}
+
+function isValidName(name) {
+  if (!name || name.length < 3) return false;
+  const slug = toSlug(name);
+  // Reject pure numeric slugs (e.g. "1536", "2026")
+  if (/^\d+$/.test(slug)) return false;
+  // Reject generic league/organisation names
+  if (GENERIC_NAMES.has(name.toLowerCase().trim())) return false;
+  return true;
 }
 
 function isTribute(name) {
