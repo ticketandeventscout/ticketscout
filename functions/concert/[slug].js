@@ -45,7 +45,6 @@ export async function onRequestGet({ request, params, env }) {
   const artist = ARTISTS.find(a => a.slug === slug.toLowerCase());
   const name   = artist?.name || toTitleCase(slug.replace(/-/g, ' '));
   const desc   = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct.`;
-  const pageUrl = `https://www.ticketscout.co.uk/concert/${slug}`;
 
   // ── Inject server-side content into existing placeholder tags ────────────
   // We UPDATE the existing tags rather than removing/replacing them.
