@@ -193,9 +193,40 @@ function renderArtistPicker(grid, attractions) {
 
 // ===========================
 // Artist view — all dates for ONE artist only (attractionId guarantees this)
+// If a /concert/[slug] discovery page exists for this artist, redirect there
+// so the user always sees the richer page with bio, FAQ, and price comparison
 // ===========================
 
+function toArtistSlug(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/\s*\([^)]*\)\s*/g, '') // strip bracketed suffixes
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 60);
+}
+
 async function showArtistEvents(attractionId, name) {
+  // Check if a /concert/[slug] page exists for this artist
+  // If so, redirect there — it has richer content (bio, FAQ, price comparison)
+  if (name) {
+    const slug = toArtistSlug(name);
+    if (slug) {
+      try {
+        const check = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
+        if (check.ok) {
+          // Concert page exists — redirect to it
+          window.location.href = `/concert/${slug}`;
+          return;
+        }
+      } catch {
+        // No concert page — fall through to standard artist view
+      }
+    }
+  }
+
   document.getElementById('results-title').textContent = name ? `${name} — upcoming UK dates` : 'Upcoming dates';
   setBreadcrumb(`<a href="#/">← Back to trending</a>`);
 
