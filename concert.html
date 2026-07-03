@@ -8,6 +8,17 @@
   <title id="page-title">Concert Tickets — Compare Prices | TicketScout</title>
   <!-- Canonical URL — updated by JS -->
   <link rel="canonical" id="canonical" href="https://www.ticketscout.co.uk/concert/" />
+  <!-- Open Graph — updated by JS for social sharing previews -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="TicketScout" />
+  <meta property="og:title" id="og-title" content="Concert Tickets — Compare Prices | TicketScout" />
+  <meta property="og:description" id="og-description" content="Compare concert ticket prices across verified sellers. Find the best deal and buy direct." />
+  <meta property="og:url" id="og-url" content="https://www.ticketscout.co.uk/concert/" />
+  <meta property="og:image" id="og-image" content="https://www.ticketscout.co.uk/og-default.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" id="tw-title" content="Concert Tickets — Compare Prices | TicketScout" />
+  <meta name="twitter:description" id="tw-description" content="Compare concert ticket prices across verified sellers." />
+  <meta name="twitter:image" id="tw-image" content="https://www.ticketscout.co.uk/og-default.png" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -463,29 +474,39 @@
       return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     }
 
-    function updateMeta(artist, events) {
+    function updateMeta(artist, events, tmImage) {
       const name = artist.name;
       const slug = artist.slug;
+      const pageUrl = `https://www.ticketscout.co.uk/concert/${slug}`;
+      const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`;
+      const image = tmImage || 'https://www.ticketscout.co.uk/og-default.png';
 
-      // Title and meta description
-      document.getElementById('page-title').textContent =
-        `${name} Tickets — Compare Prices | TicketScout`;
-      document.getElementById('meta-description').setAttribute('content',
-        `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`);
+      // Standard meta
+      document.getElementById('page-title').textContent = `${name} Tickets — Compare Prices | TicketScout`;
+      document.getElementById('meta-description').setAttribute('content', description);
+      document.getElementById('canonical').setAttribute('href', pageUrl);
 
-      // Canonical
-      document.getElementById('canonical').setAttribute('href',
-        `https://www.ticketscout.co.uk/concert/${slug}`);
+      // Open Graph
+      document.getElementById('og-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
+      document.getElementById('og-description').setAttribute('content', description);
+      document.getElementById('og-url').setAttribute('content', pageUrl);
+      document.getElementById('og-image').setAttribute('content', image);
 
-      // Event schema (JSON-LD) — one MusicEvent per upcoming date
+      // Twitter
+      document.getElementById('tw-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
+      document.getElementById('tw-description').setAttribute('content', description);
+      document.getElementById('tw-image').setAttribute('content', image);
+
+      // Event schema (JSON-LD)
       if (events.length > 0) {
         const schemaEvents = events.slice(0, 5).map(e => {
-          const venue = e._embedded?.venues?.[0];
+          const venue    = e._embedded?.venues?.[0];
           const minPrice = e.priceRanges?.[0]?.min;
           return {
             '@type': 'MusicEvent',
             'name': e.name,
             'startDate': e.dates?.start?.localDate,
+            'image': image,
             'location': venue ? {
               '@type': 'MusicVenue',
               'name': venue.name,
@@ -495,21 +516,17 @@
                 'addressCountry': venue.country?.countryCode || 'GB'
               }
             } : undefined,
-            'performer': {
-              '@type': 'MusicGroup',
-              'name': name
-            },
+            'performer': { '@type': 'MusicGroup', 'name': name },
             'offers': minPrice ? {
               '@type': 'Offer',
               'price': minPrice,
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
-              'url': `https://www.ticketscout.co.uk/concert/${slug}`
+              'url': pageUrl
             } : undefined,
-            'url': `https://www.ticketscout.co.uk/concert/${slug}`
+            'url': pageUrl
           };
         });
-
         document.getElementById('schema-org').textContent = JSON.stringify({
           '@context': 'https://schema.org',
           '@graph': schemaEvents
@@ -595,14 +612,14 @@
           const evData = await evResp.json();
           const events = evData?._embedded?.events || [];
 
-          updateMeta(artist, events);
+          updateMeta(artist, events, tmImage);
           renderEvents(events, artist, slug);
         } else {
           document.getElementById('events-container').innerHTML = `
             <div class="no-events">
               <p>We couldn't find upcoming ${artist.name} dates right now. Check back soon — we update our listings in real time.</p>
             </div>`;
-          updateMeta(artist, []);
+          updateMeta(artist, [], tmImage);
         }
 
       } catch (err) {
