@@ -142,18 +142,27 @@ export async function onRequestGet({ request, env }) {
     // ══════════════════════════════════════════════════════════════════════
     if (source === 'all' || source === 'awin') {
       try {
+        const chunkParam = url.searchParams.get('chunk');
+        const singleChunk = chunkParam !== null ? parseInt(chunkParam) : null;
+
         const awinIndex = await kv.get(`${AWIN_CACHE_KEY}:index`, { type: 'json' });
         if (awinIndex?.chunks) {
           let awinRowCount = 0;
 
-          for (let i = 0; i < awinIndex.chunks; i++) {
+          // If a specific chunk is requested, only process that one
+          // This prevents timeouts when the full feed is too large
+          const chunksToProcess = singleChunk !== null
+            ? [singleChunk]
+            : Array.from({ length: awinIndex.chunks }, (_, i) => i);
+
+          for (const i of chunksToProcess) {
             const chunk = await kv.get(`${AWIN_CACHE_KEY}:chunk:${i}`, { type: 'json' });
             if (!chunk) continue;
 
             for (const row of chunk) {
               awinRowCount++;
-              const artistName = row.primary_artist || row.product_name || '';
-              const venueName  = row.venue_name || '';
+              const artistName  = row.primary_artist || row.product_name || '';
+              const venueName   = row.venue_name || '';
               const merchantCat = (row.merchant_category || '').toLowerCase();
 
               if (isValidName(artistName)) {
@@ -183,7 +192,7 @@ export async function onRequestGet({ request, env }) {
               }
             }
           }
-          results.sources.awin = awinRowCount;
+          results.sources.awin = `${awinRowCount} rows (chunk${singleChunk !== null ? ' ' + singleChunk : 's 0-' + (awinIndex.chunks - 1)})`;
         } else {
           results.sources.awin = 'cache_empty';
         }
