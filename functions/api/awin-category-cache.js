@@ -74,10 +74,65 @@ const COL = {
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   if (url.searchParams.get('trigger') !== '1') {
-    return new Response('Add ?trigger=1 to manually run the cache refresh.', {
+    return new Response('Add ?trigger=1 to manually run the cache refresh.\nAdd ?trigger=1&debug=1 to inspect raw column positions.', {
       status: 200, headers: { 'Content-Type': 'text/plain' }
     });
   }
+
+  // Debug mode — fetches first few rows and shows all column values
+  // so we can identify which columns hold which data in the current feed
+  if (url.searchParams.get('debug') === '1') {
+    const feedUrl = env.AWIN_CATEGORY_FEED_URL;
+    if (!feedUrl) return new Response(JSON.stringify({ error: 'Missing AWIN_CATEGORY_FEED_URL' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+
+    const response = await fetch(feedUrl);
+    if (!response.ok) return new Response(JSON.stringify({ error: `HTTP ${response.status}` }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+
+    const stream  = response.body.pipeThrough(new DecompressionStream('gzip'));
+    const decoder = new TextDecoder();
+    const reader  = stream.getReader();
+
+    let buffer = '';
+    let headers = null;
+    let sampleRows = [];
+    let isFirstLine = true;
+
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let searchFrom = 0;
+      let inQuotes = false;
+      for (let ci = 0; ci < buffer.length; ci++) {
+        const ch = buffer[ci];
+        if (ch === '"') inQuotes = !inQuotes;
+        if (ch === '\n' && !inQuotes) {
+          const line = buffer.slice(searchFrom, ci).replace(/\r$/, '');
+          searchFrom = ci + 1;
+          if (isFirstLine) {
+            isFirstLine = false;
+            headers = parseCsvLine(line);
+            continue;
+          }
+          if (!line.trim()) continue;
+          const fields = parseCsvLine(line);
+          // Show first 5 rows with column index → value mapping
+          const mapped = {};
+          fields.forEach((v, i) => { if (v.trim()) mapped[`col${i}_${headers?.[i] || 'unknown'}`] = v.trim().slice(0, 80); });
+          sampleRows.push({ fieldCount: fields.length, columns: mapped });
+          if (sampleRows.length >= 3) break outer;
+        }
+      }
+      buffer = buffer.slice(searchFrom);
+    }
+    reader.releaseLock();
+
+    return new Response(JSON.stringify({ headers: headers?.map((h, i) => `${i}: ${h}`), sampleRows }, null, 2), {
+      status: 200, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   const result = await refreshCache(env);
   return new Response(JSON.stringify(result), {
     status: 200, headers: { 'Content-Type': 'application/json' }
