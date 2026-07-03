@@ -1,28 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Loading…</title>
   <script>window.__CONCERT_SLUG__ = 'blood-of-my-blood';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
-<body>
-  <script>
-    async function loadTemplate() {
-      const r = await fetch('/concert.html');
-      const html = await r.text();
-      const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-      if (!m) return;
-      document.body.innerHTML = m[1];
-      document.body.querySelectorAll('script').forEach(function(o) {
-        var s = document.createElement('script');
-        if (o.src) s.src = o.src; else s.textContent = o.textContent;
-        document.body.appendChild(s); o.remove();
-      });
-    }
-    loadTemplate();
-  </script>
-</body>
-</html>
+<body><script>
+  (async function() {
+    const r = await fetch('/concert.html');
+    const html = await r.text();
+    const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    if (!m) return;
+    document.body.innerHTML = m[1];
+    document.body.querySelectorAll('script').forEach(function(o) {
+      var s = document.createElement('script');
+      if (o.src) s.src = o.src; else s.textContent = o.textContent;
+      document.body.appendChild(s); o.remove();
+    });
+  })();
+</script></body></html>
