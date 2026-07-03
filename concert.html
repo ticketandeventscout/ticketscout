@@ -423,21 +423,18 @@
     // ===========================
 
     function getSlug() {
-      // Primary: read ?slug= query param set by _redirects rule
-      const params = new URLSearchParams(window.location.search);
-      const fromQuery = params.get('slug');
-      if (fromQuery) {
-        console.log('Slug from query param:', fromQuery);
-        return fromQuery.toLowerCase();
+      // Primary: read slug injected by the Cloudflare Pages Function router
+      // The router injects window.__CONCERT_SLUG__ before serving this page
+      if (window.__CONCERT_SLUG__) {
+        console.log('Slug from router:', window.__CONCERT_SLUG__);
+        return window.__CONCERT_SLUG__;
       }
 
       // Fallback: extract from pathname /concert/[slug]
-      const pathname = window.location.pathname;
-      console.log('Concert page pathname:', pathname);
-      const parts = pathname.split('/').filter(Boolean);
-      const fromPath = parts.length >= 2 ? parts[parts.length - 1] : null;
-      console.log('Slug from pathname:', fromPath);
-      return fromPath ? fromPath.toLowerCase() : null;
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      const slug = parts.length >= 2 ? parts[parts.length - 1].toLowerCase() : null;
+      console.log('Slug from pathname fallback:', slug);
+      return slug;
     }
 
     function handleSearch() {

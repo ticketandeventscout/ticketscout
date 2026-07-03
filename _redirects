@@ -1,13 +1,9 @@
-# TicketScout — Cloudflare Pages URL routing
-# Routes clean SEO URLs to the appropriate template pages.
-# :splat captures the wildcard portion and passes it as ?slug=
-# so the template can read it via URLSearchParams.
+# TicketScout — Cloudflare Pages redirects
+# NOTE: Concert/artist pages are handled by Pages Functions, not redirects.
+# See functions/concert/[slug].js for the concert URL router.
+# Future category routers should follow the same pattern.
 
-# Concert/artist pages
-/concert/:slug    /concert.html?slug=:slug    200
-
-# Future routes — uncomment as pages are built
-# /football/:slug   /football.html?slug=:slug   200
-# /theatre/:slug    /theatre.html?slug=:slug    200
-# /comedy/:slug     /comedy.html?slug=:slug     200
-# /venue/:slug      /venue.html?slug=:slug      200
+# Redirect /concerts to homepage (category browsing handled there for now)
+/concerts /  302
+/theatre  /  302
+/football /  302
