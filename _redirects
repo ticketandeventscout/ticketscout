@@ -1,0 +1,12 @@
+# TicketScout — Cloudflare Pages URL routing
+# Routes clean SEO URLs to the appropriate template pages.
+# Add new categories here as they are built.
+
+# Concert/artist pages — all /concert/* routes serve the artist template
+/concert/*    /concert.html    200
+
+# Future routes — uncomment as pages are built
+# /football/*   /football.html   200
+# /theatre/*    /theatre.html    200
+# /comedy/*     /comedy.html     200
+# /venue/*      /venue.html      200
