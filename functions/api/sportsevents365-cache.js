@@ -76,18 +76,21 @@ async function refreshCache(env, url) {
   const basicAuth = btoa(`${httpUser}:${httpPass}`);
   const headers   = { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' };
 
-  // Parse page range — e.g. "1-75" → { from: 1, to: 75 }
+  // Parse page range — supports:
+  //   "1-75"   → pages 1 to 75
+  //   "301-end" → pages 301 to whatever the API reports as last_page
+  //   (empty)  → all pages
   const pagesParam = url.searchParams.get('pages') || '';
   const resetCache = url.searchParams.get('reset') === '1';
 
-  let fromPage = 1;
-  let toPage   = null; // null = fetch all
+  let fromPage    = 1;
+  let toPageParam = null; // null = fetch all; 'end' = fetch to last_page
 
   if (pagesParam) {
-    const match = pagesParam.match(/^(\d+)-(\d+)$/);
+    const match = pagesParam.match(/^(\d+)-(\d+|end)$/i);
     if (match) {
-      fromPage = parseInt(match[1]);
-      toPage   = parseInt(match[2]);
+      fromPage    = parseInt(match[1]);
+      toPageParam = match[2].toLowerCase() === 'end' ? 'end' : parseInt(match[2]);
     }
   }
 
@@ -105,13 +108,18 @@ async function refreshCache(env, url) {
     }
 
     // Fetch first page to get total page count
-    const firstUrl = buildPageUrl(baseUrl, apiKey, fromPage);
+    const firstUrl  = buildPageUrl(baseUrl, apiKey, fromPage);
     const firstResp = await fetch(firstUrl, { headers });
     if (!firstResp.ok) return { success: false, error: `HTTP ${firstResp.status} on page ${fromPage}` };
 
     const firstData  = await firstResp.json();
     const totalPages = firstData?.meta?.last_page || 1;
-    const maxPage    = toPage ? Math.min(toPage, totalPages) : totalPages;
+
+    // Resolve toPage — 'end' means go to whatever last_page the API reports
+    // This ensures new pages are always picked up automatically as SE365 grows
+    const maxPage = toPageParam === null  ? totalPages
+                  : toPageParam === 'end' ? totalPages
+                  : Math.min(toPageParam, totalPages);
 
     const participants = [...(firstData?.data || [])];
 
