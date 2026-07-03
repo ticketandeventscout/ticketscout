@@ -45,35 +45,37 @@ export async function onRequestGet({ request, params, env }) {
   const artist = ARTISTS.find(a => a.slug === slug.toLowerCase());
   const name   = artist?.name || toTitleCase(slug.replace(/-/g, ' '));
   const desc   = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct.`;
+  const pageUrl = `https://www.ticketscout.co.uk/concert/${slug}`;
 
-  // ── Inject server-side meta tags ─────────────────────────────────────────
-  // These replace the placeholder tags in concert.html so social crawlers
-  // see real content without needing to execute JavaScript
-  const serverMeta = `
-  <title>${name} Tickets — Compare Prices | TicketScout</title>
-  <meta name="description" content="${escAttr(desc)}" />
-  <link rel="canonical" href="${pageUrl}" />
-  <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="TicketScout" />
-  <meta property="og:title" content="${escAttr(name)} Tickets — Compare Prices | TicketScout" />
-  <meta property="og:description" content="${escAttr(desc)}" />
-  <meta property="og:url" content="${pageUrl}" />
-  <meta property="og:image" content="https://www.ticketscout.co.uk/og-default.png" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="${escAttr(name)} Tickets — Compare Prices | TicketScout" />
-  <meta name="twitter:description" content="${escAttr(desc)}" />
-  <meta name="twitter:image" content="https://www.ticketscout.co.uk/og-default.png" />
-  <script>window.__CONCERT_SLUG__ = ${JSON.stringify(slug.toLowerCase())};</script>`;
-
-  // Replace the existing dynamic meta block with server-side version
+  // ── Inject server-side content into existing placeholder tags ────────────
+  // We UPDATE the existing tags rather than removing/replacing them.
+  // This is safer — the HTML structure stays intact for the client JS to work.
+  // Social crawlers see the server-side values; JS updates them on load for the browser.
   html = html
-    .replace(/<title id="page-title">[\s\S]*?<\/title>/, '')
-    .replace(/<meta name="description"[^>]*>/, '')
-    .replace(/<link rel="canonical"[^>]*>/, '')
-    .replace(/<meta property="og:[^>]*>/g, '')
-    .replace(/<meta name="twitter:[^>]*>/g, '')
-    .replace(/<script type="application\/ld\+json"[^>]*><\/script>/, '')
-    .replace('</head>', `${serverMeta}\n  <script type="application/ld+json" id="schema-org"></script>\n</head>`);
+    // Update title
+    .replace(
+      /<title id="page-title">.*?<\/title>/,
+      `<title id="page-title">${escAttr(name)} Tickets — Compare Prices | TicketScout</title>`
+    )
+    // Update meta description
+    .replace(
+      /<meta name="description" id="meta-description"[^>]*>/,
+      `<meta name="description" id="meta-description" content="${escAttr(desc)}" />`
+    )
+    // Update canonical
+    .replace(
+      /<link rel="canonical" id="canonical"[^>]*>/,
+      `<link rel="canonical" id="canonical" href="${pageUrl}" />`
+    )
+    // Update OG tags
+    .replace(/<meta property="og:title" id="og-title"[^>]*>/, `<meta property="og:title" id="og-title" content="${escAttr(name)} Tickets — Compare Prices | TicketScout" />`)
+    .replace(/<meta property="og:description" id="og-description"[^>]*>/, `<meta property="og:description" id="og-description" content="${escAttr(desc)}" />`)
+    .replace(/<meta property="og:url" id="og-url"[^>]*>/, `<meta property="og:url" id="og-url" content="${pageUrl}" />`)
+    // Update Twitter tags
+    .replace(/<meta name="twitter:title" id="tw-title"[^>]*>/, `<meta name="twitter:title" id="tw-title" content="${escAttr(name)} Tickets — Compare Prices | TicketScout" />`)
+    .replace(/<meta name="twitter:description" id="tw-description"[^>]*>/, `<meta name="twitter:description" id="tw-description" content="${escAttr(desc)}" />`)
+    // Inject slug variable before </head>
+    .replace('</head>', `<script>window.__CONCERT_SLUG__ = ${JSON.stringify(slug.toLowerCase())};</script>\n</head>`);
 
   return new Response(html, {
     status: 200,

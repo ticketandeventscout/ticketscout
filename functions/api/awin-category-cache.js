@@ -49,6 +49,7 @@ const GENERIC_NAMES = new Set([
 const COL = {
   aw_deep_link:      0,
   product_name:      1,
+  aw_image_url:      2,  // product/event image URL
   merchant_name:     8,
   merchant_id:       9,
   category_name:     10,
@@ -217,6 +218,7 @@ async function parseFeedStream(stream, knownArtists, knownVenues) {
                 newArtistMap.set(slug, {
                   slug, name: artistName, search: artistName,
                   genre, description: generateArtistDescription(artistName, genre),
+                  image_url: row.image_url || '',
                   source: `awin:${row.merchant_name}`
                 });
               }
@@ -290,6 +292,7 @@ function parseRow(line) {
   return {
     product_name:      productName,
     aw_deep_link:      awDeepLink,
+    image_url:         safeGet(COL.aw_image_url),
     price,
     currency:          safeGet(COL.currency) || 'GBP',
     merchant_name:     merchantName,

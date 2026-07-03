@@ -136,6 +136,19 @@ async function runSearch(keyword) {
   grid.className = 'events-grid';
   grid.innerHTML = '<div class="loading">Searching…</div>';
 
+  // Check if a /concert/[slug] discovery page exists for this keyword
+  // If so, redirect there immediately — richer page, avoids showing picker
+  const slug = toArtistSlug(keyword);
+  if (slug) {
+    try {
+      const check = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
+      if (check.ok) {
+        window.location.href = `/concert/${slug}`;
+        return;
+      }
+    } catch {}
+  }
+
   try {
     const response = await fetch(`/api/attractions?keyword=${encodeURIComponent(keyword)}`);
     const data = await response.json();
