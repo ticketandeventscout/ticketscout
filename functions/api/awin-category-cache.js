@@ -45,30 +45,29 @@ const GENERIC_NAMES = new Set([
   'serie a', 'bundesliga', 'ligue 1', 'formula 1', 'formula one'
 ]);
 
-// Column indices (0-based)
+// Column indices (0-based) — 86-column Awin feed format
+// Verified from debug output 03/07/2026
 const COL = {
-  aw_deep_link:      0,
-  product_name:      1,
-  aw_image_url:      2,  // product/event image URL
-  merchant_name:     8,
-  merchant_id:       9,
-  category_name:     10,
-  currency:          13,
-  display_price:     19,
-  search_price:      7,
-  store_price:       14,
-  in_stock:          44,
-  is_for_sale:       48,
-  merchant_category: 6,
-  description:       5,
-  primary_artist:    54,
-  event_name:        57,
-  venue_name:        58,
-  event_date:        56,
-  event_city:        68,
-  event_country:     70,
-  min_price:         62,
-  max_price:         63,
+  aw_deep_link:        0,
+  product_name:        1,
+  aw_product_id:       2,
+  merchant_product_id: 3,
+  merchant_image_url:  4,   // primary merchant image URL
+  description:         5,
+  merchant_category:   6,
+  search_price:        7,
+  merchant_name:       8,
+  merchant_id:         9,
+  category_name:       10,
+  aw_image_url:        12,  // Awin image URL
+  currency:            13,
+  store_price:         14,
+  display_price:       19,
+  in_stock:            49,  // shifted from 44 in new feed
+  is_for_sale:         53,  // shifted from 48 in new feed
+  merchant_thumb_url:  59,
+  large_image:         60,  // largest available image
+  aw_thumb_url:        62,
 };
 
 export async function onRequestGet({ request, env }) {
@@ -325,7 +324,7 @@ async function parseFeedStream(stream, knownArtists, knownVenues) {
 
 function parseRow(line) {
   const fields = parseCsvLine(line);
-  if (fields.length < 10) return null;
+  if (fields.length < 20) return null; // 86-column feed — reject anything too short
 
   const price = parsePrice(
     fields[COL.search_price] || fields[COL.display_price] ||
@@ -347,7 +346,8 @@ function parseRow(line) {
   return {
     product_name:      productName,
     aw_deep_link:      awDeepLink,
-    image_url:         safeGet(COL.aw_image_url),
+    // Image — prefer large_image, fall back to merchant_image_url, then aw_image_url
+    image_url:         safeGet(COL.large_image) || safeGet(COL.merchant_image_url) || safeGet(COL.aw_image_url),
     price,
     currency:          safeGet(COL.currency) || 'GBP',
     merchant_name:     merchantName,
@@ -355,12 +355,14 @@ function parseRow(line) {
     category_name:     safeGet(COL.category_name),
     merchant_category: safeGet(COL.merchant_category),
     description:       safeGet(COL.description).slice(0, 300),
-    primary_artist:    safeGet(COL.primary_artist),
-    event_name:        safeGet(COL.event_name),
-    venue_name:        safeGet(COL.venue_name),
-    event_date:        safeGet(COL.event_date),
-    event_city:        safeGet(COL.event_city),
-    event_country:     safeGet(COL.event_country),
+    // Ticket-specific fields no longer present in 67-column feed
+    // Date/venue extracted from description field by awin-category.js
+    primary_artist:    '',
+    event_name:        '',
+    venue_name:        '',
+    event_date:        '',
+    event_city:        '',
+    event_country:     '',
   };
 }
 
