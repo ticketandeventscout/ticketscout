@@ -95,7 +95,7 @@ async function refreshCache(env, url) {
   }
 
   const startTime = Date.now();
-  console.log(`SE365 cache refresh: pages ${fromPage}–${toPage || 'all'}, reset=${resetCache}`);
+  console.log(`SE365 cache refresh: pages ${fromPage}–${toPageParam || 'all'}, reset=${resetCache}`);
 
   try {
     // Load existing cache to merge into (unless reset requested)
