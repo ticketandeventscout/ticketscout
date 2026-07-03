@@ -183,11 +183,12 @@ function buildEventsUrl(baseUrl, apiKey, participantId, targetDate) {
     // Convert YYYY-MM-DD → dd/mm/yyyy for SE365
     const [year, month, day] = targetDate.split('-');
     if (year && month && day) {
-      // Search ±7 days around the target date
+      // Search ±2 days around the target date — tight window to avoid
+      // matching a different fixture on a nearby date (e.g. Sunday vs Friday)
       const from = new Date(targetDate);
-      from.setDate(from.getDate() - 7);
+      from.setDate(from.getDate() - 2);
       const to = new Date(targetDate);
-      to.setDate(to.getDate() + 7);
+      to.setDate(to.getDate() + 2);
 
       url.searchParams.set('dateFrom', formatDate(from));
       url.searchParams.set('dateTo',   formatDate(to));

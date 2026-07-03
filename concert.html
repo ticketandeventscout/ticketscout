@@ -632,14 +632,11 @@
         const location = [venueName, city].filter(Boolean).join(' · ');
         const minPrice = e.priceRanges?.[0]?.min;
 
-        // If price available — show price + "Compare prices →" badge
-        // If no price — show larger "Buy tickets" button only (nothing to compare yet)
-        const rightHtml = minPrice ? `
-          <div class="event-list-price">From £${Math.round(minPrice)}</div>
-          <span class="event-list-cta">Compare prices →</span>
-        ` : `
-          <span class="event-list-cta event-list-cta--buy">Buy tickets →</span>
-        `;
+        // Show price from TM if available, otherwise just the compare CTA
+        // Prices from other sellers (Gigsberg, SE365) are shown on the detail page
+        const priceHtml = minPrice
+          ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>`
+          : '';
 
         return `
           <a class="event-list-item" href="/#/event/${e.id}">
@@ -648,7 +645,8 @@
               <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
             </div>
             <div class="event-list-right">
-              ${rightHtml}
+              ${priceHtml}
+              <span class="event-list-cta">Compare prices →</span>
             </div>
           </a>`;
       }).join('');
