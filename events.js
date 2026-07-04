@@ -137,7 +137,6 @@ async function runSearch(keyword) {
   grid.innerHTML = '<div class="loading">Searching…</div>';
 
   // Check if a /concert/[slug] discovery page exists for this keyword
-  // If so, redirect there immediately — richer page, avoids showing picker
   const slug = toArtistSlug(keyword);
   if (slug) {
     try {
@@ -155,13 +154,22 @@ async function runSearch(keyword) {
     const attractions = data._embedded?.attractions || [];
 
     if (attractions.length === 0) {
-      // Fall back to a plain event keyword search (covers venues, festivals, etc.
-      // that aren't modeled as a single "attraction")
-      grid.innerHTML = '<div class="loading">No specific artist match — showing event results…</div>';
+      // No attractions found — try event keyword search
       const evResponse = await fetch(`/api/ticketmaster?keyword=${encodeURIComponent(keyword)}&size=12`);
       const evData = await evResponse.json();
-      if (evData.error || !evData._embedded?.events) {
-        grid.innerHTML = '<div class="error-msg">No events found. Try a different search.</div>';
+
+      if (evData.error || !evData._embedded?.events || evData._embedded.events.length === 0) {
+        // Truly nothing found — show "did you mean?" by fuzzy-searching TM
+        const suggestion = await findSuggestion(keyword);
+        if (suggestion) {
+          grid.innerHTML = `
+            <div class="no-results-msg">
+              <p>No results found for <strong>"${keyword}"</strong>.</p>
+              <p>Did you mean: <a href="#/search/${encodeURIComponent(suggestion)}" class="suggestion-link">${suggestion}</a>?</p>
+            </div>`;
+        } else {
+          grid.innerHTML = `<div class="error-msg">No results found for "<strong>${keyword}</strong>". Try checking the spelling or search for a different artist or event.</div>`;
+        }
         return;
       }
       renderEventCards(grid, evData._embedded.events);
@@ -179,6 +187,57 @@ async function runSearch(keyword) {
     grid.innerHTML = '<div class="error-msg">Search failed. Please try again shortly.</div>';
     console.error('Attraction search error:', error);
   }
+}
+
+// Fuzzy suggestion — searches TM with a loose fuzzy query and returns
+// the best match name if it's sufficiently different from the original
+async function findSuggestion(keyword) {
+  try {
+    // Use first few chars as a broader search
+    const broadKeyword = keyword.slice(0, Math.max(4, keyword.length - 2));
+    const resp = await fetch(`/api/attractions?keyword=${encodeURIComponent(broadKeyword)}&size=5`);
+    const data = await resp.json();
+    const attractions = data._embedded?.attractions || [];
+
+    if (attractions.length === 0) return null;
+
+    // Find the attraction whose name is closest to the keyword
+    const normKeyword = keyword.toLowerCase();
+    const scored = attractions
+      .filter(a => !isTributeName(a.name))
+      .map(a => ({
+        name: a.name,
+        score: similarityScore(normKeyword, a.name.toLowerCase())
+      }))
+      .filter(r => r.score > 0.5) // only suggest if reasonably similar
+      .sort((a, b) => b.score - a.score);
+
+    if (scored.length === 0) return null;
+
+    // Only suggest if it's different from what they typed
+    if (scored[0].name.toLowerCase() === normKeyword) return null;
+    return scored[0].name;
+  } catch {
+    return null;
+  }
+}
+
+// Simple similarity score using character overlap (0-1)
+function similarityScore(a, b) {
+  if (a === b) return 1;
+  const longer  = a.length > b.length ? a : b;
+  const shorter = a.length > b.length ? b : a;
+  if (longer.length === 0) return 1;
+  let matches = 0;
+  for (let i = 0; i < shorter.length; i++) {
+    if (longer.includes(shorter[i])) matches++;
+  }
+  return matches / longer.length;
+}
+
+function isTributeName(name) {
+  const lower = (name || '').toLowerCase();
+  return ['tribute', 'ultimate', 'salute', 'legacy', 'experience'].some(kw => lower.includes(kw));
 }
 
 function renderArtistPicker(grid, attractions) {

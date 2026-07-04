@@ -48,10 +48,11 @@
     <div class="hero-inner">
       <h1>Find the best ticket price,<br />every time</h1>
       <p>We compare prices across all major UK ticket sites so you don't have to</p>
-      <div class="search-bar">
+      <div class="search-bar" style="position:relative;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <input type="text" id="search-input" placeholder="Search for an artist, team, or event…" />
+        <input type="text" id="search-input" placeholder="Search for an artist, team, or event…" autocomplete="off" />
         <button id="search-btn" onclick="handleSearch()">Search</button>
+        <div id="search-suggestions" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #c8dff5; border-top:none; border-radius:0 0 8px 8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); z-index:100; max-height:240px; overflow-y:auto;"></div>
       </div>
       <div class="cat-row" id="cat-row">
         <button class="cat-pill active" onclick="filterCategory(this, 'all')">All events</button>
@@ -152,6 +153,125 @@
 
   <script src="events.js"></script>
   <script src="compare.js"></script>
+  <script>
+    // ===========================
+    // Search autocomplete
+    // ===========================
+    (function() {
+      const input       = document.getElementById('search-input');
+      const suggestions = document.getElementById('search-suggestions');
+      let debounceTimer = null;
+      let lastQuery     = '';
+
+      if (!input || !suggestions) return;
+
+      input.addEventListener('input', function() {
+        const query = this.value.trim();
+        clearTimeout(debounceTimer);
+
+        if (query.length < 2) {
+          hideSuggestions();
+          return;
+        }
+
+        if (query === lastQuery) return;
+        lastQuery = query;
+
+        debounceTimer = setTimeout(() => fetchSuggestions(query), 280);
+      });
+
+      input.addEventListener('keydown', function(e) {
+        const items = suggestions.querySelectorAll('.suggestion-item');
+        const active = suggestions.querySelector('.suggestion-item.active');
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (!active) { items[0]?.classList.add('active'); }
+          else {
+            active.classList.remove('active');
+            (active.nextElementSibling || items[0])?.classList.add('active');
+          }
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (!active) { items[items.length - 1]?.classList.add('active'); }
+          else {
+            active.classList.remove('active');
+            (active.previousElementSibling || items[items.length - 1])?.classList.add('active');
+          }
+        } else if (e.key === 'Escape') {
+          hideSuggestions();
+        } else if (e.key === 'Enter') {
+          if (active) {
+            e.preventDefault();
+            input.value = active.dataset.name;
+            hideSuggestions();
+            handleSearch();
+          }
+        }
+      });
+
+      document.addEventListener('click', function(e) {
+        if (!input.contains(e.target) && !suggestions.contains(e.target)) {
+          hideSuggestions();
+        }
+      });
+
+      async function fetchSuggestions(query) {
+        try {
+          const resp = await fetch(`/api/attractions?keyword=${encodeURIComponent(query)}&size=6`);
+          const data = await resp.json();
+          const attractions = (data._embedded?.attractions || [])
+            .filter(a => !isTribute(a.name));
+
+          if (attractions.length === 0) { hideSuggestions(); return; }
+
+          suggestions.innerHTML = attractions.map(a => {
+            const image = getBestAttractionImage(a.images);
+            const genre = a.classifications?.[0]?.segment?.name || '';
+            return `<div class="suggestion-item" data-name="${escAttr(a.name)}" data-id="${a.id}">
+              ${image ? `<img src="${image}" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;" />` : `<div style="width:36px;height:36px;background:#e8f2fc;border-radius:4px;flex-shrink:0;"></div>`}
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:600;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.name)}</div>
+                ${genre ? `<div style="font-size:11px;color:#888;">${escHtml(genre)}</div>` : ''}
+              </div>
+            </div>`;
+          }).join('');
+
+          suggestions.querySelectorAll('.suggestion-item').forEach(item => {
+            item.addEventListener('click', function() {
+              input.value = this.dataset.name;
+              hideSuggestions();
+              handleSearch();
+            });
+            item.addEventListener('mouseenter', function() {
+              suggestions.querySelectorAll('.suggestion-item').forEach(i => i.classList.remove('active'));
+              this.classList.add('active');
+            });
+          });
+
+          suggestions.style.display = 'block';
+        } catch { hideSuggestions(); }
+      }
+
+      function hideSuggestions() {
+        suggestions.style.display = 'none';
+        suggestions.innerHTML = '';
+      }
+
+      function isTribute(name) {
+        return ['tribute', 'ultimate', 'salute', 'legacy', 'experience'].some(kw =>
+          (name || '').toLowerCase().includes(kw));
+      }
+
+      function getBestAttractionImage(images) {
+        if (!images || !images.length) return null;
+        const small = images.find(img => img.ratio === '1_1' && img.width < 100);
+        return small?.url || images[images.length - 1]?.url || null;
+      }
+
+      function escAttr(str) { return (str||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+      function escHtml(str) { return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+    })();
+  </script>
 
 </body>
 </html>

@@ -625,3 +625,44 @@ a:hover {
   color: #999;
   font-style: italic;
 }
+
+/* ===========================
+   Search autocomplete suggestions
+   =========================== */
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-item:hover,
+.suggestion-item.active {
+  background: #f0f7ff;
+}
+
+/* Did you mean suggestion */
+.no-results-msg {
+  padding: 24px;
+  text-align: center;
+  color: #555;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.suggestion-link {
+  color: #1a6fc4;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.suggestion-link:hover {
+  text-decoration: underline;
+}

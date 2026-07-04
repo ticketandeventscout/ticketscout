@@ -37,9 +37,20 @@ export async function onRequestGet({ request, env }) {
     return jsonResponse({ error: 'slug is required' }, 400);
   }
 
-  const artist = ARTISTS.find(a => a.slug === slug.toLowerCase());
+  const normSlug = slug.toLowerCase();
+  let artist = ARTISTS.find(a => a.slug === normSlug);
+
+  // If not in the hardcoded list, generate a fallback from the slug itself
+  // This handles auto-discovered pages committed by the discovery pipeline
   if (!artist) {
-    return jsonResponse({ error: 'Artist not found' }, 404);
+    const name = toTitleCase(normSlug.replace(/-/g, ' '));
+    artist = {
+      slug:        normSlug,
+      name,
+      search:      name,
+      genre:       'Live Events',
+      description: `Compare ${name} ticket prices across verified sellers. Find the best deal and buy directly from your chosen seller.`
+    };
   }
 
   // Resolve Ticketmaster attraction ID for this artist
@@ -103,6 +114,10 @@ export async function onRequestGet({ request, env }) {
     attractionId,
     tmImage
   }, 200);
+}
+
+function toTitleCase(str) {
+  return (str || '').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function jsonResponse(body, status) {

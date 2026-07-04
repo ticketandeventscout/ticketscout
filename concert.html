@@ -458,10 +458,35 @@
       return slug;
     }
 
-    function handleSearch() {
+    function toSearchSlug(name) {
+      return (name || '')
+        .replace(/\s*\([^)]*\)\s*/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .slice(0, 60);
+    }
+
+    async function handleSearch() {
       const keyword = document.getElementById('search-input').value.trim();
       if (!keyword) return;
-      window.location.href = `/?search=${encodeURIComponent(keyword)}`;
+
+      // Check if a concert page exists for this keyword first
+      const slug = toSearchSlug(keyword);
+      if (slug) {
+        try {
+          const check = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
+          if (check.ok) {
+            window.location.href = `/concert/${slug}`;
+            return;
+          }
+        } catch {}
+      }
+
+      // No concert page — go to homepage with hash search
+      window.location.href = `/#/search/${encodeURIComponent(keyword)}`;
     }
 
     document.getElementById('search-input').addEventListener('keypress', e => {
