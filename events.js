@@ -153,19 +153,19 @@ async function runSearch(keyword) {
     const data = await response.json();
     const attractions = data._embedded?.attractions || [];
 
-    if (attractions.length === 0) {
-      // No attractions found — try event keyword search
+    if (attractions.length === 0 || attractions.every(a => isTributeName(a.name))) {
+      // No real results — try event keyword search
       const evResponse = await fetch(`/api/ticketmaster?keyword=${encodeURIComponent(keyword)}&size=12`);
       const evData = await evResponse.json();
 
       if (evData.error || !evData._embedded?.events || evData._embedded.events.length === 0) {
-        // Truly nothing found — show "did you mean?" by fuzzy-searching TM
+        // Truly nothing found — show "did you mean?"
         const suggestion = await findSuggestion(keyword);
         if (suggestion) {
           grid.innerHTML = `
             <div class="no-results-msg">
               <p>No results found for <strong>"${keyword}"</strong>.</p>
-              <p>Did you mean: <a href="#/search/${encodeURIComponent(suggestion)}" class="suggestion-link">${suggestion}</a>?</p>
+              <p>Did you mean: <a href="#" class="suggestion-link" onclick="event.preventDefault(); document.getElementById('search-input').value='${suggestion.replace(/'/g,"\\'")}'; handleSearch();">${suggestion}</a>?</p>
             </div>`;
         } else {
           grid.innerHTML = `<div class="error-msg">No results found for "<strong>${keyword}</strong>". Try checking the spelling or search for a different artist or event.</div>`;

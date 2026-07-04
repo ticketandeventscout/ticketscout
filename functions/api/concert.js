@@ -41,18 +41,18 @@ export async function onRequestGet({ request, env }) {
   let artist = ARTISTS.find(a => a.slug === normSlug);
 
   // If not in the hardcoded list, generate a fallback from the slug itself
-  // Only for slugs of reasonable length (3+ words or 6+ chars) to avoid
-  // matching partial typing fragments like "col", "met" etc.
+  // Only for multi-word slugs (likely a show/event name e.g. "a-christmas-carol")
+  // Single-word slugs that aren't in the list are likely misspellings — return 404
+  // so the search flow can offer a "did you mean?" suggestion instead
   if (!artist) {
-    const name = toTitleCase(normSlug.replace(/-/g, ' '));
     const wordCount = normSlug.split('-').length;
-    const charCount = normSlug.replace(/-/g, '').length;
 
-    // Reject very short single-word slugs — likely a partial search term
-    if (wordCount === 1 && charCount < 6) {
+    // Single word not in list = likely a misspelling, don't create a page
+    if (wordCount === 1) {
       return jsonResponse({ error: 'Artist not found' }, 404);
     }
 
+    const name = toTitleCase(normSlug.replace(/-/g, ' '));
     artist = {
       slug:        normSlug,
       name,
