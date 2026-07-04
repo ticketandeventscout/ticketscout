@@ -40,8 +40,7 @@ export async function onRequestGet({ request, env }) {
   const normSlug = slug.toLowerCase();
   let artist = ARTISTS.find(a => a.slug === normSlug);
 
-  // If not in the hardcoded list, check KV for auto-discovered artists
-  // The discovery pipeline stores artist data in KV when committing pages
+  // If not in the hardcoded list, check KV for auto-discovered artist data
   if (!artist) {
     const kv = env.GIGSBERG_KV;
     if (kv) {
@@ -52,12 +51,25 @@ export async function onRequestGet({ request, env }) {
         }
       } catch {}
     }
+  }
 
-    // If still not found — genuinely unknown slug, return 404
-    // This prevents misspellings from creating ghost pages
-    if (!artist) {
+  // Final fallback — generate from slug for multi-word slugs
+  // Multi-word slugs (containing hyphens) are almost certainly show/event names
+  // e.g. "a-christmas-carol", "abba-voyage" — not misspellings
+  // Single-word slugs not in KV or ARTISTS array are likely misspellings — return 404
+  if (!artist) {
+    const isMultiWord = normSlug.includes('-');
+    if (!isMultiWord) {
       return jsonResponse({ error: 'Artist not found' }, 404);
     }
+    const name = toTitleCase(normSlug.replace(/-/g, ' '));
+    artist = {
+      slug:        normSlug,
+      name,
+      search:      name,
+      genre:       'Live Events',
+      description: `Compare ${name} ticket prices across verified sellers. Find the best deal and buy directly from your chosen seller.`
+    };
   }
 
   // Resolve Ticketmaster attraction ID for this artist
