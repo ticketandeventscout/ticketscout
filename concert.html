@@ -406,6 +406,17 @@
       color: #555;
       font-weight: 500;
     }
+
+    .page-btn--load-more {
+      background: #0c2d5a;
+      color: #ffffff;
+      margin-top: 4px;
+    }
+
+    .page-btn--load-more:hover:not(:disabled) {
+      background: #1a6fc4;
+      color: #ffffff;
+    }
   </style>
 </head>
 <body>
@@ -739,9 +750,16 @@
 
         // Fetch events from Ticketmaster
         if (attractionId) {
-          const evResp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50`);
+          // Store attractionId globally for load more and date filtering
+          window.__attractionId = attractionId;
+          window.__tmPage       = 1; // TM uses page-based pagination
+
+          const evResp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`);
           const evData = await evResp.json();
           const events = evData?._embedded?.events || [];
+
+          // Store total available from TM so we know if load more is possible
+          window.__tmTotal = evData?.page?.totalElements || events.length;
 
           updateMeta(artist, events, tmImage);
           renderEvents(events, artist, slug);
@@ -760,7 +778,7 @@
       }
     }
 
-    const PAGE_SIZE = 10; // events per page
+    const PAGE_SIZE = 10;
 
     function renderEvents(events, artist, slug) {
       const container = document.getElementById('events-container');
@@ -773,12 +791,12 @@
         return;
       }
 
-      // Store all events globally for filtering/pagination
-      window.__allEvents   = events;
-      window.__currentPage = 1;
-      window.__dateFilter  = '';
+      window.__allEvents      = events;
+      window.__currentPage    = 1;
+      window.__dateFilter     = '';
+      window.__filteredEvents = null;
+      window.__artist         = artist;
 
-      // Render filter bar + event list container
       container.innerHTML = `
         <div class="event-filter-bar">
           <div class="event-filter-left">
@@ -793,107 +811,179 @@
         <div class="event-pagination" id="event-pagination"></div>
       `;
 
-      // Wire up date filter
-      document.getElementById('date-filter').addEventListener('change', function() {
-        window.__dateFilter  = this.value;
+      document.getElementById('date-filter').addEventListener('change', async function() {
+        const selectedDate   = this.value;
+        window.__dateFilter  = selectedDate;
         window.__currentPage = 1;
-        document.getElementById('clear-date').style.display = this.value ? 'inline-flex' : 'none';
-        renderPage();
+        document.getElementById('clear-date').style.display = selectedDate ? 'inline-flex' : 'none';
+
+        if (!selectedDate) {
+          window.__filteredEvents = null;
+          renderPage();
+          return;
+        }
+
+        // Check if date already in loaded events
+        const inLoaded = (window.__allEvents || []).filter(e =>
+          e.dates?.start?.localDate === selectedDate
+        );
+
+        if (inLoaded.length > 0) {
+          window.__filteredEvents = null; // use loaded set
+          renderPage();
+        } else {
+          // Fetch from TM for this specific date
+          document.getElementById('event-list-inner').innerHTML =
+            '<div class="events-loading">Checking availability for this date…</div>';
+          document.getElementById('event-pagination').innerHTML = '';
+          try {
+            const aid  = window.__attractionId;
+            const resp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=20&startDateTime=${selectedDate}T00:00:00Z&endDateTime=${selectedDate}T23:59:59Z`);
+            const data = await resp.json();
+            const found = data?._embedded?.events || [];
+            window.__filteredEvents = found;
+            if (found.length === 0) {
+              document.getElementById('event-count').textContent = '0 dates found';
+              document.getElementById('event-list-inner').innerHTML = `
+                <div class="no-events"><p>No events on this date. <a href="#" onclick="event.preventDefault();clearDateFilter();">Show all dates</a></p></div>`;
+            } else {
+              renderDateFilteredResults(found);
+            }
+          } catch {
+            document.getElementById('event-list-inner').innerHTML =
+              '<div class="no-events"><p>Unable to check this date. Please try again.</p></div>';
+          }
+        }
       });
 
-      document.getElementById('clear-date').addEventListener('click', function() {
-        document.getElementById('date-filter').value = '';
-        window.__dateFilter  = '';
-        window.__currentPage = 1;
-        this.style.display = 'none';
-        renderPage();
-      });
+      document.getElementById('clear-date').addEventListener('click', clearDateFilter);
 
       renderPage();
     }
 
-    function renderPage() {
-      const allEvents  = window.__allEvents  || [];
-      const dateFilter = window.__dateFilter || '';
-      const page       = window.__currentPage || 1;
+    function clearDateFilter() {
+      const df = document.getElementById('date-filter');
+      if (df) df.value = '';
+      const cd = document.getElementById('clear-date');
+      if (cd) cd.style.display = 'none';
+      window.__dateFilter     = '';
+      window.__currentPage    = 1;
+      window.__filteredEvents = null;
+      renderPage();
+    }
 
-      // Apply date filter
-      const filtered = dateFilter
-        ? allEvents.filter(e => {
-            const eventDate = e.dates?.start?.localDate || '';
-            return eventDate === dateFilter;
-          })
+    function renderDateFilteredResults(events) {
+      const countEl = document.getElementById('event-count');
+      const listEl  = document.getElementById('event-list-inner');
+      const pagEl   = document.getElementById('event-pagination');
+      if (countEl) countEl.textContent = `${events.length} date${events.length !== 1 ? 's' : ''} found`;
+      if (pagEl)   pagEl.innerHTML = '';
+      if (listEl)  listEl.innerHTML = `<div class="event-list">${events.map(buildEventRow).join('')}</div>`;
+    }
+
+    function renderPage() {
+      const allEvents = window.__allEvents || [];
+      const page      = window.__currentPage || 1;
+
+      // If we have date-filtered results from TM, show those directly
+      if (window.__dateFilter && window.__filteredEvents !== null) {
+        renderDateFilteredResults(window.__filteredEvents);
+        return;
+      }
+
+      const filtered   = window.__dateFilter
+        ? allEvents.filter(e => e.dates?.start?.localDate === window.__dateFilter)
         : allEvents;
 
       const total      = filtered.length;
       const totalPages = Math.ceil(total / PAGE_SIZE);
-      const start      = (page - 1) * PAGE_SIZE;
-      const pageEvents = filtered.slice(start, start + PAGE_SIZE);
+      const pageEvents = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+      const tmTotal    = window.__tmTotal || total;
+      const hasMore    = !window.__dateFilter && allEvents.length < tmTotal;
 
-      // Update count
       const countEl = document.getElementById('event-count');
       if (countEl) {
-        countEl.textContent = dateFilter
-          ? `${total} date${total !== 1 ? 's' : ''} found`
-          : `${total} upcoming date${total !== 1 ? 's' : ''}`;
+        if (!window.__dateFilter && tmTotal > allEvents.length) {
+          countEl.textContent = `Showing ${allEvents.length} of ${tmTotal} upcoming dates`;
+        } else {
+          countEl.textContent = window.__dateFilter
+            ? `${total} date${total !== 1 ? 's' : ''} found`
+            : `${total} upcoming date${total !== 1 ? 's' : ''}`;
+        }
       }
 
-      // Render event rows
       const listEl = document.getElementById('event-list-inner');
-      if (!listEl) return;
-
-      if (pageEvents.length === 0) {
-        listEl.innerHTML = `
-          <div class="no-events">
-            <p>No events found for this date. <a href="#" onclick="event.preventDefault(); document.getElementById('date-filter').value=''; window.__dateFilter=''; window.__currentPage=1; document.getElementById('clear-date').style.display='none'; renderPage();">Show all dates</a></p>
-          </div>`;
-      } else {
-        const html = pageEvents.map(e => {
-          const date      = formatDate(e.dates?.start?.localDate);
-          const time      = e.dates?.start?.localTime ? e.dates.start.localTime.slice(0,5) : '';
-          const venue     = e._embedded?.venues?.[0];
-          const venueName = venue?.name || '';
-          const city      = venue?.city?.name || '';
-          const location  = [venueName, city].filter(Boolean).join(' · ');
-          const minPrice  = e.priceRanges?.[0]?.min;
-          const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
-
-          return `
-            <a class="event-list-item" href="/#/event/${e.id}">
-              <div class="event-list-left">
-                <div class="event-list-name">${e.name}</div>
-                <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
-              </div>
-              <div class="event-list-right">
-                ${priceHtml}
-                <span class="event-list-cta">Compare prices →</span>
-              </div>
-            </a>`;
-        }).join('');
-        listEl.innerHTML = `<div class="event-list">${html}</div>`;
+      if (listEl) {
+        listEl.innerHTML = pageEvents.length === 0
+          ? `<div class="no-events"><p>No events for this date. <a href="#" onclick="event.preventDefault();clearDateFilter();">Show all dates</a></p></div>`
+          : `<div class="event-list">${pageEvents.map(buildEventRow).join('')}</div>`;
       }
 
-      // Render pagination
-      const paginationEl = document.getElementById('event-pagination');
-      if (!paginationEl) return;
+      const pagEl = document.getElementById('event-pagination');
+      if (!pagEl) return;
 
-      if (totalPages <= 1) {
-        paginationEl.innerHTML = '';
-        return;
+      const isLastPage = page >= totalPages;
+      let html = '';
+
+      if (totalPages > 1) {
+        html += `
+          <button class="page-btn" onclick="changePage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← Previous</button>
+          <span class="page-info">Page ${page} of ${totalPages}</span>
+          <button class="page-btn" onclick="changePage(${page + 1})" ${isLastPage ? 'disabled' : ''}>Next →</button>
+        `;
       }
 
-      paginationEl.innerHTML = `
-        <button class="page-btn" onclick="changePage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← Previous</button>
-        <span class="page-info">Page ${page} of ${totalPages}</span>
-        <button class="page-btn" onclick="changePage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>Next →</button>
-      `;
+      if (isLastPage && hasMore) {
+        html += `<button class="page-btn page-btn--load-more" onclick="loadMoreEvents()">Load more dates ↓</button>`;
+      }
+
+      pagEl.innerHTML = html;
+    }
+
+    async function loadMoreEvents() {
+      const aid = window.__attractionId;
+      if (!aid) return;
+      const btn = document.querySelector('.page-btn--load-more');
+      if (btn) { btn.textContent = 'Loading…'; btn.disabled = true; }
+
+      try {
+        const nextPage      = window.__tmPage || 1;
+        window.__tmPage     = nextPage + 1;
+        const resp          = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=50&page=${nextPage}`);
+        const data          = await resp.json();
+        const newEvents     = data?._embedded?.events || [];
+        if (newEvents.length > 0) {
+          window.__allEvents = [...(window.__allEvents || []), ...newEvents];
+          renderPage();
+        } else {
+          if (btn) { btn.textContent = 'No more dates'; btn.disabled = true; }
+        }
+      } catch {
+        if (btn) { btn.textContent = 'Load more dates ↓'; btn.disabled = false; }
+      }
     }
 
     function changePage(newPage) {
       window.__currentPage = newPage;
       renderPage();
-      // Scroll to top of event list
       document.getElementById('events-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function buildEventRow(e) {
+      const date      = formatDate(e.dates?.start?.localDate);
+      const time      = e.dates?.start?.localTime ? e.dates.start.localTime.slice(0,5) : '';
+      const venue     = e._embedded?.venues?.[0];
+      const location  = [venue?.name, venue?.city?.name].filter(Boolean).join(' · ');
+      const minPrice  = e.priceRanges?.[0]?.min;
+      const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
+      return `
+        <a class="event-list-item" href="/#/event/${e.id}">
+          <div class="event-list-left">
+            <div class="event-list-name">${e.name}</div>
+            <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
+          </div>
+          <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>
+        </a>`;
     }
 
     // Kick off

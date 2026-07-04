@@ -34,6 +34,11 @@ export async function onRequestGet({ request, env }) {
     const page = incoming.searchParams.get('page');
     if (page) tmUrl.searchParams.set('page', page);
 
+    const startDateTime = incoming.searchParams.get('startDateTime');
+    const endDateTime   = incoming.searchParams.get('endDateTime');
+    if (startDateTime) tmUrl.searchParams.set('startDateTime', startDateTime);
+    if (endDateTime)   tmUrl.searchParams.set('endDateTime',   endDateTime);
+
     const keyword = incoming.searchParams.get('keyword');
     if (keyword) tmUrl.searchParams.set('keyword', keyword);
 
