@@ -155,15 +155,15 @@
   <script src="compare.js"></script>
   <script>
     // ===========================
-    // Search autocomplete
+    // Search autocomplete — runs after events.js is loaded
     // ===========================
-    (function() {
+    document.addEventListener('DOMContentLoaded', function() {
       const input       = document.getElementById('search-input');
       const suggestions = document.getElementById('search-suggestions');
+      if (!input || !suggestions) return;
+
       let debounceTimer = null;
       let lastQuery     = '';
-
-      if (!input || !suggestions) return;
 
       input.addEventListener('input', function() {
         const query = this.value.trim();
@@ -177,35 +177,30 @@
         if (query === lastQuery) return;
         lastQuery = query;
 
-        debounceTimer = setTimeout(() => fetchSuggestions(query), 280);
+        debounceTimer = setTimeout(() => fetchSuggestions(query), 300);
       });
 
       input.addEventListener('keydown', function(e) {
-        const items = suggestions.querySelectorAll('.suggestion-item');
+        const items  = suggestions.querySelectorAll('.suggestion-item');
         const active = suggestions.querySelector('.suggestion-item.active');
+
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           if (!active) { items[0]?.classList.add('active'); }
-          else {
-            active.classList.remove('active');
-            (active.nextElementSibling || items[0])?.classList.add('active');
-          }
+          else { active.classList.remove('active'); (active.nextElementSibling || items[0])?.classList.add('active'); }
         } else if (e.key === 'ArrowUp') {
           e.preventDefault();
-          if (!active) { items[items.length - 1]?.classList.add('active'); }
-          else {
-            active.classList.remove('active');
-            (active.previousElementSibling || items[items.length - 1])?.classList.add('active');
-          }
+          if (!active) { items[items.length-1]?.classList.add('active'); }
+          else { active.classList.remove('active'); (active.previousElementSibling || items[items.length-1])?.classList.add('active'); }
         } else if (e.key === 'Escape') {
           hideSuggestions();
-        } else if (e.key === 'Enter') {
-          if (active) {
-            e.preventDefault();
-            input.value = active.dataset.name;
-            hideSuggestions();
-            handleSearch();
-          }
+        } else if (e.key === 'Enter' && active) {
+          e.preventDefault();
+          e.stopPropagation();
+          input.value = active.dataset.name;
+          hideSuggestions();
+          // Trigger search after a brief tick so handleSearch is ready
+          setTimeout(() => handleSearch(), 0);
         }
       });
 
@@ -218,17 +213,22 @@
       async function fetchSuggestions(query) {
         try {
           const resp = await fetch(`/api/attractions?keyword=${encodeURIComponent(query)}&size=6`);
+          if (!resp.ok) return;
           const data = await resp.json();
           const attractions = (data._embedded?.attractions || [])
-            .filter(a => !isTribute(a.name));
+            .filter(a => !isTribute(a.name))
+            .slice(0, 6);
 
           if (attractions.length === 0) { hideSuggestions(); return; }
 
           suggestions.innerHTML = attractions.map(a => {
-            const image = getBestAttractionImage(a.images);
+            const img   = getSmallImage(a.images);
             const genre = a.classifications?.[0]?.segment?.name || '';
-            return `<div class="suggestion-item" data-name="${escAttr(a.name)}" data-id="${a.id}">
-              ${image ? `<img src="${image}" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;" />` : `<div style="width:36px;height:36px;background:#e8f2fc;border-radius:4px;flex-shrink:0;"></div>`}
+            return `<div class="suggestion-item" data-name="${esc(a.name)}">
+              ${img
+                ? `<img src="${img}" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;" />`
+                : `<div style="width:36px;height:36px;background:#e8f2fc;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>`
+              }
               <div style="flex:1;min-width:0;">
                 <div style="font-size:13px;font-weight:600;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.name)}</div>
                 ${genre ? `<div style="font-size:11px;color:#888;">${escHtml(genre)}</div>` : ''}
@@ -237,40 +237,47 @@
           }).join('');
 
           suggestions.querySelectorAll('.suggestion-item').forEach(item => {
-            item.addEventListener('click', function() {
-              input.value = this.dataset.name;
-              hideSuggestions();
-              handleSearch();
-            });
             item.addEventListener('mouseenter', function() {
               suggestions.querySelectorAll('.suggestion-item').forEach(i => i.classList.remove('active'));
               this.classList.add('active');
             });
+            item.addEventListener('click', function() {
+              input.value = this.dataset.name;
+              hideSuggestions();
+              setTimeout(() => handleSearch(), 0);
+            });
           });
 
           suggestions.style.display = 'block';
-        } catch { hideSuggestions(); }
+        } catch(err) {
+          console.warn('Autocomplete error:', err);
+          hideSuggestions();
+        }
       }
 
       function hideSuggestions() {
         suggestions.style.display = 'none';
-        suggestions.innerHTML = '';
+        suggestions.innerHTML    = '';
+        lastQuery = '';
+      }
+
+      function getSmallImage(images) {
+        if (!images?.length) return null;
+        // Prefer a small square thumbnail
+        const small = images.find(img => img.ratio === '1_1' && img.width <= 100);
+        if (small) return small.url;
+        // Fall back to smallest available
+        return images.sort((a, b) => (a.width || 999) - (b.width || 999))[0]?.url || null;
       }
 
       function isTribute(name) {
-        return ['tribute', 'ultimate', 'salute', 'legacy', 'experience'].some(kw =>
-          (name || '').toLowerCase().includes(kw));
+        return ['tribute', 'ultimate', 'salute', 'legacy', 'experience']
+          .some(kw => (name || '').toLowerCase().includes(kw));
       }
 
-      function getBestAttractionImage(images) {
-        if (!images || !images.length) return null;
-        const small = images.find(img => img.ratio === '1_1' && img.width < 100);
-        return small?.url || images[images.length - 1]?.url || null;
-      }
-
-      function escAttr(str) { return (str||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-      function escHtml(str) { return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
-    })();
+      function esc(str)     { return (str||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+      function escHtml(str) { return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    });
   </script>
 
 </body>
