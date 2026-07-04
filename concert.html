@@ -300,6 +300,112 @@
       font-size: 14px;
       line-height: 1.7;
     }
+
+    /* Date filter bar */
+    .event-filter-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .event-filter-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .filter-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      white-space: nowrap;
+    }
+
+    .date-input {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      color: #1a1a1a;
+      border: 1px solid #c8dff5;
+      border-radius: 6px;
+      padding: 7px 12px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .date-input:focus {
+      border-color: #1a6fc4;
+      box-shadow: 0 0 0 3px rgba(26,111,196,0.08);
+    }
+
+    .filter-clear {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      color: #888;
+      background: none;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 6px 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+
+    .filter-clear:hover {
+      color: #e53e3e;
+      border-color: #e53e3e;
+    }
+
+    .event-filter-right {
+      font-size: 13px;
+      color: #888;
+    }
+
+    /* Pagination */
+    .event-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #eee;
+    }
+
+    .page-btn {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      color: #1a6fc4;
+      background: #e8f2fc;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .page-btn:hover:not(:disabled) {
+      background: #1a6fc4;
+      color: #ffffff;
+    }
+
+    .page-btn:disabled {
+      color: #aaa;
+      background: #f5f5f5;
+      cursor: not-allowed;
+    }
+
+    .page-info {
+      font-size: 13px;
+      color: #555;
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -633,7 +739,7 @@
 
         // Fetch events from Ticketmaster
         if (attractionId) {
-          const evResp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=20`);
+          const evResp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50`);
           const evData = await evResp.json();
           const events = evData?._embedded?.events || [];
 
@@ -654,6 +760,8 @@
       }
     }
 
+    const PAGE_SIZE = 10; // events per page
+
     function renderEvents(events, artist, slug) {
       const container = document.getElementById('events-container');
 
@@ -665,35 +773,127 @@
         return;
       }
 
-      const html = events.map(e => {
-        const date = formatDate(e.dates?.start?.localDate);
-        const time = e.dates?.start?.localTime ? e.dates.start.localTime.slice(0,5) : '';
-        const venue = e._embedded?.venues?.[0];
-        const venueName = venue?.name || '';
-        const city = venue?.city?.name || '';
-        const location = [venueName, city].filter(Boolean).join(' · ');
-        const minPrice = e.priceRanges?.[0]?.min;
+      // Store all events globally for filtering/pagination
+      window.__allEvents   = events;
+      window.__currentPage = 1;
+      window.__dateFilter  = '';
 
-        // Show price from TM if available, otherwise just the compare CTA
-        // Prices from other sellers (Gigsberg, SE365) are shown on the detail page
-        const priceHtml = minPrice
-          ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>`
-          : '';
+      // Render filter bar + event list container
+      container.innerHTML = `
+        <div class="event-filter-bar">
+          <div class="event-filter-left">
+            <label for="date-filter" class="filter-label">Filter by date</label>
+            <input type="date" id="date-filter" class="date-input"
+              min="${new Date().toISOString().split('T')[0]}" />
+            <button class="filter-clear" id="clear-date" style="display:none;">✕ Clear</button>
+          </div>
+          <div class="event-filter-right" id="event-count"></div>
+        </div>
+        <div id="event-list-inner"></div>
+        <div class="event-pagination" id="event-pagination"></div>
+      `;
 
-        return `
-          <a class="event-list-item" href="/#/event/${e.id}">
-            <div class="event-list-left">
-              <div class="event-list-name">${e.name}</div>
-              <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
-            </div>
-            <div class="event-list-right">
-              ${priceHtml}
-              <span class="event-list-cta">Compare prices →</span>
-            </div>
-          </a>`;
-      }).join('');
+      // Wire up date filter
+      document.getElementById('date-filter').addEventListener('change', function() {
+        window.__dateFilter  = this.value;
+        window.__currentPage = 1;
+        document.getElementById('clear-date').style.display = this.value ? 'inline-flex' : 'none';
+        renderPage();
+      });
 
-      container.innerHTML = `<div class="event-list">${html}</div>`;
+      document.getElementById('clear-date').addEventListener('click', function() {
+        document.getElementById('date-filter').value = '';
+        window.__dateFilter  = '';
+        window.__currentPage = 1;
+        this.style.display = 'none';
+        renderPage();
+      });
+
+      renderPage();
+    }
+
+    function renderPage() {
+      const allEvents  = window.__allEvents  || [];
+      const dateFilter = window.__dateFilter || '';
+      const page       = window.__currentPage || 1;
+
+      // Apply date filter
+      const filtered = dateFilter
+        ? allEvents.filter(e => {
+            const eventDate = e.dates?.start?.localDate || '';
+            return eventDate === dateFilter;
+          })
+        : allEvents;
+
+      const total      = filtered.length;
+      const totalPages = Math.ceil(total / PAGE_SIZE);
+      const start      = (page - 1) * PAGE_SIZE;
+      const pageEvents = filtered.slice(start, start + PAGE_SIZE);
+
+      // Update count
+      const countEl = document.getElementById('event-count');
+      if (countEl) {
+        countEl.textContent = dateFilter
+          ? `${total} date${total !== 1 ? 's' : ''} found`
+          : `${total} upcoming date${total !== 1 ? 's' : ''}`;
+      }
+
+      // Render event rows
+      const listEl = document.getElementById('event-list-inner');
+      if (!listEl) return;
+
+      if (pageEvents.length === 0) {
+        listEl.innerHTML = `
+          <div class="no-events">
+            <p>No events found for this date. <a href="#" onclick="event.preventDefault(); document.getElementById('date-filter').value=''; window.__dateFilter=''; window.__currentPage=1; document.getElementById('clear-date').style.display='none'; renderPage();">Show all dates</a></p>
+          </div>`;
+      } else {
+        const html = pageEvents.map(e => {
+          const date      = formatDate(e.dates?.start?.localDate);
+          const time      = e.dates?.start?.localTime ? e.dates.start.localTime.slice(0,5) : '';
+          const venue     = e._embedded?.venues?.[0];
+          const venueName = venue?.name || '';
+          const city      = venue?.city?.name || '';
+          const location  = [venueName, city].filter(Boolean).join(' · ');
+          const minPrice  = e.priceRanges?.[0]?.min;
+          const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
+
+          return `
+            <a class="event-list-item" href="/#/event/${e.id}">
+              <div class="event-list-left">
+                <div class="event-list-name">${e.name}</div>
+                <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
+              </div>
+              <div class="event-list-right">
+                ${priceHtml}
+                <span class="event-list-cta">Compare prices →</span>
+              </div>
+            </a>`;
+        }).join('');
+        listEl.innerHTML = `<div class="event-list">${html}</div>`;
+      }
+
+      // Render pagination
+      const paginationEl = document.getElementById('event-pagination');
+      if (!paginationEl) return;
+
+      if (totalPages <= 1) {
+        paginationEl.innerHTML = '';
+        return;
+      }
+
+      paginationEl.innerHTML = `
+        <button class="page-btn" onclick="changePage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← Previous</button>
+        <span class="page-info">Page ${page} of ${totalPages}</span>
+        <button class="page-btn" onclick="changePage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>Next →</button>
+      `;
+    }
+
+    function changePage(newPage) {
+      window.__currentPage = newPage;
+      renderPage();
+      // Scroll to top of event list
+      document.getElementById('events-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     // Kick off
