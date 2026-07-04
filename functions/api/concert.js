@@ -41,9 +41,18 @@ export async function onRequestGet({ request, env }) {
   let artist = ARTISTS.find(a => a.slug === normSlug);
 
   // If not in the hardcoded list, generate a fallback from the slug itself
-  // This handles auto-discovered pages committed by the discovery pipeline
+  // Only for slugs of reasonable length (3+ words or 6+ chars) to avoid
+  // matching partial typing fragments like "col", "met" etc.
   if (!artist) {
     const name = toTitleCase(normSlug.replace(/-/g, ' '));
+    const wordCount = normSlug.split('-').length;
+    const charCount = normSlug.replace(/-/g, '').length;
+
+    // Reject very short single-word slugs — likely a partial search term
+    if (wordCount === 1 && charCount < 6) {
+      return jsonResponse({ error: 'Artist not found' }, 404);
+    }
+
     artist = {
       slug:        normSlug,
       name,
