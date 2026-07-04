@@ -53,23 +53,37 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
-  // Final fallback — generate from slug for multi-word slugs
-  // Multi-word slugs (containing hyphens) are almost certainly show/event names
-  // e.g. "a-christmas-carol", "abba-voyage" — not misspellings
-  // Single-word slugs not in KV or ARTISTS array are likely misspellings — return 404
+  // Final fallback — check Awin events for any unknown slug
+  // This handles theatre shows and events in our Awin feed
+  // that aren't in the ARTISTS array or KV cache
+  // Single-word slugs not found anywhere are likely misspellings — return 404
   if (!artist) {
-    const isMultiWord = normSlug.includes('-');
-    if (!isMultiWord) {
+    const name = normSlug.replace(/-/g, ' ');
+    try {
+      const origin  = new URL(request.url).origin;
+      const awinUrl = `${origin}/api/awin-events?name=${encodeURIComponent(name)}&size=1`;
+      const awinResp = await fetch(awinUrl);
+      if (awinResp.ok) {
+        const awinData = await awinResp.json();
+        if (awinData.events && awinData.events.length > 0) {
+          const ev          = awinData.events[0];
+          const displayName = toTitleCase(name);
+          const rawDesc     = (ev.description || '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/<[^>]*>/g, '').trim();
+          artist = {
+            slug:        normSlug,
+            name:        displayName,
+            search:      displayName,
+            genre:       ev.category || 'Live Events',
+            description: rawDesc.slice(0, 300) || `Compare ${displayName} ticket prices across verified sellers.`
+          };
+        }
+      }
+    } catch {}
+
+    // If Awin also has nothing — genuinely unknown, return 404
+    if (!artist) {
       return jsonResponse({ error: 'Artist not found' }, 404);
     }
-    const name = toTitleCase(normSlug.replace(/-/g, ' '));
-    artist = {
-      slug:        normSlug,
-      name,
-      search:      name,
-      genre:       'Live Events',
-      description: `Compare ${name} ticket prices across verified sellers. Find the best deal and buy directly from your chosen seller.`
-    };
   }
 
   // Resolve Ticketmaster attraction ID for this artist
