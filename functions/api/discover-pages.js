@@ -74,10 +74,40 @@ export async function onRequestGet({ request, env }) {
   // ── COMMIT PHASE ──────────────────────────────────────────────────────────
   if (phase === 'commit') {
     if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
-    return await commitPendingPages(kv, githubToken, owner, repo, branch, dryRun);
+    return await commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, env);
   }
 
-  // ── DISCOVER PHASE ────────────────────────────────────────────────────────
+  // ── BACKFILL PHASE — write KV data for already-committed pages ───────────
+  // Run once after deploying this fix to populate KV for existing pages
+  // Usage: ?trigger=1&phase=backfill
+  if (phase === 'backfill') {
+    const pendingRaw = await kv.get(PENDING_KEY);
+    let artists = [];
+    if (pendingRaw) {
+      const pending = JSON.parse(pendingRaw);
+      artists = pending.artists || [];
+    }
+
+    if (artists.length === 0) {
+      return json({ message: 'No pending artists to backfill KV data for.', written: 0 }, 200);
+    }
+
+    let written = 0;
+    for (const artist of artists) {
+      try {
+        await kv.put(`concert:artist:${artist.slug}`, JSON.stringify({
+          slug:        artist.slug,
+          name:        artist.name,
+          search:      artist.search || artist.name,
+          genre:       artist.genre || 'Live Events',
+          description: artist.description || `Compare ${artist.name} ticket prices across verified sellers.`
+        }), { expirationTtl: 30 * 24 * 60 * 60 });
+        written++;
+      } catch {}
+    }
+
+    return json({ message: `Backfilled KV data for ${written} artists.`, written }, 200);
+  }
   const apiKey = env.TM_API_KEY;
   if (!apiKey) return json({ error: 'Missing TM_API_KEY' }, 500);
 
@@ -200,7 +230,7 @@ export async function onRequestGet({ request, env }) {
 // Clears the queue and updates the known sets after committing
 // ===========================
 
-async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun) {
+async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, env) {
   const pendingRaw = await kv.get(PENDING_KEY);
   if (!pendingRaw) {
     return json({ message: 'No pending pages to commit.', committed: 0 }, 200);
@@ -243,6 +273,16 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun) 
       );
       committed.artists.push(artist.slug);
       knownArtists.add(artist.slug);
+
+      // Store artist data in KV so /api/concert can serve it
+      await kv.put(`concert:artist:${artist.slug}`, JSON.stringify({
+        slug:        artist.slug,
+        name:        artist.name,
+        search:      artist.search || artist.name,
+        genre:       artist.genre || 'Live Events',
+        description: artist.description || `Compare ${artist.name} ticket prices across verified sellers.`
+      }), { expirationTtl: 30 * 24 * 60 * 60 }); // 30 days
+
     } catch (err) {
       committed.errors.push({ type: 'artist', slug: artist.slug, error: String(err) });
     }

@@ -40,26 +40,24 @@ export async function onRequestGet({ request, env }) {
   const normSlug = slug.toLowerCase();
   let artist = ARTISTS.find(a => a.slug === normSlug);
 
-  // If not in the hardcoded list, generate a fallback from the slug itself
-  // Only for multi-word slugs (likely a show/event name e.g. "a-christmas-carol")
-  // Single-word slugs that aren't in the list are likely misspellings — return 404
-  // so the search flow can offer a "did you mean?" suggestion instead
+  // If not in the hardcoded list, check KV for auto-discovered artists
+  // The discovery pipeline stores artist data in KV when committing pages
   if (!artist) {
-    const wordCount = normSlug.split('-').length;
-
-    // Single word not in list = likely a misspelling, don't create a page
-    if (wordCount === 1) {
-      return jsonResponse({ error: 'Artist not found' }, 404);
+    const kv = env.GIGSBERG_KV;
+    if (kv) {
+      try {
+        const kvData = await kv.get(`concert:artist:${normSlug}`);
+        if (kvData) {
+          artist = JSON.parse(kvData);
+        }
+      } catch {}
     }
 
-    const name = toTitleCase(normSlug.replace(/-/g, ' '));
-    artist = {
-      slug:        normSlug,
-      name,
-      search:      name,
-      genre:       'Live Events',
-      description: `Compare ${name} ticket prices across verified sellers. Find the best deal and buy directly from your chosen seller.`
-    };
+    // If still not found — genuinely unknown slug, return 404
+    // This prevents misspellings from creating ghost pages
+    if (!artist) {
+      return jsonResponse({ error: 'Artist not found' }, 404);
+    }
   }
 
   // Resolve Ticketmaster attraction ID for this artist
