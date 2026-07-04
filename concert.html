@@ -460,10 +460,11 @@
       <div class="artist-genre-badge" id="genre-badge">Loading…</div>
       <h1 id="artist-name">Loading artist…</h1>
       <p class="artist-hero-sub" id="artist-sub">Compare ticket prices across verified sellers</p>
-      <div class="artist-search-bar">
+      <div class="artist-search-bar" style="position:relative;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <input type="text" id="search-input" placeholder="Search for another artist or event…" />
+        <input type="text" id="search-input" placeholder="Search for another artist or event…" autocomplete="off" />
         <button onclick="handleSearch()">Search</button>
+        <div id="search-suggestions" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #c8dff5; border-top:none; border-radius:0 0 8px 8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:100; max-height:280px; overflow-y:auto;"></div>
       </div>
     </div>
   </div>
@@ -748,21 +749,46 @@
           document.getElementById('hero-bg').style.backgroundImage = `url('${tmImage}')`;
         }
 
-        // Fetch events from Ticketmaster
-        if (attractionId) {
-          // Store attractionId globally for load more and date filtering
-          window.__attractionId = attractionId;
-          window.__tmPage       = 1; // TM uses page-based pagination
+        // Fetch events from Ticketmaster AND Awin in parallel
+        const [tmData, awinData] = await Promise.all([
+          attractionId
+            ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
+            : Promise.resolve({}),
+          fetch(`/api/awin-events?name=${encodeURIComponent(artist.search || artist.name)}&size=50`).then(r => r.json()).catch(() => ({ events: [] }))
+        ]);
 
-          const evResp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`);
-          const evData = await evResp.json();
-          const events = evData?._embedded?.events || [];
+        const tmEvents   = tmData?._embedded?.events || [];
+        const awinEvents = awinData?.events || [];
 
-          // Store total available from TM so we know if load more is possible
-          window.__tmTotal = evData?.page?.totalElements || events.length;
+        // Store TM total for load more
+        window.__attractionId = attractionId;
+        window.__tmPage       = 1;
+        window.__tmTotal      = tmData?.page?.totalElements || tmEvents.length;
 
-          updateMeta(artist, events, tmImage);
-          renderEvents(events, artist, slug);
+        // Convert Awin events to a TM-compatible shape for unified rendering
+        const awinNormalised = awinEvents.map(e => ({
+          id:     e.id,
+          name:   e.name,
+          _awin:  true, // flag so we can render differently
+          _url:   e.url,
+          _price: e.price,
+          _image: e.image,
+          _merchant: e.merchantName,
+          dates:  { start: { localDate: e.date || '', localTime: '' } },
+          priceRanges: e.price ? [{ min: e.price, currency: e.currency }] : [],
+          _embedded: {
+            venues: e.venue ? [{ name: e.venue, city: { name: '' } }] : []
+          }
+        }));
+
+        // Merge: TM events first, then Awin events not already covered by TM date
+        const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
+        const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
+        const allEvents = [...tmEvents, ...awinOnly];
+
+        updateMeta(artist, tmEvents, tmImage); // use TM events for schema
+        if (allEvents.length > 0) {
+          renderEvents(allEvents, artist, slug);
         } else {
           document.getElementById('events-container').innerHTML = `
             <div class="no-events">
@@ -976,6 +1002,26 @@
       const location  = [venue?.name, venue?.city?.name].filter(Boolean).join(' · ');
       const minPrice  = e.priceRanges?.[0]?.min;
       const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
+
+      // Awin events link directly to the seller — no comparison page
+      if (e._awin) {
+        const merchantBadge = e._merchant
+          ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>`
+          : '';
+        return `
+          <a class="event-list-item" href="${e._url}" target="_blank" rel="noopener noreferrer">
+            <div class="event-list-left">
+              <div class="event-list-name">${e.name}${merchantBadge}</div>
+              <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
+            </div>
+            <div class="event-list-right">
+              ${priceHtml}
+              <span class="event-list-cta">Buy tickets →</span>
+            </div>
+          </a>`;
+      }
+
+      // TM events link to the comparison page
       return `
         <a class="event-list-item" href="/#/event/${e.id}">
           <div class="event-list-left">
@@ -989,6 +1035,7 @@
     // Kick off
     init();
   </script>
+  <script src="/autocomplete.js"></script>
 
 </body>
 </html>
