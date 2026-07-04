@@ -1,164 +1,1046 @@
-// ===========================
-// TicketScout — Concert artist page handler
-// Runs as a Cloudflare Pages Function at /api/concert
-//
-// Called by the concert template (concert.html) on page load.
-// Returns artist data + Ticketmaster attraction ID for the requested slug.
-//
-// Usage: GET /api/concert?slug=coldplay
-// Returns: { artist: {...}, attractionId: "K8vZ917..." } or { error: "..." }
-// ===========================
-
-// Artist data — inlined here to avoid ES module import issues in Pages Functions
-// Keep in sync with concert-data.js at the project root
-const ARTISTS = [
-  { slug: 'coldplay',            name: 'Coldplay',            search: 'Coldplay',            genre: 'Rock / Pop',                   description: 'Coldplay are one of the best-selling music artists of all time, known for their anthemic rock sound and spectacular live shows. The British band have sold over 100 million records worldwide and are renowned for their colourful, immersive concerts featuring LED wristbands and confetti cannons.' },
-  { slug: 'ed-sheeran',         name: 'Ed Sheeran',          search: 'Ed Sheeran',          genre: 'Pop',                          description: 'Ed Sheeran is one of the UK\'s most successful artists, known for his acoustic-driven pop sound and record-breaking world tours. With multiple Grammy Awards and Brit Awards to his name, his live shows are celebrated for their intimate atmosphere despite playing to stadium-sized crowds.' },
-  { slug: 'metallica',          name: 'Metallica',           search: 'Metallica',           genre: 'Heavy Metal',                  description: 'Metallica are one of the most influential heavy metal bands in history, having sold over 125 million records worldwide. Their M72 World Tour is one of the highest-grossing tours of all time, featuring a unique in-the-round stage design with no barricade between the band and the audience.' },
-  { slug: 'foo-fighters',       name: 'Foo Fighters',        search: 'Foo Fighters',        genre: 'Rock',                         description: 'Foo Fighters are one of the world\'s biggest rock bands, led by Nirvana drummer Dave Grohl. Known for their energetic and marathon live performances, the band have won 12 Grammy Awards and are a fixture at major festivals and arenas worldwide.' },
-  { slug: 'bad-bunny',          name: 'Bad Bunny',           search: 'Bad Bunny',           genre: 'Latin Trap / Reggaeton',       description: 'Bad Bunny is a Puerto Rican singer, rapper and songwriter who has become one of the world\'s most streamed artists. His Most Wanted Tour broke multiple box office records and his theatrical, immersive concerts are among the most sought-after live events globally.' },
-  { slug: 'the-weeknd',         name: 'The Weeknd',          search: 'The Weeknd',          genre: 'R&B / Pop',                    description: 'The Weeknd is a Canadian singer, songwriter and record producer known for his distinctive sound blending R&B, pop and synth-wave. His After Hours Til Dawn Tour became one of the highest-grossing concert tours of all time.' },
-  { slug: 'ariana-grande',      name: 'Ariana Grande',       search: 'Ariana Grande',       genre: 'Pop / R&B',                    description: 'Ariana Grande is one of the world\'s best-selling music artists, known for her powerful vocal range and high-energy pop performances. With multiple chart-topping albums and record-breaking streaming numbers, her live shows are among the most anticipated events in pop music.' },
-  { slug: 'bruno-mars',         name: 'Bruno Mars',          search: 'Bruno Mars',          genre: 'Pop / R&B / Funk',             description: 'Bruno Mars is a Grammy Award-winning singer, songwriter and producer known for his dynamic stage presence and genre-spanning sound. His live performances, which blend pop, funk, R&B and soul, are widely considered among the most entertaining in the industry.' },
-  { slug: 'taylor-swift',       name: 'Taylor Swift',        search: 'Taylor Swift',        genre: 'Pop / Country',                description: 'Taylor Swift is one of the most celebrated musicians of her generation, known for her songwriting, record-breaking album releases and the phenomenon of the Eras Tour — the highest-grossing concert tour of all time.' },
-  { slug: 'doja-cat',           name: 'Doja Cat',            search: 'Doja Cat',            genre: 'Hip-Hop / Pop / R&B',          description: 'Doja Cat is an American rapper, singer and songwriter known for her genre-blending sound and visually creative live performances. Her Scarlet Tour brought an elaborate theatrical production to arenas worldwide.' },
-  { slug: 'tame-impala',        name: 'Tame Impala',         search: 'Tame Impala',         genre: 'Psychedelic Rock / Electronic', description: 'Tame Impala is an Australian psychedelic rock project led by Kevin Parker, known for its immersive visual shows and critically acclaimed albums. Their concert productions are celebrated for combining stunning light shows with a hypnotic, textured sound.' },
-  { slug: 'my-chemical-romance', name: 'My Chemical Romance', search: 'My Chemical Romance', genre: 'Alternative Rock / Emo',       description: 'My Chemical Romance are an iconic American rock band known for their theatrical performances and devoted global fanbase. Following their 2019 reunion, the band have returned to selling out major venues and festivals worldwide.' },
-  { slug: 'wolf-alice',         name: 'Wolf Alice',          search: 'Wolf Alice',          genre: 'Alternative Rock / Indie',     description: 'Wolf Alice are a British rock band and Mercury Prize winners known for their dynamic range — from delicate acoustic moments to full-throttle guitar rock. One of the most critically acclaimed British bands of their generation.' },
-  { slug: 'biffy-clyro',        name: 'Biffy Clyro',         search: 'Biffy Clyro',         genre: 'Alternative Rock',             description: 'Biffy Clyro are a Scottish rock band known for their complex song structures, powerful live performances and loyal fanbase. Multiple Brit Award nominees, they regularly headline major UK arenas and festivals.' },
-  { slug: 'the-1975',           name: 'The 1975',            search: 'The 1975',            genre: 'Indie Pop / Alternative Rock',  description: 'The 1975 are a British pop-rock band known for their genre-fluid sound and elaborate theatrical live productions. Fronted by Matty Healy, their shows are celebrated as cultural events combining provocative visuals and introspective lyrics.' }
-];
-
-export async function onRequestGet({ request, env }) {
-  const url  = new URL(request.url);
-  const slug = url.searchParams.get('slug');
-
-  if (!slug) {
-    return jsonResponse({ error: 'slug is required' }, 400);
-  }
-
-  const normSlug = slug.toLowerCase();
-  let artist = ARTISTS.find(a => a.slug === normSlug);
-
-  // If not in the hardcoded list, check KV for auto-discovered artist data
-  if (!artist) {
-    const kv = env.GIGSBERG_KV;
-    if (kv) {
-      try {
-        const kvData = await kv.get(`concert:artist:${normSlug}`);
-        if (kvData) {
-          artist = JSON.parse(kvData);
-        }
-      } catch {}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Dynamic meta tags — updated by JS on page load -->
+  <meta name="description" id="meta-description" content="Compare ticket prices for upcoming concerts. Find the best deal across multiple verified sellers." />
+  <title id="page-title">Concert Tickets — Compare Prices | TicketScout</title>
+  <!-- Canonical URL — updated by JS -->
+  <link rel="canonical" id="canonical" href="https://www.ticketscout.co.uk/concert/" />
+  <!-- Open Graph — updated by JS for social sharing previews -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="TicketScout" />
+  <meta property="og:title" id="og-title" content="Concert Tickets — Compare Prices | TicketScout" />
+  <meta property="og:description" id="og-description" content="Compare concert ticket prices across verified sellers. Find the best deal and buy direct." />
+  <meta property="og:url" id="og-url" content="https://www.ticketscout.co.uk/concert/" />
+  <meta property="og:image" id="og-image" content="https://www.ticketscout.co.uk/og-default.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" id="tw-title" content="Concert Tickets — Compare Prices | TicketScout" />
+  <meta name="twitter:description" id="tw-description" content="Compare concert ticket prices across verified sellers." />
+  <meta name="twitter:image" id="tw-image" content="https://www.ticketscout.co.uk/og-default.png" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Event schema markup — populated by JS -->
+  <script type="application/ld+json" id="schema-org"></script>
+  <style>
+    .artist-hero {
+      background: linear-gradient(135deg, #0c2d5a 0%, #1a6fc4 100%);
+      padding: 52px 24px 44px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
     }
-  }
 
-  // Final fallback — check Awin events for any unknown slug
-  // This handles theatre shows and events in our Awin feed
-  // that aren't in the ARTISTS array or KV cache
-  // Single-word slugs not found anywhere are likely misspellings — return 404
-  if (!artist) {
-    const name = normSlug.replace(/-/g, ' ');
-    try {
-      const origin  = new URL(request.url).origin;
-      const awinUrl = `${origin}/api/awin-events?name=${encodeURIComponent(name)}&size=1`;
-      const awinResp = await fetch(awinUrl);
-      if (awinResp.ok) {
-        const awinData = await awinResp.json();
-        if (awinData.events && awinData.events.length > 0) {
-          const ev          = awinData.events[0];
-          const displayName = toTitleCase(name);
-          const rawDesc     = (ev.description || '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/<[^>]*>/g, '').trim();
-          artist = {
-            slug:        normSlug,
-            name:        displayName,
-            search:      displayName,
-            genre:       ev.category || 'Live Events',
-            description: rawDesc.slice(0, 300) || `Compare ${displayName} ticket prices across verified sellers.`
+    .artist-hero-bg {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center top;
+      opacity: 0.35;
+      filter: blur(4px);
+      transform: scale(1.05);
+    }
+
+    .artist-hero-inner {
+      position: relative;
+      z-index: 1;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .artist-genre-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 14px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+      letter-spacing: 0.5px;
+    }
+
+    .artist-hero h1 {
+      font-size: 38px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 10px;
+      line-height: 1.2;
+      letter-spacing: -0.5px;
+    }
+
+    .artist-hero-sub {
+      font-size: 16px;
+      color: rgba(255,255,255,0.8);
+      margin-bottom: 28px;
+    }
+
+    .artist-search-bar {
+      background: #ffffff;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      padding: 0 0 0 14px;
+      gap: 10px;
+      max-width: 520px;
+      margin: 0 auto;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    }
+
+    .artist-search-bar input {
+      flex: 1;
+      border: none;
+      padding: 14px 0;
+      font-size: 15px;
+      font-family: 'Inter', sans-serif;
+      color: #1a1a1a;
+      outline: none;
+      background: transparent;
+    }
+
+    .artist-search-bar button {
+      background: #1a6fc4;
+      color: #ffffff;
+      border: none;
+      padding: 14px 22px;
+      font-size: 15px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 0 7px 7px 0;
+      transition: background 0.2s;
+    }
+
+    .artist-search-bar button:hover {
+      background: #155da0;
+    }
+
+    .artist-content {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 44px 24px;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 40px;
+      align-items: start;
+    }
+
+    @media (max-width: 768px) {
+      .artist-content {
+        grid-template-columns: 1fr;
+      }
+      .artist-hero h1 {
+        font-size: 28px;
+      }
+    }
+
+    .artist-main h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 20px;
+    }
+
+    .artist-bio {
+      font-size: 15px;
+      color: #444;
+      line-height: 1.75;
+      margin-bottom: 36px;
+    }
+
+    .events-loading {
+      color: #888;
+      font-size: 15px;
+      padding: 20px 0;
+    }
+
+    .event-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .event-list-item {
+      background: #ffffff;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+      cursor: pointer;
+    }
+
+    .event-list-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(26,111,196,0.1);
+      border-color: #b0d0f0;
+    }
+
+    .event-list-left .event-list-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 4px;
+    }
+
+    .event-list-left .event-list-meta {
+      font-size: 12px;
+      color: #777;
+    }
+
+    .event-list-right {
+      text-align: right;
+      flex-shrink: 0;
+      margin-left: 16px;
+    }
+
+    .event-list-price {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1a6fc4;
+      margin-bottom: 4px;
+    }
+
+    .event-list-cta {
+      font-size: 11px;
+      color: #1a6fc4;
+      background: #e8f2fc;
+      padding: 3px 10px;
+      border-radius: 20px;
+      display: inline-block;
+    }
+
+    .event-list-cta--buy {
+      font-size: 13px;
+      font-weight: 500;
+      color: #ffffff;
+      background: #1a6fc4;
+      padding: 7px 16px;
+      border-radius: 6px;
+      display: inline-block;
+    }
+
+    /* Sidebar */
+    .artist-sidebar {
+      position: sticky;
+      top: 80px;
+    }
+
+    .sidebar-card {
+      background: #ffffff;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .sidebar-card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 14px;
+    }
+
+    .sidebar-trust-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #444;
+      margin-bottom: 10px;
+    }
+
+    .sidebar-trust-item svg {
+      flex-shrink: 0;
+    }
+
+    /* Mini FAQ */
+    .mini-faq {
+      margin-top: 40px;
+    }
+
+    .mini-faq h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 16px;
+    }
+
+    .mini-faq-item {
+      border-bottom: 1px solid #eee;
+      padding: 14px 0;
+    }
+
+    .mini-faq-q {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 6px;
+    }
+
+    .mini-faq-a {
+      font-size: 13px;
+      color: #555;
+      line-height: 1.7;
+    }
+
+    .no-events {
+      background: #f7fbff;
+      border: 1px solid #c8dff5;
+      border-radius: 10px;
+      padding: 24px;
+      text-align: center;
+      color: #555;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    /* Date filter bar */
+    .event-filter-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .event-filter-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .filter-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      white-space: nowrap;
+    }
+
+    .date-input {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      color: #1a1a1a;
+      border: 1px solid #c8dff5;
+      border-radius: 6px;
+      padding: 7px 12px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .date-input:focus {
+      border-color: #1a6fc4;
+      box-shadow: 0 0 0 3px rgba(26,111,196,0.08);
+    }
+
+    .filter-clear {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      color: #888;
+      background: none;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 6px 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s;
+    }
+
+    .filter-clear:hover {
+      color: #e53e3e;
+      border-color: #e53e3e;
+    }
+
+    .event-filter-right {
+      font-size: 13px;
+      color: #888;
+    }
+
+    /* Pagination */
+    .event-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #eee;
+    }
+
+    .page-btn {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      color: #1a6fc4;
+      background: #e8f2fc;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .page-btn:hover:not(:disabled) {
+      background: #1a6fc4;
+      color: #ffffff;
+    }
+
+    .page-btn:disabled {
+      color: #aaa;
+      background: #f5f5f5;
+      cursor: not-allowed;
+    }
+
+    .page-info {
+      font-size: 13px;
+      color: #555;
+      font-weight: 500;
+    }
+
+    .page-btn--load-more {
+      background: #0c2d5a;
+      color: #ffffff;
+      margin-top: 4px;
+    }
+
+    .page-btn--load-more:hover:not(:disabled) {
+      background: #1a6fc4;
+      color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="/" style="text-decoration:none; display:flex; align-items:center; gap:10px;">
+        <svg width="36" height="36" viewBox="0 40 248 200" xmlns="http://www.w3.org/2000/svg">
+          <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
+          <circle cx="40" cy="140" r="16" fill="#ffffff"/>
+          <circle cx="208" cy="140" r="16" fill="#ffffff"/>
+          <line x1="40" y1="140" x2="208" y2="140" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 5" opacity="0.5"/>
+          <rect x="62" y="92" width="88" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+          <rect x="62" y="106" width="60" height="6" rx="3" fill="#ffffff" opacity="0.6"/>
+          <g transform="translate(168, 112)">
+            <polygon points="0,-14 3.5,-5 13,-5 5.5,1 8.5,11 0,5.5 -8.5,11 -5.5,1 -13,-5 -3.5,-5" fill="#ffffff" opacity="0.95"/>
+          </g>
+          <rect x="62" y="158" width="50" height="5" rx="2.5" fill="#ffffff" opacity="0.5"/>
+          <rect x="62" y="170" width="72" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
+          <rect x="62" y="182" width="40" height="5" rx="2.5" fill="#ffffff" opacity="0.25"/>
+        </svg>
+        <div style="display:flex; flex-direction:column; justify-content:center; line-height:1.2;">
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:700; font-size:22px; color:#0c2d5a; letter-spacing:-0.5px;">TicketScout</span>
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:400; font-size:11px; color:#1a6fc4; letter-spacing:2px;">compare. save. enjoy.</span>
+        </div>
+      </a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/concerts">Concerts</a>
+        <a href="/theatre">Theatre</a>
+        <a href="/football">Football</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Artist Hero -->
+  <div class="artist-hero" id="artist-hero">
+    <div class="artist-hero-bg" id="hero-bg"></div>
+    <div class="artist-hero-inner">
+      <div class="artist-genre-badge" id="genre-badge">Loading…</div>
+      <h1 id="artist-name">Loading artist…</h1>
+      <p class="artist-hero-sub" id="artist-sub">Compare ticket prices across verified sellers</p>
+      <div class="artist-search-bar" style="position:relative;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" id="search-input" placeholder="Search for another artist or event…" autocomplete="off" />
+        <button onclick="handleSearch()">Search</button>
+        <div id="search-suggestions" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #c8dff5; border-top:none; border-radius:0 0 8px 8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:100; max-height:280px; overflow-y:auto;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="artist-content">
+    <!-- Left — events + bio -->
+    <div class="artist-main">
+      <h2 id="events-heading">Upcoming dates</h2>
+      <div id="events-container">
+        <div class="events-loading">Loading upcoming dates…</div>
+      </div>
+
+      <!-- Artist bio -->
+      <div style="margin-top: 36px;">
+        <h2 id="about-heading">About the artist</h2>
+        <p class="artist-bio" id="artist-bio"></p>
+      </div>
+
+      <!-- Mini FAQ -->
+      <div class="mini-faq">
+        <h2 id="faq-heading">Frequently asked questions</h2>
+        <div id="mini-faq-content"></div>
+      </div>
+    </div>
+
+    <!-- Right — sidebar -->
+    <div class="artist-sidebar">
+      <div class="sidebar-card">
+        <h3>Why use TicketScout?</h3>
+        <div class="sidebar-trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Compare prices from 10+ sellers
+        </div>
+        <div class="sidebar-trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Verified sellers only
+        </div>
+        <div class="sidebar-trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Live prices updated in real time
+        </div>
+        <div class="sidebar-trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          No booking fees added by us
+        </div>
+      </div>
+
+      <div class="sidebar-card">
+        <h3>How it works</h3>
+        <p style="font-size:13px; color:#555; line-height:1.7;">
+          Click any event to see a full price comparison across all available sellers. 
+          We show you the lowest price from each seller side by side so you can pick the best deal 
+          and buy directly from them.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <a href="/" style="display:inline-block; margin-bottom:12px; text-decoration:none;">
+        <svg width="420" height="76" viewBox="0 0 680 280" xmlns="http://www.w3.org/2000/svg">
+          <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
+          <circle cx="40" cy="140" r="16" fill="#ffffff"/>
+          <circle cx="208" cy="140" r="16" fill="#ffffff"/>
+          <line x1="40" y1="140" x2="208" y2="140" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 5" opacity="0.5"/>
+          <rect x="62" y="92" width="88" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+          <rect x="62" y="106" width="60" height="6" rx="3" fill="#ffffff" opacity="0.6"/>
+          <g transform="translate(168, 112)">
+            <polygon points="0,-14 3.5,-5 13,-5 5.5,1 8.5,11 0,5.5 -8.5,11 -5.5,1 -13,-5 -3.5,-5" fill="#ffffff" opacity="0.95"/>
+          </g>
+          <rect x="62" y="158" width="50" height="5" rx="2.5" fill="#ffffff" opacity="0.5"/>
+          <rect x="62" y="170" width="72" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
+          <rect x="62" y="182" width="40" height="5" rx="2.5" fill="#ffffff" opacity="0.25"/>
+          <text x="232" y="162" style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-weight:700;font-size:62px;fill:#0c2d5a;letter-spacing:-1px;">TicketScout</text>
+          <text x="234" y="196" style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-weight:400;font-size:18px;fill:#1a6fc4;letter-spacing:3px;">compare. save. enjoy.</text>
+          <line x1="220" y1="90" x2="220" y2="210" stroke="#1a6fc4" stroke-width="1.5" opacity="0.2"/>
+        </svg>
+      </a>
+      <p>© 2026 TicketScout · ticketscout.co.uk · All prices in GBP</p>
+      <p style="margin-top:6px;"><a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms of Use</a> · <a href="/faq.html">FAQ</a> · <a href="/contact.html">Contact</a></p>
+      <p style="margin-top:14px; font-size:12px; color:#999; max-width:560px; margin-left:auto; margin-right:auto; line-height:1.5;">
+        TicketScout does not sell tickets and is not a ticket retailer. We display pricing and availability sourced from third-party providers and cannot guarantee its accuracy. Always confirm event details, pricing and availability on the seller's site before purchasing.
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // ===========================
+    // Concert page — client-side controller
+    // Extracts the artist slug from the URL, loads artist data,
+    // fetches events from Ticketmaster, and renders the page.
+    // ===========================
+
+    function getSlug() {
+      // Primary: read slug injected by the Cloudflare Pages Function router
+      // The router injects window.__CONCERT_SLUG__ before serving this page
+      if (window.__CONCERT_SLUG__) {
+        console.log('Slug from router:', window.__CONCERT_SLUG__);
+        return window.__CONCERT_SLUG__;
+      }
+
+      // Fallback: extract from pathname /concert/[slug]
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      const slug = parts.length >= 2 ? parts[parts.length - 1].toLowerCase() : null;
+      console.log('Slug from pathname fallback:', slug);
+      return slug;
+    }
+
+    function toSearchSlug(name) {
+      return (name || '')
+        .replace(/\s*\([^)]*\)\s*/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .slice(0, 60);
+    }
+
+    async function handleSearch() {
+      const keyword = document.getElementById('search-input').value.trim();
+      if (!keyword) return;
+
+      // Check if a concert page exists for this keyword first
+      const slug = toSearchSlug(keyword);
+      if (slug) {
+        try {
+          const check = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
+          if (check.ok) {
+            window.location.href = `/concert/${slug}`;
+            return;
+          }
+        } catch {}
+      }
+
+      // No concert page — go to homepage with hash search
+      window.location.href = `/#/search/${encodeURIComponent(keyword)}`;
+    }
+
+    document.getElementById('search-input').addEventListener('keypress', e => {
+      if (e.key === 'Enter') handleSearch();
+    });
+
+    function formatDate(dateStr) {
+      if (!dateStr) return 'Date TBC';
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function updateMeta(artist, events, tmImage) {
+      const name = artist.name;
+      const slug = artist.slug;
+      const pageUrl = `https://www.ticketscout.co.uk/concert/${slug}`;
+      const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`;
+      const image = tmImage || 'https://www.ticketscout.co.uk/og-default.png';
+
+      // Standard meta
+      document.getElementById('page-title').textContent = `${name} Tickets — Compare Prices | TicketScout`;
+      document.getElementById('meta-description').setAttribute('content', description);
+      document.getElementById('canonical').setAttribute('href', pageUrl);
+
+      // Open Graph
+      document.getElementById('og-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
+      document.getElementById('og-description').setAttribute('content', description);
+      document.getElementById('og-url').setAttribute('content', pageUrl);
+      document.getElementById('og-image').setAttribute('content', image);
+
+      // Twitter
+      document.getElementById('tw-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
+      document.getElementById('tw-description').setAttribute('content', description);
+      document.getElementById('tw-image').setAttribute('content', image);
+
+      // Event schema (JSON-LD)
+      if (events.length > 0) {
+        const schemaEvents = events.slice(0, 5).map(e => {
+          const venue    = e._embedded?.venues?.[0];
+          const minPrice = e.priceRanges?.[0]?.min;
+          return {
+            '@type': 'MusicEvent',
+            'name': e.name,
+            'startDate': e.dates?.start?.localDate,
+            'image': image,
+            'location': venue ? {
+              '@type': 'MusicVenue',
+              'name': venue.name,
+              'address': {
+                '@type': 'PostalAddress',
+                'addressLocality': venue.city?.name || '',
+                'addressCountry': venue.country?.countryCode || 'GB'
+              }
+            } : undefined,
+            'performer': { '@type': 'MusicGroup', 'name': name },
+            'offers': minPrice ? {
+              '@type': 'Offer',
+              'price': minPrice,
+              'priceCurrency': 'GBP',
+              'availability': 'https://schema.org/InStock',
+              'url': pageUrl
+            } : undefined,
+            'url': pageUrl
           };
+        });
+        document.getElementById('schema-org').textContent = JSON.stringify({
+          '@context': 'https://schema.org',
+          '@graph': schemaEvents
+        });
+      }
+    }
+
+    function buildMiniFAQ(artistName) {
+      const faqs = [
+        {
+          q: `Where can I buy ${artistName} tickets?`,
+          a: `TicketScout compares ${artistName} ticket prices across multiple verified sellers including primary market and secondary market platforms. Click any date above to see a full price comparison and buy directly from your chosen seller.`
+        },
+        {
+          q: `How do I find the cheapest ${artistName} tickets?`,
+          a: `Use TicketScout to compare ${artistName} ticket prices side by side across all available sellers. We automatically highlight the lowest price so you can find the best deal without visiting multiple websites.`
+        },
+        {
+          q: `Are ${artistName} tickets available?`,
+          a: `Upcoming ${artistName} dates are listed above with live pricing from our verified seller network. If a date shows no price, check the seller's site directly as availability changes frequently.`
+        },
+        {
+          q: 'Do you add booking fees?',
+          a: 'No — TicketScout never adds booking fees. The prices we display are sourced directly from each seller. Some sellers may add their own fees at checkout, so always confirm the final price before purchasing.'
+        }
+      ];
+
+      return faqs.map(f => `
+        <div class="mini-faq-item">
+          <div class="mini-faq-q">${f.q}</div>
+          <div class="mini-faq-a">${f.a}</div>
+        </div>
+      `).join('');
+    }
+
+    async function init() {
+      const slug = getSlug();
+      console.log('Init with slug:', slug);
+
+      if (!slug || slug === 'concert') {
+        // No slug — show generic concerts page rather than redirecting
+        document.getElementById('genre-badge').textContent = 'Concerts';
+        document.getElementById('artist-name').textContent = 'Concert Tickets';
+        document.getElementById('artist-sub').textContent = 'Compare ticket prices across verified sellers';
+        document.getElementById('events-container').innerHTML =
+          '<div class="no-events"><p>Search for an artist above to compare ticket prices.</p></div>';
+        return;
+      }
+
+      // Load artist data from our API
+      try {
+        const resp = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
+        console.log('API response status:', resp.status);
+
+        if (!resp.ok) {
+          document.getElementById('genre-badge').textContent = 'Concerts';
+          document.getElementById('artist-name').textContent = 'Artist not found';
+          document.getElementById('events-container').innerHTML =
+            '<div class="no-events"><p>We couldn\'t find this artist. <a href="/">Search from the homepage</a>.</p></div>';
+          return;
+        }
+
+        const { artist, attractionId, tmImage } = await resp.json();
+
+        // Update hero
+        document.getElementById('genre-badge').textContent = artist.genre;
+        document.getElementById('artist-name').textContent = `${artist.name} Tickets`;
+        document.getElementById('artist-sub').textContent = `Compare ${artist.name} ticket prices across verified sellers`;
+        document.getElementById('about-heading').textContent = `About ${artist.name}`;
+        document.getElementById('events-heading').textContent = `${artist.name} — upcoming dates`;
+        document.getElementById('faq-heading').textContent = `${artist.name} tickets — FAQs`;
+        document.getElementById('artist-bio').textContent = artist.description;
+        document.getElementById('mini-faq-content').innerHTML = buildMiniFAQ(artist.name);
+
+        // Set hero background image if available
+        if (tmImage) {
+          document.getElementById('hero-bg').style.backgroundImage = `url('${tmImage}')`;
+        }
+
+        // Fetch events from Ticketmaster AND Awin in parallel
+        const [tmData, awinData] = await Promise.all([
+          attractionId
+            ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
+            : Promise.resolve({}),
+          fetch(`/api/awin-events?name=${encodeURIComponent(artist.search || artist.name)}&size=50`).then(r => r.json()).catch(() => ({ events: [] }))
+        ]);
+
+        const tmEvents   = tmData?._embedded?.events || [];
+        const awinEvents = awinData?.events || [];
+
+        // Store TM total for load more
+        window.__attractionId = attractionId;
+        window.__tmPage       = 1;
+        window.__tmTotal      = tmData?.page?.totalElements || tmEvents.length;
+
+        // Convert Awin events to a TM-compatible shape for unified rendering
+        const awinNormalised = awinEvents.map(e => ({
+          id:     e.id,
+          name:   e.name,
+          _awin:  true, // flag so we can render differently
+          _url:   e.url,
+          _price: e.price,
+          _image: e.image,
+          _merchant: e.merchantName,
+          dates:  { start: { localDate: e.date || '', localTime: '' } },
+          priceRanges: e.price ? [{ min: e.price, currency: e.currency }] : [],
+          _embedded: {
+            venues: e.venue ? [{ name: e.venue, city: { name: '' } }] : []
+          }
+        }));
+
+        // Merge: TM events first, then Awin events not already covered by TM date
+        const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
+        const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
+        const allEvents = [...tmEvents, ...awinOnly];
+
+        updateMeta(artist, tmEvents, tmImage); // use TM events for schema
+        if (allEvents.length > 0) {
+          renderEvents(allEvents, artist, slug);
+        } else {
+          document.getElementById('events-container').innerHTML = `
+            <div class="no-events">
+              <p>We couldn't find upcoming ${artist.name} dates right now. Check back soon — we update our listings in real time.</p>
+            </div>`;
+          updateMeta(artist, [], tmImage);
+        }
+
+      } catch (err) {
+        console.error('Concert page error:', err);
+        document.getElementById('events-container').innerHTML =
+          '<div class="events-loading">Unable to load events right now. Please try again shortly.</div>';
+      }
+    }
+
+    const PAGE_SIZE = 10;
+
+    function renderEvents(events, artist, slug) {
+      const container = document.getElementById('events-container');
+
+      if (events.length === 0) {
+        container.innerHTML = `
+          <div class="no-events">
+            <p>No upcoming ${artist.name} dates found right now. This may be between tour cycles — check back soon for new announcements.</p>
+          </div>`;
+        return;
+      }
+
+      window.__allEvents      = events;
+      window.__currentPage    = 1;
+      window.__dateFilter     = '';
+      window.__filteredEvents = null;
+      window.__artist         = artist;
+
+      container.innerHTML = `
+        <div class="event-filter-bar">
+          <div class="event-filter-left">
+            <label for="date-filter" class="filter-label">Filter by date</label>
+            <input type="date" id="date-filter" class="date-input"
+              min="${new Date().toISOString().split('T')[0]}" />
+            <button class="filter-clear" id="clear-date" style="display:none;">✕ Clear</button>
+          </div>
+          <div class="event-filter-right" id="event-count"></div>
+        </div>
+        <div id="event-list-inner"></div>
+        <div class="event-pagination" id="event-pagination"></div>
+      `;
+
+      document.getElementById('date-filter').addEventListener('change', async function() {
+        const selectedDate   = this.value;
+        window.__dateFilter  = selectedDate;
+        window.__currentPage = 1;
+        document.getElementById('clear-date').style.display = selectedDate ? 'inline-flex' : 'none';
+
+        if (!selectedDate) {
+          window.__filteredEvents = null;
+          renderPage();
+          return;
+        }
+
+        // Check if date already in loaded events
+        const inLoaded = (window.__allEvents || []).filter(e =>
+          e.dates?.start?.localDate === selectedDate
+        );
+
+        if (inLoaded.length > 0) {
+          window.__filteredEvents = null; // use loaded set
+          renderPage();
+        } else {
+          // Fetch from TM for this specific date
+          document.getElementById('event-list-inner').innerHTML =
+            '<div class="events-loading">Checking availability for this date…</div>';
+          document.getElementById('event-pagination').innerHTML = '';
+          try {
+            const aid  = window.__attractionId;
+            const resp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=20&startDateTime=${selectedDate}T00:00:00Z&endDateTime=${selectedDate}T23:59:59Z`);
+            const data = await resp.json();
+            const found = data?._embedded?.events || [];
+            window.__filteredEvents = found;
+            if (found.length === 0) {
+              document.getElementById('event-count').textContent = '0 dates found';
+              document.getElementById('event-list-inner').innerHTML = `
+                <div class="no-events"><p>No events on this date. <a href="#" onclick="event.preventDefault();clearDateFilter();">Show all dates</a></p></div>`;
+            } else {
+              renderDateFilteredResults(found);
+            }
+          } catch {
+            document.getElementById('event-list-inner').innerHTML =
+              '<div class="no-events"><p>Unable to check this date. Please try again.</p></div>';
+          }
+        }
+      });
+
+      document.getElementById('clear-date').addEventListener('click', clearDateFilter);
+
+      renderPage();
+    }
+
+    function clearDateFilter() {
+      const df = document.getElementById('date-filter');
+      if (df) df.value = '';
+      const cd = document.getElementById('clear-date');
+      if (cd) cd.style.display = 'none';
+      window.__dateFilter     = '';
+      window.__currentPage    = 1;
+      window.__filteredEvents = null;
+      renderPage();
+    }
+
+    function renderDateFilteredResults(events) {
+      const countEl = document.getElementById('event-count');
+      const listEl  = document.getElementById('event-list-inner');
+      const pagEl   = document.getElementById('event-pagination');
+      if (countEl) countEl.textContent = `${events.length} date${events.length !== 1 ? 's' : ''} found`;
+      if (pagEl)   pagEl.innerHTML = '';
+      if (listEl)  listEl.innerHTML = `<div class="event-list">${events.map(buildEventRow).join('')}</div>`;
+    }
+
+    function renderPage() {
+      const allEvents = window.__allEvents || [];
+      const page      = window.__currentPage || 1;
+
+      // If we have date-filtered results from TM, show those directly
+      if (window.__dateFilter && window.__filteredEvents !== null) {
+        renderDateFilteredResults(window.__filteredEvents);
+        return;
+      }
+
+      const filtered   = window.__dateFilter
+        ? allEvents.filter(e => e.dates?.start?.localDate === window.__dateFilter)
+        : allEvents;
+
+      const total      = filtered.length;
+      const totalPages = Math.ceil(total / PAGE_SIZE);
+      const pageEvents = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+      const tmTotal    = window.__tmTotal || total;
+      const hasMore    = !window.__dateFilter && allEvents.length < tmTotal;
+
+      const countEl = document.getElementById('event-count');
+      if (countEl) {
+        if (!window.__dateFilter && tmTotal > allEvents.length) {
+          countEl.textContent = `Showing ${allEvents.length} of ${tmTotal} upcoming dates`;
+        } else {
+          countEl.textContent = window.__dateFilter
+            ? `${total} date${total !== 1 ? 's' : ''} found`
+            : `${total} upcoming date${total !== 1 ? 's' : ''}`;
         }
       }
-    } catch {}
 
-    // If Awin also has nothing — genuinely unknown, return 404
-    if (!artist) {
-      return jsonResponse({ error: 'Artist not found' }, 404);
-    }
-  }
-
-  // Resolve Ticketmaster attraction ID for this artist
-  const apiKey = env.TM_API_KEY;
-  let attractionId = null;
-  let tmImage = null;
-
-  if (apiKey) {
-    try {
-      const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/attractions.json');
-      tmUrl.searchParams.set('apikey', apiKey);
-      tmUrl.searchParams.set('keyword', artist.search);
-      tmUrl.searchParams.set('size', '10'); // fetch more so we can filter properly
-
-      const tmResp = await fetch(tmUrl.toString());
-      const tmData = await tmResp.json();
-      const attractions = tmData?._embedded?.attractions || [];
-
-      if (attractions.length > 0) {
-        // Score attractions — exact name match wins, tribute acts penalised
-        const TRIBUTE_KEYWORDS = ['tribute', 'salute', 'legacy', 'experience', 'revival',
-          'forever', 'reunion', 'story of', 'performed by', 'feat.', 'vs.', ' vs '];
-
-        const normSearch = artist.search.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-
-        const scored = attractions.map(a => {
-          const normName = (a.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-          let score = 0;
-          if (normName === normSearch)             score = 100;
-          else if (normName.startsWith(normSearch)) score = 50;
-          else if (normName.includes(normSearch))   score = 20;
-
-          // Penalise tribute acts heavily
-          const isTribute = TRIBUTE_KEYWORDS.some(kw => a.name.toLowerCase().includes(kw));
-          if (isTribute) score -= 60;
-
-          return { attraction: a, score };
-        }).sort((a, b) => b.score - a.score);
-
-        const best = scored[0].attraction;
-        attractionId = best.id;
-        const images = best.images || [];
-        // Prefer largest 16:9 image for hero background quality
-        const sixteenNine = images
-          .filter(img => img.ratio === '16_9' && img.width > 500)
-          .sort((a, b) => (b.width || 0) - (a.width || 0));
-        tmImage = sixteenNine[0]?.url || images.find(img => img.width > 500)?.url || images[0]?.url || null;
+      const listEl = document.getElementById('event-list-inner');
+      if (listEl) {
+        listEl.innerHTML = pageEvents.length === 0
+          ? `<div class="no-events"><p>No events for this date. <a href="#" onclick="event.preventDefault();clearDateFilter();">Show all dates</a></p></div>`
+          : `<div class="event-list">${pageEvents.map(buildEventRow).join('')}</div>`;
       }
-    } catch (err) {
-      console.error('TM attraction lookup error:', err);
+
+      const pagEl = document.getElementById('event-pagination');
+      if (!pagEl) return;
+
+      const isLastPage = page >= totalPages;
+      let html = '';
+
+      if (totalPages > 1) {
+        html += `
+          <button class="page-btn" onclick="changePage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← Previous</button>
+          <span class="page-info">Page ${page} of ${totalPages}</span>
+          <button class="page-btn" onclick="changePage(${page + 1})" ${isLastPage ? 'disabled' : ''}>Next →</button>
+        `;
+      }
+
+      if (isLastPage && hasMore) {
+        html += `<button class="page-btn page-btn--load-more" onclick="loadMoreEvents()">Load more dates ↓</button>`;
+      }
+
+      pagEl.innerHTML = html;
     }
-  }
 
-  return jsonResponse({
-    artist: {
-      slug:        artist.slug,
-      name:        artist.name,
-      genre:       artist.genre,
-      description: artist.description
-    },
-    attractionId,
-    tmImage
-  }, 200);
-}
+    async function loadMoreEvents() {
+      const aid = window.__attractionId;
+      if (!aid) return;
+      const btn = document.querySelector('.page-btn--load-more');
+      if (btn) { btn.textContent = 'Loading…'; btn.disabled = true; }
 
-function toTitleCase(str) {
-  return (str || '').replace(/\b\w/g, c => c.toUpperCase());
-}
-
-function jsonResponse(body, status) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'public, max-age=3600' // cache for 1 hour — attraction IDs don't change
+      try {
+        const nextPage      = window.__tmPage || 1;
+        window.__tmPage     = nextPage + 1;
+        const resp          = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=50&page=${nextPage}`);
+        const data          = await resp.json();
+        const newEvents     = data?._embedded?.events || [];
+        if (newEvents.length > 0) {
+          window.__allEvents = [...(window.__allEvents || []), ...newEvents];
+          renderPage();
+        } else {
+          if (btn) { btn.textContent = 'No more dates'; btn.disabled = true; }
+        }
+      } catch {
+        if (btn) { btn.textContent = 'Load more dates ↓'; btn.disabled = false; }
+      }
     }
-  });
-}
+
+    function changePage(newPage) {
+      window.__currentPage = newPage;
+      renderPage();
+      document.getElementById('events-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function buildEventRow(e) {
+      const date      = formatDate(e.dates?.start?.localDate);
+      const time      = e.dates?.start?.localTime ? e.dates.start.localTime.slice(0,5) : '';
+      const venue     = e._embedded?.venues?.[0];
+      const location  = [venue?.name, venue?.city?.name].filter(Boolean).join(' · ');
+      const minPrice  = e.priceRanges?.[0]?.min;
+      const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
+
+      // Awin events link directly to the seller — no comparison page
+      if (e._awin) {
+        const merchantBadge = e._merchant
+          ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>`
+          : '';
+        // Only show meta line if we have meaningful location or date info
+        const metaParts = [location, date].filter(Boolean);
+        const metaHtml  = metaParts.length > 0
+          ? `<div class="event-list-meta">${metaParts.join(' · ')}</div>`
+          : '';
+        return `
+          <a class="event-list-item" href="${e._url}" target="_blank" rel="noopener noreferrer">
+            <div class="event-list-left">
+              <div class="event-list-name">${e.name}${merchantBadge}</div>
+              ${metaHtml}
+            </div>
+            <div class="event-list-right">
+              ${priceHtml}
+              <span class="event-list-cta">Buy tickets →</span>
+            </div>
+          </a>`;
+      }
+
+      // TM events link to the comparison page
+      return `
+        <a class="event-list-item" href="/#/event/${e.id}">
+          <div class="event-list-left">
+            <div class="event-list-name">${e.name}</div>
+            <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
+          </div>
+          <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>
+        </a>`;
+    }
+
+    // Kick off
+    init();
+  </script>
+  <script src="/autocomplete.js"></script>
+
+</body>
+</html>
