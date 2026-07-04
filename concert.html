@@ -612,7 +612,7 @@
     });
 
     function formatDate(dateStr) {
-      if (!dateStr) return 'Date TBC';
+      if (!dateStr) return '';
       const d = new Date(dateStr);
       return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     }
@@ -1008,11 +1008,16 @@
         const merchantBadge = e._merchant
           ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>`
           : '';
+        // Only show meta line if we have meaningful location or date info
+        const metaParts = [location, date].filter(Boolean);
+        const metaHtml  = metaParts.length > 0
+          ? `<div class="event-list-meta">${metaParts.join(' · ')}</div>`
+          : '';
         return `
           <a class="event-list-item" href="${e._url}" target="_blank" rel="noopener noreferrer">
             <div class="event-list-left">
               <div class="event-list-name">${e.name}${merchantBadge}</div>
-              <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
+              ${metaHtml}
             </div>
             <div class="event-list-right">
               ${priceHtml}
