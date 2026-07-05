@@ -336,9 +336,14 @@ function parseRow(line) {
   const awDeepLink  = (fields[COL.aw_deep_link]  || '').trim();
   if (!productName || !awDeepLink) return null;
 
-  const inStock = fields[COL.in_stock];
-  const forSale = fields[COL.is_for_sale];
-  if (inStock === '0' || inStock === 'false' || forSale === '0' || forSale === 'false') return null;
+  // Only apply in_stock/is_for_sale check for 86-column feeds (Gigsberg format).
+  // Football TicketNet UK uses 60 columns — COL indices 49 and 53 point at
+  // unrelated data in their format, causing all their rows to be incorrectly dropped.
+  if (fields.length >= 55) {
+    const inStock = fields[COL.in_stock];
+    const forSale = fields[COL.is_for_sale];
+    if (inStock === '0' || inStock === 'false' || forSale === '0' || forSale === 'false') return null;
+  }
 
   const merchantName = (fields[COL.merchant_name] || '').trim();
   const safeGet = (idx) => (idx < fields.length ? (fields[idx] || '').trim() : '');
