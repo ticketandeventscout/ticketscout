@@ -559,6 +559,25 @@
     // Concert page — client-side controller
     // Extracts the artist slug from the URL, loads artist data,
     // fetches events from Ticketmaster, and renders the page.
+    // Decode HTML entities from Awin feed descriptions
+    function decodeHtmlEntities(str) {
+      if (!str) return '';
+      const entities = {
+        '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'",
+        '&nbsp;': ' ', '&mdash;': '—', '&ndash;': '–',
+        '&lsquo;': '‘', '&rsquo;': '’',
+        '&ldquo;': '“', '&rdquo;': '”',
+        '&hellip;': '…', '&bull;': '•',
+        '&pound;': '£', '&euro;': '€', '&trade;': '™',
+        '&copy;': '©', '&reg;': '®', '&deg;': '°'
+      };
+      let d = str.replace(/&[a-z]+;/gi, function(m) { return entities[m] || m; });
+      d = d.replace(/&#(\d+);/g, function(_, n) { return String.fromCharCode(parseInt(n, 10)); });
+      d = d.replace(/&#x([0-9a-f]+);/gi, function(_, h) { return String.fromCharCode(parseInt(h, 16)); });
+      d = d.replace(/<[^>]*>/g, '');
+      return d.trim();
+    }
+
     // ===========================
 
     function getSlug() {
@@ -741,7 +760,7 @@
         document.getElementById('about-heading').textContent = `About ${artist.name}`;
         document.getElementById('events-heading').textContent = `${artist.name} — upcoming dates`;
         document.getElementById('faq-heading').textContent = `${artist.name} tickets — FAQs`;
-        document.getElementById('artist-bio').textContent = artist.description;
+        document.getElementById('artist-bio').textContent = decodeHtmlEntities(artist.description);
         document.getElementById('mini-faq-content').innerHTML = buildMiniFAQ(artist.name);
 
         // Set hero background image if available

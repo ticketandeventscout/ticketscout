@@ -136,15 +136,22 @@ async function runSearch(keyword) {
   grid.className = 'events-grid';
   grid.innerHTML = '<div class="loading">Searching…</div>';
 
-  // Check if a /concert/[slug] discovery page exists for this keyword
+  // Check if a dedicated SEO page exists — football first, then theatre, then concert.
+  // Only redirect to football/theatre if API returns RICH data (description > 80 chars),
+  // meaning it's a hardcoded entry — not a synthesised fallback from the slug.
   const slug = toArtistSlug(keyword);
   if (slug) {
     try {
-      const check = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
-      if (check.ok) {
-        window.location.href = `/concert/${slug}`;
-        return;
-      }
+      const [footballResp, theatreResp, concertResp] = await Promise.all([
+        fetch(`/api/football?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/theatre?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/concert?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      const isRichFootball = (footballResp?.team?.description?.length || 0) > 80;
+      const isRichTheatre  = (theatreResp?.show?.description?.length || 0) > 80;
+      if (isRichFootball) { window.location.href = `/football/${slug}`; return; }
+      if (isRichTheatre)  { window.location.href = `/theatre/${slug}`; return; }
+      if (concertResp)    { window.location.href = `/concert/${slug}`; return; }
     } catch {}
   }
 

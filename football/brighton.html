@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- v5 2026-07-05 -->
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Loading…</title>
+  <title>Brighton & Hove Albion Tickets | TicketScout</title>
   <script>window.__FOOTBALL_SLUG__ = 'brighton';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -12,23 +13,20 @@
     try {
       const r = await fetch('/football.html');
       const html = await r.text();
-      // Copy inline styles from head
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
         const st = document.createElement('style');
         st.textContent = headStyleMatch[1];
         document.head.appendChild(st);
       }
-      // Copy body content
       const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
       if (!bodyMatch) return;
       document.body.innerHTML = bodyMatch[1];
-      // Re-execute scripts
       document.body.querySelectorAll('script').forEach(function(o) {
         var s = document.createElement('script');
         if (o.src) s.src = o.src; else s.textContent = o.textContent;
         document.body.appendChild(s); o.remove();
       });
-    } catch(e) { console.error('Failed to load football template:', e); }
+    } catch(e) { console.error('Brighton template load failed:', e); }
   })();
 </script></body></html>

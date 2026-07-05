@@ -653,6 +653,23 @@
       `).join('');
     }
 
+    function decodeHtmlEntities(str) {
+      if (!str) return '';
+      const entities = {
+        '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'",
+        '&nbsp;': ' ', '&mdash;': '—', '&ndash;': '–',
+        '&lsquo;': '‘', '&rsquo;': '’',
+        '&ldquo;': '“', '&rdquo;': '”',
+        '&hellip;': '…', '&bull;': '•',
+        '&pound;': '£', '&euro;': '€', '&trade;': '™',
+        '&copy;': '©', '&reg;': '®', '&deg;': '°'
+      };
+      let d = str.replace(/&[a-z]+;/gi, function(m) { return entities[m] || m; });
+      d = d.replace(/&#(\d+);/g, function(_, n) { return String.fromCharCode(parseInt(n, 10)); });
+      d = d.replace(/&#x([0-9a-f]+);/gi, function(_, h) { return String.fromCharCode(parseInt(h, 16)); });
+      d = d.replace(/<[^>]*>/g, '');
+      return d.trim();
+    }
     async function init() {
       const slug = getSlug();
 
@@ -684,7 +701,7 @@
         document.getElementById('about-heading').textContent  = `About ${show.name}`;
         document.getElementById('events-heading').textContent = `${show.name} — upcoming performances`;
         document.getElementById('faq-heading').textContent    = `${show.name} tickets — FAQs`;
-        document.getElementById('artist-bio').textContent     = show.description;
+        document.getElementById('artist-bio').textContent     = decodeHtmlEntities(show.description);
         document.getElementById('mini-faq-content').innerHTML = buildMiniFAQ(show.name);
 
         if (tmImage) {
