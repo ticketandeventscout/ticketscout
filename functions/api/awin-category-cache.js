@@ -268,10 +268,12 @@ async function parseFeedStream(stream, knownArtists, knownVenues) {
             if (isValidName(artistName) && !isTribute(artistName)) {
               const slug = toSlug(artistName);
               if (slug && !knownArtists.has(slug) && !newArtistMap.has(slug)) {
-                const genre = awinGenre(row.merchant_category, row.category_name);
+                const genre    = awinGenre(row.merchant_category, row.category_name);
+                const category = genreToCategory(genre);
                 newArtistMap.set(slug, {
                   slug, name: artistName, search: artistName,
-                  genre, description: generateArtistDescription(artistName, genre),
+                  genre, category,
+                  description: generateArtistDescription(artistName, genre),
                   image_url: row.image_url || '',
                   source: `awin:${row.merchant_name}`
                 });
@@ -433,6 +435,17 @@ function awinGenre(merchantCategory, categoryName) {
   if (cat.includes('comedy'))  return 'Comedy';
   if (cat.includes('sport'))   return 'Sports';
   return 'Live Events';
+}
+
+/**
+ * Maps a genre string to a page category folder.
+ * Must stay in sync with the copy in discover-pages.js.
+ */
+function genreToCategory(genre) {
+  const g = (genre || '').toLowerCase();
+  if (g.includes('football') || g.includes('soccer')) return 'football';
+  if (g.includes('theatre') || g.includes('musical') || g.includes('opera') || g.includes('ballet')) return 'theatre';
+  return 'concert';
 }
 
 function generateArtistDescription(name, genre) {

@@ -14,6 +14,13 @@
 // PHASE 2 — COMMIT (reads pending queue from KV, commits to GitHub):
 //   ?trigger=1&phase=commit          — commit all pending pages to GitHub
 //
+// GENRE ROUTING (new — 05 Jul 2026):
+//   Each queued item carries a `category` field: 'football' | 'theatre' | 'concert'
+//   Commit phase routes to correct subfolder and data file:
+//     football → football/[slug].html + functions/api/football.js
+//     theatre  → theatre/[slug].html  + functions/api/theatre.js
+//     concert  → concert/[slug].html  + functions/api/concert.js
+//
 // Cron schedule (cron-job.org):
 //   Mon 00:00 — ?trigger=1&source=ticketmaster
 //   Mon 00:10 — ?trigger=1&phase=commit          (after TM discovery + Awin cache writes)
@@ -53,6 +60,7 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&source=ticketmaster  — discover from Ticketmaster, queue to KV',
       '  ?trigger=1&source=se365         — discover from SE365, queue to KV',
       '  ?trigger=1&phase=commit         — commit queued pages to GitHub',
+      '  ?trigger=1&phase=backfill       — write KV data for already-committed pages',
       '  &dry=1                          — dry run, no writes',
       '',
       'NOTE: Awin discovery runs automatically via awin-category-cache — no separate job needed.'
@@ -78,7 +86,7 @@ export async function onRequestGet({ request, env }) {
   }
 
   // ── BACKFILL PHASE — write KV data for already-committed pages ───────────
-  // Run once after deploying this fix to populate KV for existing pages
+  // Run once after deploying genre routing to populate KV for existing pages
   // Usage: ?trigger=1&phase=backfill
   if (phase === 'backfill') {
     const pendingRaw = await kv.get(PENDING_KEY);
@@ -95,7 +103,9 @@ export async function onRequestGet({ request, env }) {
     let written = 0;
     for (const artist of artists) {
       try {
-        await kv.put(`concert:artist:${artist.slug}`, JSON.stringify({
+        const category = artist.category || genreToCategory(artist.genre || '');
+        const kvPrefix = categoryToKvPrefix(category);
+        await kv.put(`${kvPrefix}${artist.slug}`, JSON.stringify({
           slug:        artist.slug,
           name:        artist.name,
           search:      artist.search || artist.name,
@@ -108,6 +118,7 @@ export async function onRequestGet({ request, env }) {
 
     return json({ message: `Backfilled KV data for ${written} artists.`, written }, 200);
   }
+
   const apiKey = env.TM_API_KEY;
   if (!apiKey) return json({ error: 'Missing TM_API_KEY' }, 500);
 
@@ -124,11 +135,13 @@ export async function onRequestGet({ request, env }) {
   // ── Ticketmaster ──────────────────────────────────────────────────────────
   if (source === 'ticketmaster') {
     try {
+      // Fetch Music, Sports, and Arts & Theatre segments for full genre coverage
       const events = await fetchTicketmasterEvents(apiKey);
       results.eventsScanned = events.length;
 
       for (const event of events) {
-        const genre = getGenre(event);
+        const genre    = getGenre(event);
+        const category = genreToCategory(genre);
 
         for (const attraction of (event._embedded?.attractions || [])) {
           if (!isValidName(attraction.name) || isTribute(attraction.name)) continue;
@@ -136,7 +149,8 @@ export async function onRequestGet({ request, env }) {
           if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
           newArtists.set(slug, {
             slug, name: attraction.name, search: attraction.name,
-            genre, description: generateArtistDescription(attraction.name, genre),
+            genre, category,
+            description: generateArtistDescription(attraction.name, genre),
             source: 'ticketmaster'
           });
         }
@@ -176,10 +190,12 @@ export async function onRequestGet({ request, env }) {
           if (!isValidName(p.name) || isTribute(p.name)) continue;
           const slug = toSlug(p.name);
           if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
-          const genre = se365Genre(p.eventTypeId);
+          const genre    = se365Genre(p.eventTypeId);
+          const category = genreToCategory(genre);
           newArtists.set(slug, {
             slug, name: p.name, search: p.name,
-            genre, description: generateArtistDescription(p.name, genre),
+            genre, category,
+            description: generateArtistDescription(p.name, genre),
             source: 'sportsevents365'
           });
         }
@@ -198,7 +214,7 @@ export async function onRequestGet({ request, env }) {
     return json({
       ...results,
       dryRun: true,
-      newArtists: artistList.map(a => ({ slug: a.slug, name: a.name, genre: a.genre })),
+      newArtists: artistList.map(a => ({ slug: a.slug, name: a.name, genre: a.genre, category: a.category })),
       newVenues:  venueList.map(v => ({ slug: v.slug, name: v.name, city: v.city })),
       message: 'Dry run — nothing written. Remove &dry=1 to queue for commit.'
     }, 200);
@@ -227,7 +243,7 @@ export async function onRequestGet({ request, env }) {
 
 // ===========================
 // Commit phase — reads pending queue and commits to GitHub
-// Clears the queue and updates the known sets after committing
+// Routes each item to the correct category folder and data file.
 // ===========================
 
 async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, env) {
@@ -248,15 +264,26 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, 
     return json({
       dryRun: true,
       pending: {
-        artists: artists.map(a => ({ slug: a.slug, name: a.name })),
-        venues:  venues.map(v => ({ slug: v.slug, name: v.name }))
+        artists: artists.map(a => ({
+          slug:     a.slug,
+          name:     a.name,
+          genre:    a.genre,
+          category: a.category || genreToCategory(a.genre || '')
+        })),
+        venues: venues.map(v => ({ slug: v.slug, name: v.name }))
       },
       message: 'Dry run — nothing committed. Remove &dry=1 to deploy.'
     }, 200);
   }
 
   const github    = new GitHubAPI(githubToken, owner, repo, branch);
-  const committed = { artists: [], venues: [], errors: [] };
+  const committed = {
+    concert:  [],
+    football: [],
+    theatre:  [],
+    venues:   [],
+    errors:   []
+  };
 
   // Load known sets to update after committing
   let knownArtists = new Set();
@@ -264,30 +291,55 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, 
   try { const k = await kv.get(KNOWN_KEY);        if (k) knownArtists = new Set(JSON.parse(k)); } catch {}
   try { const k = await kv.get(KNOWN_VENUES_KEY); if (k) knownVenues  = new Set(JSON.parse(k)); } catch {}
 
+  // Bucket artists by category
+  const byCategory = { concert: [], football: [], theatre: [] };
   for (const artist of artists) {
+    const cat = artist.category || genreToCategory(artist.genre || '');
+    const bucket = byCategory[cat] ? cat : 'concert';
+    byCategory[bucket].push({ ...artist, category: bucket });
+  }
+
+  // Commit each bucket
+  for (const [category, items] of Object.entries(byCategory)) {
+    if (items.length === 0) continue;
+
+    const htmlGenerator = categoryToHtmlGenerator(category);
+    const kvPrefix      = categoryToKvPrefix(category);
+
+    for (const artist of items) {
+      try {
+        const path = `${category}/${artist.slug}.html`;
+        await github.createFile(
+          path,
+          htmlGenerator(artist.slug),
+          `Auto-add ${category} page: ${artist.name} [${artist.source}]`
+        );
+        committed[category].push(artist.slug);
+        knownArtists.add(artist.slug);
+
+        // Store data in KV so the relevant /api/[category] can serve it
+        await kv.put(`${kvPrefix}${artist.slug}`, JSON.stringify({
+          slug:        artist.slug,
+          name:        artist.name,
+          search:      artist.search || artist.name,
+          genre:       artist.genre || 'Live Events',
+          description: artist.description || `Compare ${artist.name} ticket prices across verified sellers.`
+        }), { expirationTtl: 30 * 24 * 60 * 60 }); // 30 days
+
+      } catch (err) {
+        committed.errors.push({ type: category, slug: artist.slug, error: String(err) });
+      }
+    }
+
+    // Update the category data file (concert.js / football.js / theatre.js)
     try {
-      await github.createFile(
-        `concert/${artist.slug}.html`,
-        generateArtistPageHtml(artist.slug),
-        `Auto-add concert page: ${artist.name} [${artist.source}]`
-      );
-      committed.artists.push(artist.slug);
-      knownArtists.add(artist.slug);
-
-      // Store artist data in KV so /api/concert can serve it
-      await kv.put(`concert:artist:${artist.slug}`, JSON.stringify({
-        slug:        artist.slug,
-        name:        artist.name,
-        search:      artist.search || artist.name,
-        genre:       artist.genre || 'Live Events',
-        description: artist.description || `Compare ${artist.name} ticket prices across verified sellers.`
-      }), { expirationTtl: 30 * 24 * 60 * 60 }); // 30 days
-
+      await updateCategoryDataFile(github, category, items);
     } catch (err) {
-      committed.errors.push({ type: 'artist', slug: artist.slug, error: String(err) });
+      committed.errors.push({ type: `${category}-data`, error: String(err) });
     }
   }
 
+  // Commit venue pages
   for (const venue of venues) {
     try {
       await github.createFile(
@@ -302,12 +354,6 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, 
     }
   }
 
-  // Update concert.js and venue.js data files
-  if (artists.length > 0) {
-    try { await updateArtistDataFile(github, artists); } catch (err) {
-      committed.errors.push({ type: 'concert-data', error: String(err) });
-    }
-  }
   if (venues.length > 0) {
     try { await updateVenueDataFile(github, venues); } catch (err) {
       committed.errors.push({ type: 'venue-data', error: String(err) });
@@ -323,26 +369,121 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, 
 }
 
 // ===========================
-// Ticketmaster fetcher
+// Category data file updater — routes to correct .js file
+// ===========================
+
+async function updateCategoryDataFile(github, category, items) {
+  const dataFilePaths = {
+    concert:  'functions/api/concert.js',
+    football: 'functions/api/football.js',
+    theatre:  'functions/api/theatre.js'
+  };
+  const arrayNames = {
+    concert:  'ARTISTS',
+    football: 'TEAMS',
+    theatre:  'SHOWS'
+  };
+
+  const path      = dataFilePaths[category] || dataFilePaths.concert;
+  const arrayName = arrayNames[category] || 'ARTISTS';
+
+  const current = await github.request('GET', `/repos/${github.owner}/${github.repo}/contents/${path}?ref=${github.branch}`);
+  const content = decodeURIComponent(escape(atob(current.content)));
+
+  // Build entry rows appropriate to each data file
+  let entries;
+  if (category === 'football') {
+    entries = items.map(a =>
+      `  { slug: '${esc(a.slug)}', name: '${esc(a.name)}', search: '${esc(a.search)}', tmSearch: '${esc(a.name)}', genre: 'Football', description: '${esc(a.description)}' },`
+    ).join('\n');
+  } else if (category === 'theatre') {
+    entries = items.map(a =>
+      `  { slug: '${esc(a.slug)}', name: '${esc(a.name)}', search: '${esc(a.search)}', genre: '${esc(a.genre)}', description: '${esc(a.description)}' },`
+    ).join('\n');
+  } else {
+    entries = items.map(a =>
+      `  { slug: '${esc(a.slug)}', name: '${esc(a.name)}', search: '${esc(a.search)}', genre: '${esc(a.genre)}', description: '${esc(a.description)}' },`
+    ).join('\n');
+  }
+
+  // All three data files use ];\n\nexport async function pattern (no export default)
+  const updated = content.replace(
+    /(\];\s*\n\nexport async function)/,
+    `${entries}\n];\n\nexport async function`
+  );
+
+  if (updated === content) {
+    // Fallback: try single newline variant
+    const updated2 = content.replace(
+      /(\];\s*\nexport async function)/,
+      `${entries}\n];\nexport async function`
+    );
+    if (updated2 !== content) {
+      await github.createFile(path, updated2, `Auto-update ${category}: ${items.map(a => a.name).join(', ')}`);
+      return;
+    }
+    throw new Error(`Could not find insertion point in ${path} — ${arrayName} array closing bracket not matched`);
+  }
+
+  await github.createFile(path, updated, `Auto-update ${category}: ${items.map(a => a.name).join(', ')}`);
+}
+
+async function updateVenueDataFile(github, venues) {
+  const path = 'functions/api/venue.js';
+  let content = '';
+  let isNew   = false;
+  try {
+    const current = await github.request('GET', `/repos/${github.owner}/${github.repo}/contents/${path}?ref=${github.branch}`);
+    content = decodeURIComponent(escape(atob(current.content)));
+  } catch { isNew = true; content = generateBaseVenueJs(); }
+
+  const entries = venues.map(v =>
+    `  { slug: '${esc(v.slug)}', name: '${esc(v.name)}', city: '${esc(v.city)}', country: '${esc(v.country)}', venueId: '${esc(v.venueId)}', description: '${esc(v.description)}' },`
+  ).join('\n');
+
+  const updated = isNew
+    ? content.replace('// VENUES_PLACEHOLDER', entries)
+    : content.replace(/(\];\s*\n\nexport async function)/, `${entries}\n];\n\nexport async function`);
+
+  await github.createFile(path, updated, `Auto-update venues: ${venues.map(v => v.name).join(', ')}`);
+}
+
+// ===========================
+// Ticketmaster fetcher — Music, Sports, Arts & Theatre
 // ===========================
 
 async function fetchTicketmasterEvents(apiKey) {
   const events = [];
   const seen   = new Set();
-  for (const sort of ['relevance,desc', 'onSaleStartDate,desc']) {
-    const u = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
-    u.searchParams.set('apikey', apiKey);
-    u.searchParams.set('countryCode', 'GB');
-    u.searchParams.set('size', '50');
-    u.searchParams.set('sort', sort);
-    try {
-      const resp = await fetch(u.toString());
-      const data = await resp.json();
-      for (const e of (data?._embedded?.events || [])) {
-        if (!seen.has(e.id)) { seen.add(e.id); events.push(e); }
-      }
-    } catch {}
+
+  // Fetch across multiple TM segment IDs to capture all genres:
+  //   KZFzniwnSyZfZ7v7nJ = Music
+  //   KZFzniwnSyZfZ7v7nE = Sports
+  //   KZFzniwnSyZfZ7v7na = Arts & Theatre
+  const segmentIds = [
+    'KZFzniwnSyZfZ7v7nJ', // Music
+    'KZFzniwnSyZfZ7v7nE', // Sports
+    'KZFzniwnSyZfZ7v7na', // Arts & Theatre
+  ];
+
+  for (const segmentId of segmentIds) {
+    for (const sort of ['relevance,desc', 'onSaleStartDate,desc']) {
+      const u = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
+      u.searchParams.set('apikey', apiKey);
+      u.searchParams.set('countryCode', 'GB');
+      u.searchParams.set('size', '50');
+      u.searchParams.set('sort', sort);
+      u.searchParams.set('segmentId', segmentId);
+      try {
+        const resp = await fetch(u.toString());
+        const data = await resp.json();
+        for (const e of (data?._embedded?.events || [])) {
+          if (!seen.has(e.id)) { seen.add(e.id); events.push(e); }
+        }
+      } catch {}
+    }
   }
+
   return events;
 }
 
@@ -383,42 +524,7 @@ class GitHubAPI {
 }
 
 // ===========================
-// Data file updaters
-// ===========================
-
-async function updateArtistDataFile(github, artists) {
-  const path    = 'functions/api/concert.js';
-  const current = await github.request('GET', `/repos/${github.owner}/${github.repo}/contents/${path}?ref=${github.branch}`);
-  const content = decodeURIComponent(escape(atob(current.content)));
-  const entries = artists.map(a =>
-    `  { slug: '${a.slug}', name: '${esc(a.name)}', search: '${esc(a.search)}', genre: '${esc(a.genre)}', description: '${esc(a.description)}' },`
-  ).join('\n');
-  const updated = content.replace(/(\];\s*\nexport default)/, `${entries}\n];\nexport default`);
-  await github.createFile(path, updated, `Auto-update artists: ${artists.map(a => a.name).join(', ')}`);
-}
-
-async function updateVenueDataFile(github, venues) {
-  const path = 'functions/api/venue.js';
-  let content = '';
-  let isNew   = false;
-  try {
-    const current = await github.request('GET', `/repos/${github.owner}/${github.repo}/contents/${path}?ref=${github.branch}`);
-    content = decodeURIComponent(escape(atob(current.content)));
-  } catch { isNew = true; content = generateBaseVenueJs(); }
-
-  const entries = venues.map(v =>
-    `  { slug: '${v.slug}', name: '${esc(v.name)}', city: '${esc(v.city)}', country: '${esc(v.country)}', venueId: '${v.venueId}', description: '${esc(v.description)}' },`
-  ).join('\n');
-
-  const updated = isNew
-    ? content.replace('// VENUES_PLACEHOLDER', entries)
-    : content.replace(/(\];\s*\nexport default)/, `${entries}\n];\nexport default`);
-
-  await github.createFile(path, updated, `Auto-update venues: ${venues.map(v => v.name).join(', ')}`);
-}
-
-// ===========================
-// HTML generators
+// HTML generators — one per category
 // ===========================
 
 function generateArtistPageHtml(slug) {
@@ -434,6 +540,58 @@ function generateArtistPageHtml(slug) {
 <body><script>
   (async function() {
     const r = await fetch('/concert.html');
+    const html = await r.text();
+    const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
+    if (!m) return;
+    document.body.innerHTML = m[1];
+    document.body.querySelectorAll('script').forEach(function(o) {
+      var s = document.createElement('script');
+      if (o.src) s.src = o.src; else s.textContent = o.textContent;
+      document.body.appendChild(s); o.remove();
+    });
+  })();
+</script></body></html>`;
+}
+
+function generateFootballPageHtml(slug) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loading\u2026</title>
+  <script>window.__FOOTBALL_SLUG__ = '${slug}';</script>
+  <link rel="stylesheet" href="/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body><script>
+  (async function() {
+    const r = await fetch('/football.html');
+    const html = await r.text();
+    const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
+    if (!m) return;
+    document.body.innerHTML = m[1];
+    document.body.querySelectorAll('script').forEach(function(o) {
+      var s = document.createElement('script');
+      if (o.src) s.src = o.src; else s.textContent = o.textContent;
+      document.body.appendChild(s); o.remove();
+    });
+  })();
+</script></body></html>`;
+}
+
+function generateTheatrePageHtml(slug) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loading\u2026</title>
+  <script>window.__THEATRE_SLUG__ = '${slug}';</script>
+  <link rel="stylesheet" href="/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body><script>
+  (async function() {
+    const r = await fetch('/theatre.html');
     const html = await r.text();
     const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
     if (!m) return;
@@ -475,6 +633,41 @@ function generateVenuePageHtml(slug) {
 
 function generateBaseVenueJs() {
   return `// TicketScout — Venue Data (auto-managed)\nconst VENUES = [\n// VENUES_PLACEHOLDER\n];\nexport async function onRequestGet({ request, env }) {\n  const url = new URL(request.url);\n  const slug = url.searchParams.get('slug');\n  if (!slug) return jsonResponse({ error: 'slug required' }, 400);\n  const venue = VENUES.find(v => v.slug === slug.toLowerCase());\n  if (!venue) return jsonResponse({ error: 'Venue not found' }, 404);\n  const apiKey = env.TM_API_KEY;\n  let events = [];\n  if (apiKey && venue.venueId) {\n    try {\n      const u = new URL('https://app.ticketmaster.com/discovery/v2/events.json');\n      u.searchParams.set('apikey', apiKey);\n      u.searchParams.set('venueId', venue.venueId);\n      u.searchParams.set('size', '20');\n      u.searchParams.set('sort', 'date,asc');\n      const resp = await fetch(u.toString());\n      const data = await resp.json();\n      events = data?._embedded?.events || [];\n    } catch {}\n  }\n  return jsonResponse({ venue, events }, 200);\n}\nfunction jsonResponse(body, status) {\n  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } });\n}\nexport default VENUES;\n`;
+}
+
+// ===========================
+// Category routing helpers
+// ===========================
+
+/**
+ * Maps a genre string to a page category folder.
+ * football → 'football', theatre/musical → 'theatre', everything else → 'concert'
+ */
+function genreToCategory(genre) {
+  const g = (genre || '').toLowerCase();
+  if (g.includes('football') || g.includes('soccer')) return 'football';
+  if (g.includes('theatre') || g.includes('musical') || g.includes('opera') || g.includes('ballet')) return 'theatre';
+  // Sports from TM (non-football) → concert for now (we don't have a general sports page yet)
+  // Could route to dedicated sport page in future
+  return 'concert';
+}
+
+/**
+ * Maps a category to the KV key prefix used by the matching /api/[category] handler.
+ */
+function categoryToKvPrefix(category) {
+  if (category === 'football') return 'football:team:';
+  if (category === 'theatre')  return 'theatre:show:';
+  return 'concert:artist:';
+}
+
+/**
+ * Maps a category to its HTML generator function.
+ */
+function categoryToHtmlGenerator(category) {
+  if (category === 'football') return generateFootballPageHtml;
+  if (category === 'theatre')  return generateTheatrePageHtml;
+  return generateArtistPageHtml;
 }
 
 // ===========================
