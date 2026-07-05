@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Loading…</title>
-  <script>window.__FOOTBALL_SLUG__ = 'everton';</script>
+  <script>window.__FOOTBALL_SLUG__ = 'everton-fc';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
@@ -11,6 +11,10 @@
   (async function() {
     const r = await fetch('/football.html');
     const html = await r.text();
+    // Copy inline <style> from head (contains page-specific CSS)
+    const sm = html.match(/<style>([\s\S]*?)<\/style>/i);
+    if (sm) { var st = document.createElement('style'); st.textContent = sm[1]; document.head.appendChild(st); }
+    // Inject body content
     const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     if (!m) return;
     document.body.innerHTML = m[1];
