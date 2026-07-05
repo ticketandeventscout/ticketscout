@@ -703,10 +703,9 @@
         }
 
         // Fetch TM and Awin in parallel
-        // Awin is filtered to football-only merchants (Football TicketNet UK/DE/US)
-        // to avoid concerts/theatre from Gigsberg or Theatre Tickets Direct
-        const FOOTBALL_MERCHANTS = ['football ticketnet uk', 'football ticketnet de', 'football ticketnet us'];
-
+        // Filter Awin by category to keep football rows from ALL merchants
+        // (Football TicketNet UK/DE/US + Gigsberg football listings)
+        // while excluding concerts/theatre from the same merchants
         const [tmData, awinData] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
@@ -715,10 +714,11 @@
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];
-        // Filter Awin strictly to football merchants only — prevents concerts bleeding in
-        const awinRaw    = (awinData?.events || []).filter(e =>
-          FOOTBALL_MERCHANTS.includes((e.merchantName || '').toLowerCase())
-        );
+        // Filter by category not merchant — captures Gigsberg football rows too
+        const awinRaw    = (awinData?.events || []).filter(e => {
+          const cat = (e.category || '').toLowerCase();
+          return cat.includes('football') || cat.includes('soccer') || cat.includes('sport');
+        });
 
         window.__attractionId = attractionId;
         window.__tmPage       = 1;
