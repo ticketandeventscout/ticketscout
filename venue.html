@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" id="meta-description" content="Compare ticket prices for upcoming events at this venue." />
+  <title id="page-title">Venue Tickets — Compare Prices | TicketScout</title>
+  <link rel="canonical" id="canonical" href="https://www.ticketscout.co.uk/venue/" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script type="application/ld+json" id="schema-org"></script>
+  <style>
+    .venue-hero {
+      background: linear-gradient(135deg, #0c2d5a 0%, #1a6fc4 100%);
+      padding: 52px 24px 44px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .venue-hero-bg {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      opacity: 0.15;
+      filter: blur(8px);
+      transform: scale(1.05);
+    }
+
+    .venue-hero-inner {
+      position: relative;
+      z-index: 1;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .venue-location-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 4px 14px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+      letter-spacing: 0.5px;
+    }
+
+    .venue-hero h1 {
+      font-size: 36px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 10px;
+      line-height: 1.2;
+      letter-spacing: -0.5px;
+    }
+
+    .venue-hero-sub {
+      font-size: 16px;
+      color: rgba(255,255,255,0.8);
+      margin-bottom: 28px;
+    }
+
+    .venue-search-bar {
+      background: #ffffff;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      padding: 0 0 0 14px;
+      gap: 10px;
+      max-width: 520px;
+      margin: 0 auto;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    }
+
+    .venue-search-bar input {
+      flex: 1;
+      border: none;
+      padding: 14px 0;
+      font-size: 15px;
+      font-family: 'Inter', sans-serif;
+      color: #1a1a1a;
+      outline: none;
+      background: transparent;
+    }
+
+    .venue-search-bar button {
+      background: #1a6fc4;
+      color: #ffffff;
+      border: none;
+      padding: 14px 22px;
+      font-size: 15px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 0 7px 7px 0;
+      transition: background 0.2s;
+    }
+
+    .venue-search-bar button:hover { background: #155da0; }
+
+    .venue-content {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 44px 24px;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 40px;
+      align-items: start;
+    }
+
+    @media (max-width: 768px) {
+      .venue-content { grid-template-columns: 1fr; }
+      .venue-hero h1 { font-size: 26px; }
+    }
+
+    .venue-main h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 20px;
+    }
+
+    .venue-bio {
+      font-size: 15px;
+      color: #444;
+      line-height: 1.75;
+      margin-bottom: 36px;
+    }
+
+    .event-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .event-list-item {
+      background: #ffffff;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+    }
+
+    .event-list-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(26,111,196,0.1);
+      border-color: #b0d0f0;
+    }
+
+    .event-list-name { font-size: 14px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
+    .event-list-meta { font-size: 12px; color: #777; }
+
+    .event-list-right { text-align: right; flex-shrink: 0; margin-left: 16px; }
+    .event-list-price { font-size: 15px; font-weight: 600; color: #1a6fc4; margin-bottom: 4px; }
+
+    .event-list-cta {
+      font-size: 11px;
+      color: #1a6fc4;
+      background: #e8f2fc;
+      padding: 3px 10px;
+      border-radius: 20px;
+      display: inline-block;
+    }
+
+    .venue-sidebar { position: sticky; top: 80px; }
+
+    .sidebar-card {
+      background: #ffffff;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .sidebar-card h3 { font-size: 14px; font-weight: 600; color: #1a1a1a; margin-bottom: 14px; }
+
+    .sidebar-trust-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #444;
+      margin-bottom: 10px;
+    }
+
+    .no-events {
+      background: #f7fbff;
+      border: 1px solid #c8dff5;
+      border-radius: 10px;
+      padding: 24px;
+      text-align: center;
+      color: #555;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .mini-faq { margin-top: 40px; }
+    .mini-faq h2 { font-size: 20px; font-weight: 600; color: #1a1a1a; margin-bottom: 16px; }
+    .mini-faq-item { border-bottom: 1px solid #eee; padding: 14px 0; }
+    .mini-faq-q { font-size: 14px; font-weight: 600; color: #1a1a1a; margin-bottom: 6px; }
+    .mini-faq-a { font-size: 13px; color: #555; line-height: 1.7; }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="/" style="text-decoration:none; display:flex; align-items:center; gap:10px;">
+        <svg width="36" height="36" viewBox="0 40 248 200" xmlns="http://www.w3.org/2000/svg">
+          <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
+          <circle cx="40" cy="140" r="16" fill="#ffffff"/>
+          <circle cx="208" cy="140" r="16" fill="#ffffff"/>
+          <line x1="40" y1="140" x2="208" y2="140" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 5" opacity="0.5"/>
+          <rect x="62" y="92" width="88" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+          <rect x="62" y="106" width="60" height="6" rx="3" fill="#ffffff" opacity="0.6"/>
+          <g transform="translate(168, 112)">
+            <polygon points="0,-14 3.5,-5 13,-5 5.5,1 8.5,11 0,5.5 -8.5,11 -5.5,1 -13,-5 -3.5,-5" fill="#ffffff" opacity="0.95"/>
+          </g>
+          <rect x="62" y="158" width="50" height="5" rx="2.5" fill="#ffffff" opacity="0.5"/>
+          <rect x="62" y="170" width="72" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
+          <rect x="62" y="182" width="40" height="5" rx="2.5" fill="#ffffff" opacity="0.25"/>
+        </svg>
+        <div style="display:flex; flex-direction:column; justify-content:center; line-height:1.2;">
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:700; font-size:22px; color:#0c2d5a; letter-spacing:-0.5px;">TicketScout</span>
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:400; font-size:11px; color:#1a6fc4; letter-spacing:2px;">compare. save. enjoy.</span>
+        </div>
+      </a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/concerts">Concerts</a>
+        <a href="/theatre">Theatre</a>
+        <a href="/football">Football</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Venue Hero -->
+  <div class="venue-hero">
+    <div class="venue-hero-bg" id="hero-bg"></div>
+    <div class="venue-hero-inner">
+      <div class="venue-location-badge" id="location-badge">Loading…</div>
+      <h1 id="venue-name">Loading venue…</h1>
+      <p class="venue-hero-sub" id="venue-sub">Compare ticket prices for upcoming events</p>
+      <div class="venue-search-bar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="text" id="search-input" placeholder="Search for an artist or event…" />
+        <button onclick="handleSearch()">Search</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="venue-content">
+    <div class="venue-main">
+      <h2 id="events-heading">Upcoming events</h2>
+      <div id="events-container">
+        <div class="no-events">Loading upcoming events…</div>
+      </div>
+
+      <div style="margin-top:36px;">
+        <h2 id="about-heading">About the venue</h2>
+        <p class="venue-bio" id="venue-bio"></p>
+      </div>
+
+      <div class="mini-faq">
+        <h2 id="faq-heading">Frequently asked questions</h2>
+        <div id="mini-faq-content"></div>
+      </div>
+    </div>
+
+    <div class="venue-sidebar">
+      <div class="sidebar-card">
+        <h3>Why use TicketScout?</h3>
+        <div class="sidebar-trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Compare prices from 10+ sellers
+        </div>
+        <div class="sidebar-trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Verified sellers only
+        </div>
+        <div class="sidebar-trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Live prices updated in real time
+        </div>
+        <div class="sidebar-trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          No booking fees added by us
+        </div>
+      </div>
+      <div class="sidebar-card">
+        <h3>How it works</h3>
+        <p style="font-size:13px;color:#555;line-height:1.7;">Click any event below to see a full price comparison across all available sellers. We show you the lowest price from each seller side by side.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <a href="/" style="display:inline-block; margin-bottom:12px; text-decoration:none;">
+        <svg width="420" height="76" viewBox="0 0 680 280" xmlns="http://www.w3.org/2000/svg">
+          <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
+          <circle cx="40" cy="140" r="16" fill="#ffffff"/>
+          <circle cx="208" cy="140" r="16" fill="#ffffff"/>
+          <line x1="40" y1="140" x2="208" y2="140" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 5" opacity="0.5"/>
+          <rect x="62" y="92" width="88" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+          <rect x="62" y="106" width="60" height="6" rx="3" fill="#ffffff" opacity="0.6"/>
+          <g transform="translate(168, 112)">
+            <polygon points="0,-14 3.5,-5 13,-5 5.5,1 8.5,11 0,5.5 -8.5,11 -5.5,1 -13,-5 -3.5,-5" fill="#ffffff" opacity="0.95"/>
+          </g>
+          <rect x="62" y="158" width="50" height="5" rx="2.5" fill="#ffffff" opacity="0.5"/>
+          <rect x="62" y="170" width="72" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
+          <rect x="62" y="182" width="40" height="5" rx="2.5" fill="#ffffff" opacity="0.25"/>
+          <text x="232" y="162" style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-weight:700;font-size:62px;fill:#0c2d5a;letter-spacing:-1px;">TicketScout</text>
+          <text x="234" y="196" style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-weight:400;font-size:18px;fill:#1a6fc4;letter-spacing:3px;">compare. save. enjoy.</text>
+          <line x1="220" y1="90" x2="220" y2="210" stroke="#1a6fc4" stroke-width="1.5" opacity="0.2"/>
+        </svg>
+      </a>
+      <p>© 2026 TicketScout · ticketscout.co.uk · All prices in GBP</p>
+      <p style="margin-top:6px;"><a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms of Use</a> · <a href="/faq.html">FAQ</a> · <a href="/contact.html">Contact</a></p>
+      <p style="margin-top:14px; font-size:12px; color:#999; max-width:560px; margin-left:auto; margin-right:auto; line-height:1.5;">
+        TicketScout does not sell tickets and is not a ticket retailer. We display pricing and availability sourced from third-party providers and cannot guarantee its accuracy. Always confirm event details, pricing and availability on the seller's site before purchasing.
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    function getSlug() {
+      if (window.__VENUE_SLUG__) return window.__VENUE_SLUG__;
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? parts[parts.length - 1].toLowerCase() : null;
+    }
+
+    function handleSearch() {
+      const keyword = document.getElementById('search-input').value.trim();
+      if (!keyword) return;
+      window.location.href = `/?search=${encodeURIComponent(keyword)}`;
+    }
+
+    document.getElementById('search-input').addEventListener('keypress', e => {
+      if (e.key === 'Enter') handleSearch();
+    });
+
+    function formatDate(dateStr) {
+      if (!dateStr) return 'Date TBC';
+      return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function buildMiniFAQ(venueName) {
+      return [
+        {
+          q: `What events are on at ${venueName}?`,
+          a: `Upcoming events at ${venueName} are listed above with live pricing from our verified seller network. We update our listings in real time so you always see the latest availability.`
+        },
+        {
+          q: `How do I buy tickets for ${venueName} events?`,
+          a: `Click any event above to see a full price comparison across all available sellers. We show you the lowest price from each verified seller side by side, then you click through to buy directly from them.`
+        },
+        {
+          q: 'Do you add booking fees?',
+          a: 'No — TicketScout never adds booking fees. Prices are sourced directly from each seller. Some sellers may add their own fees at checkout, so always confirm the final price before purchasing.'
+        }
+      ].map(f => `
+        <div class="mini-faq-item">
+          <div class="mini-faq-q">${f.q}</div>
+          <div class="mini-faq-a">${f.a}</div>
+        </div>`).join('');
+    }
+
+    function updateMeta(venue, events) {
+      document.getElementById('page-title').textContent =
+        `${venue.name} Tickets — Upcoming Events & Prices | TicketScout`;
+      document.getElementById('meta-description').setAttribute('content',
+        `Compare ticket prices for upcoming events at ${venue.name}${venue.city ? ', ' + venue.city : ''}. Find the best deal across verified sellers.`);
+      document.getElementById('canonical').setAttribute('href',
+        `https://www.ticketscout.co.uk/venue/${venue.slug}`);
+
+      if (events.length > 0) {
+        const schema = {
+          '@context': 'https://schema.org',
+          '@type': 'EventVenue',
+          'name': venue.name,
+          'address': { '@type': 'PostalAddress', 'addressLocality': venue.city, 'addressCountry': venue.country || 'GB' }
+        };
+        document.getElementById('schema-org').textContent = JSON.stringify(schema);
+      }
+    }
+
+    async function init() {
+      const slug = getSlug();
+      if (!slug || slug === 'venue') {
+        document.getElementById('location-badge').textContent = 'Venue';
+        document.getElementById('venue-name').textContent = 'Venue Tickets';
+        document.getElementById('events-container').innerHTML =
+          '<div class="no-events"><p>Search for an event above to compare ticket prices.</p></div>';
+        return;
+      }
+
+      try {
+        const resp = await fetch(`/api/venue?slug=${encodeURIComponent(slug)}`);
+        if (!resp.ok) {
+          document.getElementById('venue-name').textContent = 'Venue not found';
+          document.getElementById('events-container').innerHTML =
+            '<div class="no-events"><p>We couldn\'t find this venue. <a href="/">Search from the homepage</a>.</p></div>';
+          return;
+        }
+
+        const { venue, events } = await resp.json();
+
+        document.getElementById('location-badge').textContent = [venue.city, venue.country].filter(Boolean).join(', ') || 'Venue';
+        document.getElementById('venue-name').textContent = `${venue.name} — Tickets`;
+        document.getElementById('venue-sub').textContent = `Compare ticket prices for upcoming events at ${venue.name}`;
+        document.getElementById('about-heading').textContent = `About ${venue.name}`;
+        document.getElementById('events-heading').textContent = `Upcoming events at ${venue.name}`;
+        document.getElementById('faq-heading').textContent = `${venue.name} — FAQs`;
+        document.getElementById('venue-bio').textContent = venue.description;
+        document.getElementById('mini-faq-content').innerHTML = buildMiniFAQ(venue.name);
+
+        updateMeta(venue, events);
+        renderEvents(events, venue);
+
+      } catch (err) {
+        console.error('Venue page error:', err);
+        document.getElementById('events-container').innerHTML =
+          '<div class="no-events">Unable to load events right now. Please try again shortly.</div>';
+      }
+    }
+
+    function renderEvents(events, venue) {
+      const container = document.getElementById('events-container');
+
+      if (!events.length) {
+        container.innerHTML = `<div class="no-events"><p>No upcoming events found at ${venue.name} right now. Check back soon.</p></div>`;
+        return;
+      }
+
+      const html = events.map(e => {
+        const date      = formatDate(e.dates?.start?.localDate);
+        const time      = e.dates?.start?.localTime ? e.dates.start.localTime.slice(0,5) : '';
+        const minPrice  = e.priceRanges?.[0]?.min;
+        const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
+
+        return `
+          <a class="event-list-item" href="/#/event/${e.id}">
+            <div class="event-list-left">
+              <div class="event-list-name">${e.name}</div>
+              <div class="event-list-meta">${date}${time ? ' · ' + time : ''}</div>
+            </div>
+            <div class="event-list-right">
+              ${priceHtml}
+              <span class="event-list-cta">Compare prices →</span>
+            </div>
+          </a>`;
+      }).join('');
+
+      container.innerHTML = `<div class="event-list">${html}</div>`;
+    }
+
+    init();
+  </script>
+
+</body>
+</html>

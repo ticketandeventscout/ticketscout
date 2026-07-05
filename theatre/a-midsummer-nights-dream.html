@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Loading…</title>
+  <script>window.__THEATRE_SLUG__ = 'a-midsummer-nights-dream';</script>
+  <link rel="stylesheet" href="/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body><script>
+  (async function() {
+    try {
+      const r = await fetch('/theatre.html');
+      const html = await r.text();
+      // Copy inline styles from head
+      const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+      if (headStyleMatch) {
+        const st = document.createElement('style');
+        st.textContent = headStyleMatch[1];
+        document.head.appendChild(st);
+      }
+      // Copy body content
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      if (!bodyMatch) return;
+      document.body.innerHTML = bodyMatch[1];
+      // Re-execute scripts
+      document.body.querySelectorAll('script').forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) s.src = o.src; else s.textContent = o.textContent;
+        document.body.appendChild(s); o.remove();
+      });
+    } catch(e) { console.error('Failed to load theatre template:', e); }
+  })();
+</script></body></html>

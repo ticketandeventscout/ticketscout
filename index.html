@@ -14,10 +14,26 @@
   <!-- Navigation -->
   <nav class="navbar">
     <div class="nav-inner">
-      <div class="logo">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>
-        TicketScout
-      </div>
+      <a href="#/" style="text-decoration:none; display:flex; align-items:center; gap:10px;">
+        <svg width="36" height="36" viewBox="0 40 248 200" xmlns="http://www.w3.org/2000/svg">
+          <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
+          <circle cx="40" cy="140" r="16" fill="#ffffff"/>
+          <circle cx="208" cy="140" r="16" fill="#ffffff"/>
+          <line x1="40" y1="140" x2="208" y2="140" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 5" opacity="0.5"/>
+          <rect x="62" y="92" width="88" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+          <rect x="62" y="106" width="60" height="6" rx="3" fill="#ffffff" opacity="0.6"/>
+          <g transform="translate(168, 112)">
+            <polygon points="0,-14 3.5,-5 13,-5 5.5,1 8.5,11 0,5.5 -8.5,11 -5.5,1 -13,-5 -3.5,-5" fill="#ffffff" opacity="0.95"/>
+          </g>
+          <rect x="62" y="158" width="50" height="5" rx="2.5" fill="#ffffff" opacity="0.5"/>
+          <rect x="62" y="170" width="72" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
+          <rect x="62" y="182" width="40" height="5" rx="2.5" fill="#ffffff" opacity="0.25"/>
+        </svg>
+        <div style="display:flex; flex-direction:column; justify-content:center; line-height:1.2;">
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:700; font-size:22px; color:#0c2d5a; letter-spacing:-0.5px;">TicketScout</span>
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:400; font-size:11px; color:#1a6fc4; letter-spacing:2px;">compare. save. enjoy.</span>
+        </div>
+      </a>
       <div class="nav-links">
         <a href="#concerts">Concerts</a>
         <a href="#sports">Sports</a>
@@ -32,12 +48,13 @@
     <div class="hero-inner">
       <h1>Find the best ticket price,<br />every time</h1>
       <p>We compare prices across all major UK ticket sites so you don't have to</p>
-      <div class="search-bar">
+      <div class="search-bar" style="position:relative;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <input type="text" id="search-input" placeholder="Search for an artist, team, or event…" />
-        <button id="search-btn" onclick="searchEvents()">Search</button>
+        <input type="text" id="search-input" placeholder="Search for an artist, team, or event…" autocomplete="off" />
+        <button id="search-btn" onclick="handleSearch()">Search</button>
+        <div id="search-suggestions" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #c8dff5; border-top:none; border-radius:0 0 8px 8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); z-index:9999; max-height:300px; overflow-y:auto;"></div>
       </div>
-      <div class="cat-row">
+      <div class="cat-row" id="cat-row">
         <button class="cat-pill active" onclick="filterCategory(this, 'all')">All events</button>
         <button class="cat-pill" onclick="filterCategory(this, 'music')">Concerts</button>
         <button class="cat-pill" onclick="filterCategory(this, 'sports')">Sports</button>
@@ -67,16 +84,17 @@
     </div>
   </div>
 
-  <!-- Events Section -->
+  <!-- Events / Search / Artist / Detail Section (content swapped by router) -->
   <section class="section">
-    <h2 class="section-title">Trending events in the UK</h2>
+    <div id="view-breadcrumb" class="view-breadcrumb" style="display:none;"></div>
+    <h2 class="section-title" id="results-title">Trending events in the UK</h2>
     <div class="events-grid" id="events-grid">
       <div class="loading">Loading events…</div>
     </div>
   </section>
 
   <!-- How It Works -->
-  <section class="how-section">
+  <section class="how-section" id="how-section">
     <h2 class="section-title" style="text-align:center;">How TicketScout works</h2>
     <div class="steps">
       <div class="step">
@@ -106,17 +124,36 @@
   <!-- Footer -->
   <footer class="footer">
     <div class="footer-inner">
-      <div class="logo" style="justify-content:center; margin-bottom:12px;">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/></svg>
-        TicketScout
-      </div>
+      <a href="#/" style="display:inline-block; margin-bottom:12px; text-decoration:none;">
+        <svg width="420" height="76" viewBox="0 0 680 280" xmlns="http://www.w3.org/2000/svg">
+          <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
+          <circle cx="40" cy="140" r="16" fill="#ffffff"/>
+          <circle cx="208" cy="140" r="16" fill="#ffffff"/>
+          <line x1="40" y1="140" x2="208" y2="140" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 5" opacity="0.5"/>
+          <rect x="62" y="92" width="88" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+          <rect x="62" y="106" width="60" height="6" rx="3" fill="#ffffff" opacity="0.6"/>
+          <g transform="translate(168, 112)">
+            <polygon points="0,-14 3.5,-5 13,-5 5.5,1 8.5,11 0,5.5 -8.5,11 -5.5,1 -13,-5 -3.5,-5" fill="#ffffff" opacity="0.95"/>
+          </g>
+          <rect x="62" y="158" width="50" height="5" rx="2.5" fill="#ffffff" opacity="0.5"/>
+          <rect x="62" y="170" width="72" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
+          <rect x="62" y="182" width="40" height="5" rx="2.5" fill="#ffffff" opacity="0.25"/>
+          <text x="232" y="162" style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-weight:700;font-size:62px;fill:#0c2d5a;letter-spacing:-1px;">TicketScout</text>
+          <text x="234" y="196" style="font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-weight:400;font-size:18px;fill:#1a6fc4;letter-spacing:3px;">compare. save. enjoy.</text>
+          <line x1="220" y1="90" x2="220" y2="210" stroke="#1a6fc4" stroke-width="1.5" opacity="0.2"/>
+        </svg>
+      </a>
       <p>© 2026 TicketScout · ticketscout.co.uk · All prices in GBP</p>
-      <p style="margin-top:6px;"><a href="#">Privacy Policy</a> · <a href="#">Terms of Use</a> · <a href="#">Contact</a></p>
+      <p style="margin-top:6px;"><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Use</a> · <a href="faq.html">FAQ</a> · <a href="contact.html">Contact</a></p>
+      <p style="margin-top:14px; font-size:12px; color:#999; max-width:560px; margin-left:auto; margin-right:auto; line-height:1.5;">
+        TicketScout does not sell tickets and is not a ticket retailer. We display pricing and availability sourced from third-party providers and cannot guarantee its accuracy. Always confirm event details, pricing and availability on the seller's site before purchasing.
+      </p>
     </div>
   </footer>
 
   <script src="events.js"></script>
   <script src="compare.js"></script>
+  <script src="autocomplete.js"></script>
 
 </body>
 </html>
