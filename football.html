@@ -572,6 +572,13 @@
       return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     }
 
+    function setEl(id, attr, val) {
+      // Safe setter — elements may not exist when loaded via stub (head not replaced)
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (attr) el.setAttribute(attr, val); else el.textContent = val;
+    }
+
     function updateMeta(team, events, tmImage) {
       const name    = team.name;
       const slug    = team.slug;
@@ -579,16 +586,19 @@
       const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} match tickets and buy direct from the seller.`;
       const image   = tmImage || 'https://www.ticketscout.co.uk/og-default.png';
 
-      document.getElementById('page-title').textContent         = `${name} Tickets — Compare Prices | TicketScout`;
-      document.getElementById('meta-description').setAttribute('content', description);
-      document.getElementById('canonical').setAttribute('href', pageUrl);
-      document.getElementById('og-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
-      document.getElementById('og-description').setAttribute('content', description);
-      document.getElementById('og-url').setAttribute('content', pageUrl);
-      document.getElementById('og-image').setAttribute('content', image);
-      document.getElementById('tw-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
-      document.getElementById('tw-description').setAttribute('content', description);
-      document.getElementById('tw-image').setAttribute('content', image);
+      // Always update document.title directly — works even without head elements
+      document.title = `${name} Tickets — Compare Prices | TicketScout`;
+
+      setEl('page-title',       null,      `${name} Tickets — Compare Prices | TicketScout`);
+      setEl('meta-description', 'content', description);
+      setEl('canonical',        'href',    pageUrl);
+      setEl('og-title',         'content', `${name} Tickets — Compare Prices | TicketScout`);
+      setEl('og-description',   'content', description);
+      setEl('og-url',           'content', pageUrl);
+      setEl('og-image',         'content', image);
+      setEl('tw-title',         'content', `${name} Tickets — Compare Prices | TicketScout`);
+      setEl('tw-description',   'content', description);
+      setEl('tw-image',         'content', image);
 
       if (events.length > 0) {
         const schemaEvents = events.slice(0, 5).map(e => {

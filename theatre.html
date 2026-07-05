@@ -572,6 +572,12 @@
       return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     }
 
+    function setEl(id, attr, val) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (attr) el.setAttribute(attr, val); else el.textContent = val;
+    }
+
     function updateMeta(show, events, tmImage) {
       const name    = show.name;
       const slug    = show.slug;
@@ -579,16 +585,16 @@
       const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`;
       const image   = tmImage || 'https://www.ticketscout.co.uk/og-default.png';
 
-      document.getElementById('page-title').textContent         = `${name} Tickets — Compare Prices | TicketScout`;
-      document.getElementById('meta-description').setAttribute('content', description);
-      document.getElementById('canonical').setAttribute('href', pageUrl);
-      document.getElementById('og-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
-      document.getElementById('og-description').setAttribute('content', description);
-      document.getElementById('og-url').setAttribute('content', pageUrl);
-      document.getElementById('og-image').setAttribute('content', image);
-      document.getElementById('tw-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
-      document.getElementById('tw-description').setAttribute('content', description);
-      document.getElementById('tw-image').setAttribute('content', image);
+      setEl('page-title', null, `${name} Tickets — Compare Prices | TicketScout`;
+      document.getElementById('meta-description') && document.getElementById('meta-description').setAttribute('content', description);
+      document.getElementById('canonical') && document.getElementById('canonical').setAttribute('href', pageUrl);
+      document.getElementById('og-title') && document.getElementById('og-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
+      document.getElementById('og-description') && document.getElementById('og-description').setAttribute('content', description);
+      document.getElementById('og-url') && document.getElementById('og-url').setAttribute('content', pageUrl);
+      document.getElementById('og-image') && document.getElementById('og-image').setAttribute('content', image);
+      document.getElementById('tw-title') && document.getElementById('tw-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
+      document.getElementById('tw-description') && document.getElementById('tw-description').setAttribute('content', description);
+      document.getElementById('tw-image') && document.getElementById('tw-image').setAttribute('content', image);
 
       if (events.length > 0) {
         const schemaEvents = events.slice(0, 5).map(e => {
@@ -618,7 +624,7 @@
             'url': pageUrl
           };
         });
-        document.getElementById('schema-org').textContent = JSON.stringify({
+        setEl('schema-org', null, JSON.stringify({
           '@context': 'https://schema.org',
           '@graph': schemaEvents
         });
