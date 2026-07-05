@@ -45,8 +45,18 @@ export async function onRequestGet({ request, env }) {
     return jsonResponse({ error: 'slug is required' }, 400);
   }
 
-  const normSlug = slug.toLowerCase();
-  let team = TEAMS.find(t => t.slug === normSlug);
+  // Normalise slug — strip common suffixes that TM/search appends
+  // e.g. 'chelsea-fc' → 'chelsea', 'manchester-united-fc' → 'manchester-united'
+  let normSlug = slug.toLowerCase()
+    .replace(/-f-c$/, '')        // trailing -f-c
+    .replace(/-fc$/, '')         // trailing -fc  
+    .replace(/-afc$/, '')        // trailing -afc (AFC Bournemouth etc)
+    .replace(/-football-club$/, '') // trailing -football-club
+    .replace(/-soccer$/, '');    // trailing -soccer
+  normSlug = normSlug.replace(/-+$/, ''); // clean trailing dashes
+
+  let team = TEAMS.find(t => t.slug === normSlug)
+           || TEAMS.find(t => t.slug === slug.toLowerCase()); // fallback to raw slug
 
   // If not in hardcoded list, check KV for auto-discovered team data
   if (!team) {
