@@ -52,8 +52,36 @@ function setBreadcrumb(html) {
 }
 
 function render() {
-  const hash = window.location.hash.replace(/^#\/?/, '');
-  const parts = hash.split('/').filter(Boolean);
+  const raw   = window.location.hash.replace(/^#/, '');
+  const clean = raw.replace(/^\//, '');
+  const parts = clean.split('/').filter(Boolean);
+
+  // Handle nav category shortcuts: #concerts #sports #theatre #comedy
+  // These are set by the navbar links in index.html
+  const CAT_SHORTCUTS = {
+    concerts: { seg: 'Music',           label: 'Upcoming concerts' },
+    sports:   { seg: 'Sports',          label: 'Upcoming sports events' },
+    theatre:  { seg: 'Arts & Theatre',  label: 'Upcoming theatre & arts events' },
+    comedy:   { seg: 'Arts & Theatre',  label: 'Upcoming comedy events' }
+  };
+  if (CAT_SHORTCUTS[clean]) {
+    const { seg, label } = CAT_SHORTCUTS[clean];
+    setChromeVisible(true);
+    setBreadcrumb('');
+    document.getElementById('results-title').textContent = label;
+    // Highlight matching pill
+    document.querySelectorAll('.cat-pill').forEach(p => {
+      const t = p.textContent.trim().toLowerCase();
+      p.classList.toggle('active',
+        (clean === 'concerts' && t === 'concerts') ||
+        (clean === 'sports'   && t === 'sports')   ||
+        (clean === 'theatre'  && t === 'theatre')  ||
+        (clean === 'comedy'   && t === 'comedy')
+      );
+    });
+    fetchEvents('', seg);
+    return;
+  }
 
   if (parts[0] === 'search' && parts[1]) {
     setChromeVisible(false);
@@ -104,8 +132,16 @@ async function fetchEvents(keyword = '', segmentName = '') {
 function filterCategory(pill, category) {
   document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
   pill.classList.add('active');
-  navigate('/');
+  // Don't navigate() — that triggers render() which resets to no-filter fetchEvents.
+  // Just fetch directly with the right segment filter.
   const segmentName = CATEGORY_MAP[category] || '';
+  const title = category === 'all'    ? 'Trending events in the UK'
+              : category === 'music'  ? 'Upcoming concerts'
+              : category === 'sports' ? 'Upcoming sports events'
+              : category === 'arts'   ? 'Upcoming theatre & arts events'
+              : category === 'comedy' ? 'Upcoming comedy events'
+              : 'Trending events';
+  document.getElementById('results-title').textContent = title;
   fetchEvents('', segmentName);
 }
 
@@ -136,14 +172,35 @@ async function runSearch(keyword) {
   grid.className = 'events-grid';
   grid.innerHTML = '<div class="loading">Searching…</div>';
 
-  // Check if a /concert/[slug] discovery page exists for this keyword
+  // Check if a dedicated SEO page exists for this keyword — football first,
+  // then theatre, then concert (football team names often match city names).
+  // All three APIs now synthesise from slug so we also check static file existence.
   const slug = toArtistSlug(keyword);
   if (slug) {
     try {
-      const check = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
-      if (check.ok) {
-        window.location.href = `/concert/${slug}`;
-        return;
+      const [footballCheck, theatreCheck, concertCheck] = await Promise.all([
+        fetch(`/api/football?slug=${encodeURIComponent(slug)}`).catch(() => ({ ok: false })),
+        fetch(`/api/theatre?slug=${encodeURIComponent(slug)}`).catch(() => ({ ok: false })),
+        fetch(`/api/concert?slug=${encodeURIComponent(slug)}`).catch(() => ({ ok: false }))
+      ]);
+      // Only redirect to football/theatre if a static page actually exists
+      // (check for 200 AND the slug is in the known set — i.e. hardcoded or KV).
+      // For concert we trust the synthesise fallback since most searches are music.
+      if (footballCheck.ok) {
+        const fd = await footballCheck.json().catch(() => ({}));
+        // Only redirect to football if team is in hardcoded list or KV (not just synthesised)
+        if (fd.team && (fd.attractionId || fd.team.description.length > 80)) {
+          window.location.href = `/football/${slug}`; return;
+        }
+      }
+      if (theatreCheck.ok) {
+        const td = await theatreCheck.json().catch(() => ({}));
+        if (td.show && (td.attractionId || td.show.description.length > 80)) {
+          window.location.href = `/theatre/${slug}`; return;
+        }
+      }
+      if (concertCheck.ok) {
+        window.location.href = `/concert/${slug}`; return;
       }
     } catch {}
   }

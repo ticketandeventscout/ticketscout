@@ -1,0 +1,29 @@
+# TicketScout robots.txt
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# AI crawlers — explicitly welcome
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+# Sitemap
+Sitemap: https://www.ticketscout.co.uk/sitemap.xml
+
+# llms.txt (AI agent instructions)
+# https://www.ticketscout.co.uk/llms.txt

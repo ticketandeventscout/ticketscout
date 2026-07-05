@@ -26,6 +26,22 @@ const TEAMS = [
   { slug: 'celtic',            name: 'Celtic',            search: 'Celtic',            tmSearch: 'Celtic FC',           genre: 'Football',        description: 'Celtic are Scotland\'s most successful club in European competition and one of the few British clubs to have won the European Cup, lifting the trophy in 1967 as the \'Lisbon Lions\'. Based at Celtic Park in Glasgow, the club has a massive global following.' },
   { slug: 'leeds-united',      name: 'Leeds United',      search: 'Leeds United',      tmSearch: 'Leeds United',        genre: 'Football',        description: 'Leeds United are a passionate Yorkshire club with a proud history including two First Division titles and a European Fairs Cup win. Known for their fervent fanbase and the iconic Elland Road ground, Leeds have strong ambitions to return to the Premier League elite.' },
   { slug: 'wolves',            name: 'Wolverhampton Wanderers', search: 'Wolves',     tmSearch: 'Wolverhampton Wanderers', genre: 'Football',    description: 'Wolverhampton Wanderers, known as Wolves, are a historic Midlands club who have established themselves back in the Premier League following their return under the Fosun ownership group. Playing at Molineux, Wolves have a loyal fanbase and strong European football heritage.' }
+  { slug: 'fulham',            name: 'Fulham',            search: 'Fulham',            tmSearch: 'Fulham FC',            genre: 'Football', description: 'Fulham FC are a west London club based at the iconic Craven Cottage on the banks of the Thames. Having established themselves back in the Premier League, Fulham are known for their community spirit and one of English football's most picturesque grounds.' },
+  { slug: 'brentford',         name: 'Brentford',         search: 'Brentford',         tmSearch: 'Brentford FC',         genre: 'Football', description: 'Brentford FC are a west London club who have established themselves in the Premier League following their 2021 promotion. Playing at the modern Gtech Community Stadium, Brentford are known for their innovative data-driven approach under Thomas Frank.' },
+  { slug: 'bournemouth',       name: 'Bournemouth',       search: 'Bournemouth',       tmSearch: 'AFC Bournemouth',      genre: 'Football', description: 'AFC Bournemouth are a south coast club who have become established Premier League regulars. Playing at the Vitality Stadium, the Cherries have punched above their weight and continue to attract top-level talent.' },
+  { slug: 'crystal-palace',   name: 'Crystal Palace',    search: 'Crystal Palace',    tmSearch: 'Crystal Palace',      genre: 'Football', description: 'Crystal Palace are a south London club with a passionate fanbase and one of the Premier League's most atmospheric grounds in Selhurst Park. Known for their eagle mascot and vibrant supporter culture, Palace are an established top-flight club.' },
+  { slug: 'nottingham-forest', name: 'Nottingham Forest', search: 'Nottingham Forest', tmSearch: 'Nottingham Forest',   genre: 'Football', description: 'Nottingham Forest are one of English football's most storied clubs, having won the European Cup back-to-back in 1979 and 1980. Having returned to the Premier League, Forest are once again competing at the highest level at the City Ground.' },
+  { slug: 'leicester-city',   name: 'Leicester City',    search: 'Leicester City',    tmSearch: 'Leicester City',      genre: 'Football', description: 'Leicester City are famous for their extraordinary Premier League title win in 2015-16, widely regarded as one of the greatest sporting upsets of all time. The Foxes play at the King Power Stadium and have a passionate Midlands fanbase.' },
+  { slug: 'southampton',      name: 'Southampton',       search: 'Southampton',       tmSearch: 'Southampton FC',      genre: 'Football', description: 'Southampton FC, known as the Saints, are a historic south coast club famed for their youth academy which produced legends including Alan Shearer and Gareth Bale. Southampton play at St Mary's Stadium on the banks of the River Itchen.' },
+  { slug: 'ipswich',          name: 'Ipswich Town',      search: 'Ipswich',           tmSearch: 'Ipswich Town',        genre: 'Football', description: 'Ipswich Town are a Suffolk club with a proud history including a First Division title in 1962 and UEFA Cup win in 1981. After years away, Ipswich have returned to the Premier League under Kieran McKenna and are building exciting momentum.' },
+  { slug: 'watford',          name: 'Watford',           search: 'Watford',           tmSearch: 'Watford FC',          genre: 'Football', description: 'Watford FC are a Hertfordshire club with a rich history and one of English football's most colourful owner stories. The Hornets yo-yo between the Premier League and Championship and play at Vicarage Road, one of the most distinctive grounds in English football.' },
+  { slug: 'stoke-city',       name: 'Stoke City',        search: 'Stoke City',        tmSearch: 'Stoke City',          genre: 'Football', description: 'Stoke City are a proud Midlands club and one of the 12 founding members of the Football League. The Potters play at the bet365 Stadium and have a loyal Potteries fanbase with ambitions to return to the top flight.' },
+  { slug: 'sheffield-united', name: 'Sheffield United',  search: 'Sheffield United',  tmSearch: 'Sheffield United',    genre: 'Football', description: 'Sheffield United are a Yorkshire club competing in the Championship with ambitions to return to the Premier League. The Blades play at the historic Bramall Lane, the world's oldest major football stadium still in use.' },
+  { slug: 'sheffield-wednesday', name: 'Sheffield Wednesday', search: 'Sheffield Wednesday', tmSearch: 'Sheffield Wednesday', genre: 'Football', description: 'Sheffield Wednesday are a historic Yorkshire club and one of England's oldest professional football clubs. The Owls play at Hillsborough and have a passionate fanbase with strong ambitions to return to the Premier League.' },
+  { slug: 'sunderland',       name: 'Sunderland',        search: 'Sunderland',        tmSearch: 'Sunderland AFC',      genre: 'Football', description: 'Sunderland AFC are a north-east club with a passionate fanbase and storied history. Sunderland have attracted renewed attention following the Netflix documentary series and play at the Stadium of Light.' },
+  { slug: 'middlesbrough',    name: 'Middlesbrough',     search: 'Middlesbrough',     tmSearch: 'Middlesbrough FC',    genre: 'Football', description: 'Middlesbrough FC are a north-east club competing in the Championship. Boro won the League Cup in 2004 and reached the UEFA Cup final in 2006, and they continue to push for a return to the top flight at the Riverside Stadium.' },
+  { slug: 'hearts',           name: 'Heart of Midlothian', search: 'Hearts',          tmSearch: 'Heart of Midlothian', genre: 'Football', description: 'Heart of Midlothian, known as Hearts, are one of Scotland's most successful clubs based in Edinburgh. A founder member of the Scottish Football League, Hearts play at Tynecastle Park and are one half of the Edinburgh derby rivalry with Hibernian.' },
+  { slug: 'hibernian',        name: 'Hibernian',         search: 'Hibernian',         tmSearch: 'Hibernian FC',        genre: 'Football', description: 'Hibernian FC, known as Hibs, are an Edinburgh club with a rich history and a famous European pedigree — they were the first British club to play in European competition. Hibs play at Easter Road and are fierce Edinburgh derby rivals with Hearts.' }
 ];
 
 export async function onRequestGet({ request, env }) {
@@ -52,9 +68,10 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
-  // Fallback — try Awin events for this team name
+  // Fallback — try to construct a basic team from the slug
   if (!team) {
     const name = toTitleCase(normSlug.replace(/-/g, ' '));
+    // Try Awin events for sports teams
     try {
       const origin   = new URL(request.url).origin;
       const awinUrl  = `${origin}/api/awin-events?name=${encodeURIComponent(name)}&size=1`;
@@ -74,24 +91,19 @@ export async function onRequestGet({ request, env }) {
       }
     } catch {}
 
-    // Slug-based fallback — if Awin has nothing but the slug contains a hyphen,
-    // it is likely a valid auto-discovered team whose KV data has expired.
-    // Synthesise from the slug so TM lookup and the page still work.
-    // Single-word slugs with no data anywhere are likely misspellings — still 404.
+    // Synthesise from slug for any unknown football club — club names are
+    // often single words (Fulham, Everton) and KV may have expired.
+    // TM lookup will still find them by reconstructed name.
     if (!team) {
-      if (normSlug.includes('-')) {
-        const displayName = toTitleCase(normSlug.replace(/-/g, ' '));
-        team = {
-          slug:        normSlug,
-          name:        displayName,
-          search:      displayName,
-          tmSearch:    displayName,
-          genre:       'Football',
-          description: `Compare ${displayName} ticket prices across verified sellers on TicketScout.`
-        };
-      } else {
-        return jsonResponse({ error: 'Team not found' }, 404);
-      }
+      const displayName = toTitleCase(normSlug.replace(/-/g, ' '));
+      team = {
+        slug:        normSlug,
+        name:        displayName,
+        search:      displayName,
+        tmSearch:    displayName,
+        genre:       'Football',
+        description: `Compare ${displayName} ticket prices across verified sellers on TicketScout.`
+      };
     }
   }
 

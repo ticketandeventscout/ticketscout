@@ -8,6 +8,61 @@
   <link rel="stylesheet" href="styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Structured data — Organisation, WebSite with SearchAction, SiteLinksSearchBox -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://www.ticketscout.co.uk/#website",
+        "url": "https://www.ticketscout.co.uk",
+        "name": "TicketScout",
+        "description": "Compare ticket prices across all major UK ticket sites instantly. Find the best deal for concerts, sports, theatre and live events.",
+        "inLanguage": "en-GB",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://www.ticketscout.co.uk/?q={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://www.ticketscout.co.uk/#organization",
+        "name": "TicketScout",
+        "url": "https://www.ticketscout.co.uk",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://www.ticketscout.co.uk/og-default.png",
+          "width": 512,
+          "height": 512
+        },
+        "description": "TicketScout is a UK ticket price comparison platform. We aggregate live ticket listings from verified sellers so you can find the cheapest price for concerts, football, theatre and live events — without paying booking fees to us.",
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "customer support",
+          "url": "https://www.ticketscout.co.uk/contact",
+          "availableLanguage": "English"
+        },
+        "areaServed": "GB",
+        "knowsAbout": ["ticket price comparison", "concert tickets", "football tickets", "theatre tickets", "live events UK"]
+      },
+      {
+        "@type": "WebPage",
+        "@id": "https://www.ticketscout.co.uk/#webpage",
+        "url": "https://www.ticketscout.co.uk",
+        "name": "TicketScout — Compare UK Ticket Prices",
+        "description": "Compare ticket prices across all major UK ticket sites instantly. Find the best deal for concerts, sports, theatre and comedy.",
+        "inLanguage": "en-GB",
+        "isPartOf": { "@id": "https://www.ticketscout.co.uk/#website" },
+        "about": { "@id": "https://www.ticketscout.co.uk/#organization" }
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
 

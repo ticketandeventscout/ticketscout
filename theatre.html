@@ -19,6 +19,19 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Static org/website schema — crawlable without JS -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "TicketScout",
+    "url": "https://www.ticketscout.co.uk",
+    "logo": "https://www.ticketscout.co.uk/og-default.png",
+    "description": "TicketScout is a UK ticket price comparison platform. We compare prices from verified sellers for concerts, football, theatre and live events.",
+    "contactPoint": { "@type": "ContactPoint", "contactType": "customer support", "url": "https://www.ticketscout.co.uk/contact" }
+  }
+  </script>
+  <!-- Dynamic show + FAQ + breadcrumb schema — populated by JS on page load -->
   <script type="application/ld+json" id="schema-org"></script>
   <style>
     .artist-hero {
@@ -576,7 +589,7 @@
       const name    = show.name;
       const slug    = show.slug;
       const pageUrl = `https://www.ticketscout.co.uk/theatre/${slug}`;
-      const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`;
+      const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller.`;
       const image   = tmImage || 'https://www.ticketscout.co.uk/og-default.png';
 
       document.getElementById('page-title').textContent         = `${name} Tickets — Compare Prices | TicketScout`;
@@ -590,16 +603,49 @@
       document.getElementById('tw-description').setAttribute('content', description);
       document.getElementById('tw-image').setAttribute('content', image);
 
+      // ── JSON-LD schema graph ─────────────────────────────────────────────
+      const schemaGraph = [];
+
+      // WebPage + BreadcrumbList
+      schemaGraph.push({
+        '@type': 'WebPage',
+        '@id': pageUrl,
+        'url': pageUrl,
+        'name': `${name} Tickets — Compare Prices | TicketScout`,
+        'description': description,
+        'image': image,
+        'inLanguage': 'en-GB',
+        'isPartOf': { '@type': 'WebSite', 'url': 'https://www.ticketscout.co.uk', 'name': 'TicketScout' },
+        'breadcrumb': {
+          '@type': 'BreadcrumbList',
+          'itemListElement': [
+            { '@type': 'ListItem', 'position': 1, 'name': 'Home',    'item': 'https://www.ticketscout.co.uk' },
+            { '@type': 'ListItem', 'position': 2, 'name': 'Theatre', 'item': 'https://www.ticketscout.co.uk/theatre/' },
+            { '@type': 'ListItem', 'position': 3, 'name': `${name} Tickets`, 'item': pageUrl }
+          ]
+        }
+      });
+
+      // TheaterEvent — one per performance date (up to 8)
       if (events.length > 0) {
-        const schemaEvents = events.slice(0, 5).map(e => {
-          const venue    = e._embedded?.venues?.[0];
-          const minPrice = e.priceRanges?.[0]?.min;
-          return {
+        events.slice(0, 8).forEach(e => {
+          const venue     = e._embedded?.venues?.[0];
+          const minPrice  = e.priceRanges?.[0]?.min;
+          const startDate = e.dates?.start?.localDate;
+          const startTime = e.dates?.start?.localTime;
+          if (!startDate) return;
+          const ev = {
             '@type': 'TheaterEvent',
-            'name': e.name,
-            'startDate': e.dates?.start?.localDate,
+            'name': e.name || `${name}`,
+            'startDate': startTime ? `${startDate}T${startTime}` : startDate,
             'image': image,
-            'location': venue ? {
+            'url': pageUrl,
+            'eventStatus': 'https://schema.org/EventScheduled',
+            'eventAttendanceMode': 'https://schema.org/OfflineEventAttendanceMode',
+            'performer': { '@type': 'PerformingGroup', 'name': name }
+          };
+          if (venue) {
+            ev['location'] = {
               '@type': 'PerformingArtsTheater',
               'name': venue.name,
               'address': {
@@ -607,22 +653,57 @@
                 'addressLocality': venue.city?.name || '',
                 'addressCountry': venue.country?.countryCode || 'GB'
               }
-            } : undefined,
-            'offers': minPrice ? {
+            };
+          }
+          if (minPrice) {
+            ev['offers'] = {
               '@type': 'Offer',
               'price': minPrice,
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
-              'url': pageUrl
-            } : undefined,
-            'url': pageUrl
-          };
-        });
-        document.getElementById('schema-org').textContent = JSON.stringify({
-          '@context': 'https://schema.org',
-          '@graph': schemaEvents
+              'url': pageUrl,
+              'seller': { '@type': 'Organization', 'name': 'TicketScout' }
+            };
+          }
+          schemaGraph.push(ev);
         });
       }
+
+      // FAQPage — key theatre-specific questions
+      schemaGraph.push({
+        '@type': 'FAQPage',
+        'mainEntity': [
+          {
+            '@type': 'Question',
+            'name': `Where can I buy ${name} tickets?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `TicketScout compares ${name} ticket prices from verified sellers including primary and secondary market platforms. Compare prices and buy direct at ticketscout.co.uk/theatre/${slug}`
+            }
+          },
+          {
+            '@type': 'Question',
+            'name': `How much are ${name} tickets?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `${name} ticket prices vary by seat location, performance date, and seller. TicketScout shows live prices from multiple verified sellers so you can find the best available price without booking fees from us.`
+            }
+          },
+          {
+            '@type': 'Question',
+            'name': `Are ${name} tickets sold out?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `Check ticketscout.co.uk/theatre/${slug} for live availability. When official allocations sell out, verified resale sellers often have additional tickets available. TicketScout compares all options in one place.`
+            }
+          }
+        ]
+      });
+
+      document.getElementById('schema-org').textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@graph': schemaGraph
+      });
     }
 
     function buildMiniFAQ(showName) {

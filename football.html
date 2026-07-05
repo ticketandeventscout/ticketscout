@@ -19,6 +19,19 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- Static org/website schema — crawlable without JS -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "TicketScout",
+    "url": "https://www.ticketscout.co.uk",
+    "logo": "https://www.ticketscout.co.uk/og-default.png",
+    "description": "TicketScout is a UK ticket price comparison platform. We compare prices from verified sellers for concerts, football, theatre and live events.",
+    "contactPoint": { "@type": "ContactPoint", "contactType": "customer support", "url": "https://www.ticketscout.co.uk/contact" }
+  }
+  </script>
+  <!-- Dynamic event + FAQ + breadcrumb schema — populated by JS on page load -->
   <script type="application/ld+json" id="schema-org"></script>
   <style>
     .artist-hero {
@@ -590,16 +603,59 @@
       document.getElementById('tw-description').setAttribute('content', description);
       document.getElementById('tw-image').setAttribute('content', image);
 
+      // ── JSON-LD schema graph ─────────────────────────────────────────────
+      const schemaGraph = [];
+
+      // WebPage + BreadcrumbList
+      schemaGraph.push({
+        '@type': 'WebPage',
+        '@id': pageUrl,
+        'url': pageUrl,
+        'name': `${name} Tickets — Compare Prices | TicketScout`,
+        'description': description,
+        'image': image,
+        'inLanguage': 'en-GB',
+        'isPartOf': { '@type': 'WebSite', 'url': 'https://www.ticketscout.co.uk', 'name': 'TicketScout' },
+        'breadcrumb': {
+          '@type': 'BreadcrumbList',
+          'itemListElement': [
+            { '@type': 'ListItem', 'position': 1, 'name': 'Home',     'item': 'https://www.ticketscout.co.uk' },
+            { '@type': 'ListItem', 'position': 2, 'name': 'Football', 'item': 'https://www.ticketscout.co.uk/football/' },
+            { '@type': 'ListItem', 'position': 3, 'name': `${name} Tickets`, 'item': pageUrl }
+          ]
+        }
+      });
+
+      // SportsTeam
+      schemaGraph.push({
+        '@type': 'SportsTeam',
+        '@id': `${pageUrl}#team`,
+        'name': name,
+        'sport': 'Football',
+        'url': pageUrl
+      });
+
+      // SportsEvent — one per upcoming fixture (up to 8)
       if (events.length > 0) {
-        const schemaEvents = events.slice(0, 5).map(e => {
-          const venue    = e._embedded?.venues?.[0];
-          const minPrice = e.priceRanges?.[0]?.min;
-          return {
+        events.slice(0, 8).forEach(e => {
+          const venue     = e._embedded?.venues?.[0];
+          const minPrice  = e.priceRanges?.[0]?.min;
+          const startDate = e.dates?.start?.localDate;
+          const startTime = e.dates?.start?.localTime;
+          if (!startDate) return;
+          const ev = {
             '@type': 'SportsEvent',
-            'name': e.name,
-            'startDate': e.dates?.start?.localDate,
+            'name': e.name || `${name} Match`,
+            'startDate': startTime ? `${startDate}T${startTime}` : startDate,
             'image': image,
-            'location': venue ? {
+            'competitor': [{ '@type': 'SportsTeam', '@id': `${pageUrl}#team`, 'name': name }],
+            'url': pageUrl,
+            'sport': 'Football',
+            'eventStatus': 'https://schema.org/EventScheduled',
+            'eventAttendanceMode': 'https://schema.org/OfflineEventAttendanceMode'
+          };
+          if (venue) {
+            ev['location'] = {
               '@type': 'SportsActivityLocation',
               'name': venue.name,
               'address': {
@@ -607,23 +663,57 @@
                 'addressLocality': venue.city?.name || '',
                 'addressCountry': venue.country?.countryCode || 'GB'
               }
-            } : undefined,
-            'competitor': [{ '@type': 'SportsTeam', 'name': name }],
-            'offers': minPrice ? {
+            };
+          }
+          if (minPrice) {
+            ev['offers'] = {
               '@type': 'Offer',
               'price': minPrice,
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
-              'url': pageUrl
-            } : undefined,
-            'url': pageUrl
-          };
-        });
-        document.getElementById('schema-org').textContent = JSON.stringify({
-          '@context': 'https://schema.org',
-          '@graph': schemaEvents
+              'url': pageUrl,
+              'seller': { '@type': 'Organization', 'name': 'TicketScout' }
+            };
+          }
+          schemaGraph.push(ev);
         });
       }
+
+      // FAQPage
+      schemaGraph.push({
+        '@type': 'FAQPage',
+        'mainEntity': [
+          {
+            '@type': 'Question',
+            'name': `Where can I buy ${name} tickets?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `TicketScout compares ${name} ticket prices from verified resale and primary sellers. Compare prices and buy direct at ticketscout.co.uk/football/${slug}`
+            }
+          },
+          {
+            '@type': 'Question',
+            'name': `How much are ${name} tickets?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `${name} ticket prices depend on the fixture, opponent, and seat location. TicketScout shows live prices from multiple verified sellers so you can find the best available price.`
+            }
+          },
+          {
+            '@type': 'Question',
+            'name': `Can I get ${name} tickets when they are sold out?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `When ${name} official tickets are sold out, verified resale sellers often have tickets available. TicketScout compares prices from trusted resale platforms all in one place.`
+            }
+          }
+        ]
+      });
+
+      document.getElementById('schema-org').textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@graph': schemaGraph
+      });
     }
 
     function buildMiniFAQ(teamName) {

@@ -22,7 +22,24 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <!-- Event schema markup — populated by JS -->
+  <!-- Static org/website schema — crawlable without JS -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "TicketScout",
+    "url": "https://www.ticketscout.co.uk",
+    "logo": "https://www.ticketscout.co.uk/og-default.png",
+    "description": "TicketScout is a UK ticket price comparison platform. We compare prices from verified sellers for concerts, football, theatre and live events.",
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "contactType": "customer support",
+      "url": "https://www.ticketscout.co.uk/contact"
+    },
+    "sameAs": []
+  }
+  </script>
+  <!-- Dynamic event + FAQ + breadcrumb schema — populated by JS on page load -->
   <script type="application/ld+json" id="schema-org"></script>
   <style>
     .artist-hero {
@@ -618,11 +635,11 @@
     }
 
     function updateMeta(artist, events, tmImage) {
-      const name = artist.name;
-      const slug = artist.slug;
-      const pageUrl = `https://www.ticketscout.co.uk/concert/${slug}`;
+      const name     = artist.name;
+      const slug     = artist.slug;
+      const pageUrl  = `https://www.ticketscout.co.uk/concert/${slug}`;
       const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`;
-      const image = tmImage || 'https://www.ticketscout.co.uk/og-default.png';
+      const image    = tmImage || 'https://www.ticketscout.co.uk/og-default.png';
 
       // Standard meta
       document.getElementById('page-title').textContent = `${name} Tickets — Compare Prices | TicketScout`;
@@ -640,17 +657,62 @@
       document.getElementById('tw-description').setAttribute('content', description);
       document.getElementById('tw-image').setAttribute('content', image);
 
-      // Event schema (JSON-LD)
+      // ── JSON-LD schema graph ─────────────────────────────────────────────
+      // Combines: WebPage, BreadcrumbList, MusicGroup (performer),
+      //           MusicEvent (per upcoming date), FAQPage
+      // AI crawlers and Google use this to understand the page without rendering JS.
+
+      const schemaGraph = [];
+
+      // WebPage — signals this is a price comparison page for a specific artist
+      schemaGraph.push({
+        '@type': 'WebPage',
+        '@id': pageUrl,
+        'url': pageUrl,
+        'name': `${name} Tickets — Compare Prices | TicketScout`,
+        'description': description,
+        'image': image,
+        'inLanguage': 'en-GB',
+        'isPartOf': { '@type': 'WebSite', 'url': 'https://www.ticketscout.co.uk', 'name': 'TicketScout' },
+        'breadcrumb': {
+          '@type': 'BreadcrumbList',
+          'itemListElement': [
+            { '@type': 'ListItem', 'position': 1, 'name': 'Home',     'item': 'https://www.ticketscout.co.uk' },
+            { '@type': 'ListItem', 'position': 2, 'name': 'Concerts', 'item': 'https://www.ticketscout.co.uk/concert/' },
+            { '@type': 'ListItem', 'position': 3, 'name': `${name} Tickets`, 'item': pageUrl }
+          ]
+        }
+      });
+
+      // MusicGroup — the performer
+      schemaGraph.push({
+        '@type': 'MusicGroup',
+        '@id': `${pageUrl}#performer`,
+        'name': name,
+        'url': pageUrl,
+        'image': image
+      });
+
+      // MusicEvent — one per upcoming date (up to 8 for rich results)
       if (events.length > 0) {
-        const schemaEvents = events.slice(0, 5).map(e => {
+        events.slice(0, 8).forEach(e => {
           const venue    = e._embedded?.venues?.[0];
           const minPrice = e.priceRanges?.[0]?.min;
-          return {
+          const startDate = e.dates?.start?.localDate;
+          const startTime = e.dates?.start?.localTime;
+          if (!startDate) return;
+          const eventSchema = {
             '@type': 'MusicEvent',
-            'name': e.name,
-            'startDate': e.dates?.start?.localDate,
+            'name': e.name || `${name} Live`,
+            'startDate': startTime ? `${startDate}T${startTime}` : startDate,
             'image': image,
-            'location': venue ? {
+            'performer': { '@type': 'MusicGroup', '@id': `${pageUrl}#performer`, 'name': name },
+            'url': pageUrl,
+            'eventStatus': 'https://schema.org/EventScheduled',
+            'eventAttendanceMode': 'https://schema.org/OfflineEventAttendanceMode'
+          };
+          if (venue) {
+            eventSchema['location'] = {
               '@type': 'MusicVenue',
               'name': venue.name,
               'address': {
@@ -658,23 +720,57 @@
                 'addressLocality': venue.city?.name || '',
                 'addressCountry': venue.country?.countryCode || 'GB'
               }
-            } : undefined,
-            'performer': { '@type': 'MusicGroup', 'name': name },
-            'offers': minPrice ? {
+            };
+          }
+          if (minPrice) {
+            eventSchema['offers'] = {
               '@type': 'Offer',
               'price': minPrice,
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
-              'url': pageUrl
-            } : undefined,
-            'url': pageUrl
-          };
-        });
-        document.getElementById('schema-org').textContent = JSON.stringify({
-          '@context': 'https://schema.org',
-          '@graph': schemaEvents
+              'url': pageUrl,
+              'seller': { '@type': 'Organization', 'name': 'TicketScout' }
+            };
+          }
+          schemaGraph.push(eventSchema);
         });
       }
+
+      // FAQPage — surfaces in Google AI Overviews and rich results
+      schemaGraph.push({
+        '@type': 'FAQPage',
+        'mainEntity': [
+          {
+            '@type': 'Question',
+            'name': `Where can I buy ${name} tickets?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `TicketScout compares ${name} ticket prices from multiple verified UK sellers including primary and secondary market platforms. Compare prices and buy directly from your chosen seller at ticketscout.co.uk/concert/${slug}`
+            }
+          },
+          {
+            '@type': 'Question',
+            'name': `How much are ${name} tickets?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `${name} ticket prices vary by date, venue, and seller. TicketScout shows live prices from multiple verified sellers side by side so you can find the cheapest available tickets without booking fees from us.`
+            }
+          },
+          {
+            '@type': 'Question',
+            'name': `Are there still ${name} tickets available?`,
+            'acceptedAnswer': {
+              '@type': 'Answer',
+              'text': `Check ticketscout.co.uk/concert/${slug} for live availability. TicketScout updates prices in real time from our verified seller network, including resale availability when primary tickets are sold out.`
+            }
+          }
+        ]
+      });
+
+      document.getElementById('schema-org').textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@graph': schemaGraph
+      });
     }
 
     function buildMiniFAQ(artistName) {
