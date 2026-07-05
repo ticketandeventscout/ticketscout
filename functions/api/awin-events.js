@@ -66,9 +66,13 @@ export async function onRequestGet({ request, env }) {
       if (matches.length >= size * 2) break;
     }
 
+    // Filter out past events — only keep future dates (or undated events)
+    const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const future = matches.filter(m => !m.date || m.date >= todayStr);
+
     // Deduplicate by product name + date combination
     const seen = new Set();
-    const deduped = matches.filter(m => {
+    const deduped = future.filter(m => {
       const key = `${m.name}|${m.date}`;
       if (seen.has(key)) return false;
       seen.add(key);

@@ -36,8 +36,10 @@ export async function onRequestGet({ request, env }) {
 
     const startDateTime = incoming.searchParams.get('startDateTime');
     const endDateTime   = incoming.searchParams.get('endDateTime');
-    if (startDateTime) tmUrl.searchParams.set('startDateTime', startDateTime);
-    if (endDateTime)   tmUrl.searchParams.set('endDateTime',   endDateTime);
+    // Always default to today at midnight UTC so past events are never returned
+    const nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    tmUrl.searchParams.set('startDateTime', startDateTime || nowIso);
+    if (endDateTime) tmUrl.searchParams.set('endDateTime', endDateTime);
 
     const keyword = incoming.searchParams.get('keyword');
     if (keyword) tmUrl.searchParams.set('keyword', keyword);
