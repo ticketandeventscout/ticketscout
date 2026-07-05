@@ -13,13 +13,49 @@ export async function onRequestGet({ request, env }) {
   const name  = (url.searchParams.get('name') || '').trim().toLowerCase();
   const size  = parseInt(url.searchParams.get('size') || '50');
   const debug = url.searchParams.get('debug') === '1';
-  const scan  = url.searchParams.get('scan');  // ?scan=footballticketnet — scan all chunks for a merchant
+  const scan  = url.searchParams.get('scan');
+  // New: ?merchants=1 lists every unique merchant name across all chunks
+  const merchants = url.searchParams.get('merchants') === '1';
+  // New: ?dates=1 shows date distribution
+  const dates = url.searchParams.get('dates') === '1';
 
   try {
     const index = await kv.get(`${CACHE_KEY}:index`, { type: 'json' });
     if (!index?.chunks) return jsonResponse({ events: [], total: 0, note: 'no index' }, 200);
 
-    // SCAN MODE — find rows from a specific merchant across all chunks
+    // LIST ALL MERCHANTS
+    if (merchants) {
+      const merchantCounts = {};
+      for (let i = 0; i < index.chunks; i++) {
+        const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
+        if (!chunk) continue;
+        for (const row of chunk) {
+          const m = row.merchant_name || 'unknown';
+          merchantCounts[m] = (merchantCounts[m] || 0) + 1;
+        }
+      }
+      return jsonResponse({ merchants: merchantCounts, cachedAt: index.cachedAt }, 200);
+    }
+
+    // DATE DISTRIBUTION — show what dates exist in the feed
+    if (dates) {
+      const dateCounts = {};
+      let noDate = 0;
+      for (let i = 0; i < index.chunks; i++) {
+        const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
+        if (!chunk) continue;
+        for (const row of chunk) {
+          const d = extractDate(row.description);
+          if (!d) { noDate++; continue; }
+          const month = d.slice(0, 7); // YYYY-MM
+          dateCounts[month] = (dateCounts[month] || 0) + 1;
+        }
+      }
+      const sorted = Object.fromEntries(Object.entries(dateCounts).sort());
+      return jsonResponse({ date_months: sorted, no_date: noDate, cachedAt: index.cachedAt }, 200);
+    }
+
+    // SCAN MODE
     if (scan) {
       const scanLower = scan.toLowerCase();
       const found = [];
@@ -42,22 +78,6 @@ export async function onRequestGet({ request, env }) {
         if (found.length >= 5) break;
       }
       return jsonResponse({ scan, found, chunks_total: index.chunks }, 200);
-    }
-
-    // DEBUG MODE — show index info and chunk 0 sample
-    if (debug) {
-      const chunk0 = await kv.get(`${CACHE_KEY}:chunk:${0}`, { type: 'json' });
-      return jsonResponse({
-        chunks: index.chunks,
-        cachedAt: index.cachedAt,
-        chunk0_rows: chunk0?.length || 0,
-        sample_5: (chunk0 || []).slice(0, 5).map(r => ({
-          product_name: r.product_name,
-          merchant_name: r.merchant_name,
-          merchant_category: r.merchant_category,
-          description: (r.description || '').slice(0, 150)
-        }))
-      }, 200);
     }
 
     if (!name || name.length < 2) {
@@ -92,7 +112,6 @@ export async function onRequestGet({ request, env }) {
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const future = matches.filter(m => !m.date || m.date >= todayStr);
-
     const seen = new Set();
     const deduped = future.filter(m => {
       const key = `${m.name}|${m.date}`;
@@ -100,7 +119,6 @@ export async function onRequestGet({ request, env }) {
       seen.add(key);
       return true;
     }).slice(0, size);
-
     deduped.sort((a, b) => {
       if (!a.date && !b.date) return 0;
       if (!a.date) return 1;
