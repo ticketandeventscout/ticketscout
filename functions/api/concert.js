@@ -80,9 +80,26 @@ export async function onRequestGet({ request, env }) {
       }
     } catch {}
 
-    // If Awin also has nothing — genuinely unknown, return 404
+    // If Awin also has nothing — try to serve the page anyway if the slug looks valid.
+    // A static HTML file at concert/[slug].html was committed by the auto-discovery pipeline
+    // but KV data may have expired (30-day TTL) or never been written for older pages.
+    // Returning 404 here causes events.js to fall back to hash routing instead of the SEO page.
+    // Multi-word slugs (containing a hyphen) are treated as valid auto-discovered artists.
+    // Single-word slugs with no data anywhere are likely misspellings — still 404.
     if (!artist) {
-      return jsonResponse({ error: 'Artist not found' }, 404);
+      if (normSlug.includes('-')) {
+        // Reconstruct a display name from the slug — good enough for TM lookup and page render
+        const displayName = toTitleCase(normSlug.replace(/-/g, ' '));
+        artist = {
+          slug:        normSlug,
+          name:        displayName,
+          search:      displayName,
+          genre:       'Live Music',
+          description: `Compare ${displayName} ticket prices across verified sellers on TicketScout.`
+        };
+      } else {
+        return jsonResponse({ error: 'Artist not found' }, 404);
+      }
     }
   }
 

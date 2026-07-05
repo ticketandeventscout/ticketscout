@@ -75,8 +75,23 @@ export async function onRequestGet({ request, env }) {
       }
     } catch {}
 
+    // Slug-based fallback — if no Awin data but the slug contains a hyphen, it's likely
+    // a valid auto-discovered team whose KV data has expired. Synthesise from the slug
+    // so the page loads correctly and TM lookup can still find the team.
     if (!team) {
-      return jsonResponse({ error: 'Team not found' }, 404);
+      if (normSlug.includes('-')) {
+        const displayName = toTitleCase(normSlug.replace(/-/g, ' '));
+        team = {
+          slug:        normSlug,
+          name:        displayName,
+          search:      displayName,
+          tmSearch:    displayName,
+          genre:       'Football',
+          description: `Compare ${displayName} ticket prices across verified sellers on TicketScout.`
+        };
+      } else {
+        return jsonResponse({ error: 'Team not found' }, 404);
+      }
     }
   }
 

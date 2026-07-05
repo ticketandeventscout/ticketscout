@@ -75,8 +75,21 @@ export async function onRequestGet({ request, env }) {
       }
     } catch {}
 
+    // Slug-based fallback — if no Awin data but the slug contains a hyphen, it's likely
+    // a valid auto-discovered show whose KV data has expired. Synthesise from the slug.
     if (!show) {
-      return jsonResponse({ error: 'Show not found' }, 404);
+      if (normSlug.includes('-')) {
+        const displayName = toTitleCase(normSlug.replace(/-/g, ' '));
+        show = {
+          slug:        normSlug,
+          name:        displayName,
+          search:      displayName,
+          genre:       'Theatre',
+          description: `Compare ${displayName} ticket prices across verified sellers on TicketScout.`
+        };
+      } else {
+        return jsonResponse({ error: 'Show not found' }, 404);
+      }
     }
   }
 
