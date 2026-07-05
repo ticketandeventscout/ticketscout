@@ -281,25 +281,27 @@ function toArtistSlug(name) {
 }
 
 async function showArtistEvents(attractionId, name) {
-  // Check if a /concert/[slug] page exists for this artist
-  // If so, redirect there — it has richer content (bio, FAQ, price comparison)
+  // Check if a dedicated SEO page exists — concert, football, or theatre.
+  // If so, redirect there — richer content (bio, FAQ, Awin events, price comparison).
   if (name) {
     const slug = toArtistSlug(name);
     if (slug) {
       try {
-        const check = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
-        if (check.ok) {
-          // Concert page exists — redirect to it
-          window.location.href = `/concert/${slug}`;
-          return;
-        }
-      } catch {
-        // No concert page — fall through to standard artist view
-      }
+        const concertCheck = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
+        if (concertCheck.ok) { window.location.href = `/concert/${slug}`; return; }
+      } catch {}
+      try {
+        const footballCheck = await fetch(`/api/football?slug=${encodeURIComponent(slug)}`);
+        if (footballCheck.ok) { window.location.href = `/football/${slug}`; return; }
+      } catch {}
+      try {
+        const theatreCheck = await fetch(`/api/theatre?slug=${encodeURIComponent(slug)}`);
+        if (theatreCheck.ok) { window.location.href = `/theatre/${slug}`; return; }
+      } catch {}
     }
   }
 
-  document.getElementById('results-title').textContent = name ? `${name} — upcoming UK dates` : 'Upcoming dates';
+  document.getElementById('results-title').textContent = name ? `${name} — upcoming dates` : 'Upcoming dates';
   setBreadcrumb(`<a href="#/">← Back to trending</a>`);
 
   const grid = getResultsEl();
@@ -307,15 +309,39 @@ async function showArtistEvents(attractionId, name) {
   grid.innerHTML = '<div class="loading">Loading dates…</div>';
 
   try {
-    const response = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50`);
-    const data = await response.json();
+    // Fetch Ticketmaster and Awin events in parallel
+    const [tmResp, awinResp] = await Promise.all([
+      fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50`),
+      name ? fetch(`/api/awin-events?name=${encodeURIComponent(name)}&size=50`) : Promise.resolve(null)
+    ]);
 
-    if (data.error || !data._embedded || !data._embedded.events) {
-      grid.innerHTML = '<div class="error-msg">No upcoming UK dates found for this artist.</div>';
+    const tmData   = await tmResp.json();
+    const awinData = awinResp ? await awinResp.json().catch(() => ({ events: [] })) : { events: [] };
+
+    const tmEvents   = tmData?._embedded?.events || [];
+    const awinEvents = (awinData?.events || []).map(e => ({
+      id:          e.id,
+      name:        e.name,
+      _awin:       true,
+      _url:        e.url,
+      _merchant:   e.merchantName,
+      dates:       { start: { localDate: e.date || '' } },
+      priceRanges: e.price ? [{ min: e.price }] : [],
+      _embedded:   { venues: e.venue ? [{ name: e.venue, city: { name: '' } }] : [] },
+      images:      e.image ? [{ url: e.image, width: 640 }] : []
+    }));
+
+    // Merge: TM first, then Awin events not already on same date
+    const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
+    const awinOnly = awinEvents.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
+    const allEvents = [...tmEvents, ...awinOnly];
+
+    if (allEvents.length === 0) {
+      grid.innerHTML = '<div class="error-msg">No upcoming dates found.</div>';
       return;
     }
 
-    renderEventCards(grid, data._embedded.events);
+    renderEventCards(grid, allEvents);
   } catch (error) {
     grid.innerHTML = '<div class="error-msg">Unable to load dates right now. Please try again shortly.</div>';
     console.error('Artist events fetch error:', error);
@@ -347,7 +373,19 @@ function renderEventCards(grid, events) {
 
     const card = document.createElement('a');
     card.className = 'event-card';
-    card.href = `#/event/${event.id}`;
+
+    if (event._awin && event._url) {
+      // Awin events link directly to seller
+      card.href = event._url;
+      card.target = '_blank';
+      card.rel = 'noopener noreferrer';
+    } else {
+      card.href = `#/event/${event.id}`;
+    }
+
+    const merchantBadge = event._merchant
+      ? `<span style="font-size:10px;color:#888;margin-left:4px;">via ${event._merchant}</span>`
+      : '';
 
     card.innerHTML = `
       ${image
@@ -355,13 +393,13 @@ function renderEventCards(grid, events) {
         : `<div class="event-img-placeholder">${CATEGORY_ICONS[segment] || CATEGORY_ICONS.default}</div>`
       }
       <div class="event-body">
-        <div class="event-name">${name}</div>
+        <div class="event-name">${name}${merchantBadge}</div>
         <div class="event-meta">
           ${location ? `${location}<br/>` : ''}
           ${date}
         </div>
         <div class="event-price">${priceDisplay}</div>
-        <span class="compare-badge">Compare prices →</span>
+        <span class="compare-badge">${event._awin ? 'Buy tickets →' : 'Compare prices →'}</span>
       </div>
     `;
 
