@@ -692,8 +692,7 @@
           document.getElementById('hero-bg').style.backgroundImage = `url('${tmImage}')`;
         }
 
-        // Football: only use Ticketmaster — Awin search by team name returns
-        // city-name matches (e.g. Gary Numan at Crystal Palace Bowl), not fixtures.
+        // Football: only use Ticketmaster — Awin returns city-name matches not fixtures
         const tmData = attractionId
           ? await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
           : {};
