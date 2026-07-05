@@ -6,7 +6,9 @@
 //   - A handleSearch() function defined
 // ===========================
 
-document.addEventListener('DOMContentLoaded', function() {
+// Works when loaded normally (DOMContentLoaded) AND when re-appended by page stubs
+// Using IIFE so it runs immediately regardless of document ready state
+(function initAutocomplete() {
   const input       = document.getElementById('search-input');
   const suggestions = document.getElementById('search-suggestions');
   if (!input || !suggestions) return;
@@ -115,4 +117,4 @@ document.addEventListener('DOMContentLoaded', function() {
 
   function esc(str)     { return (str||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function escHtml(str) { return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-});
+})()
