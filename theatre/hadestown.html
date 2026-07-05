@@ -9,26 +9,15 @@
 </head>
 <body><script>
   (async function() {
-    try {
-      const r = await fetch('/theatre.html');
-      const html = await r.text();
-      // Copy inline styles from head
-      const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-      if (headStyleMatch) {
-        const st = document.createElement('style');
-        st.textContent = headStyleMatch[1];
-        document.head.appendChild(st);
-      }
-      // Copy body content
-      const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-      if (!bodyMatch) return;
-      document.body.innerHTML = bodyMatch[1];
-      // Re-execute scripts
-      document.body.querySelectorAll('script').forEach(function(o) {
-        var s = document.createElement('script');
-        if (o.src) s.src = o.src; else s.textContent = o.textContent;
-        document.body.appendChild(s); o.remove();
-      });
-    } catch(e) { console.error('Failed to load theatre template:', e); }
+    const r = await fetch('/theatre.html');
+    const html = await r.text();
+    const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    if (!m) return;
+    document.body.innerHTML = m[1];
+    document.body.querySelectorAll('script').forEach(function(o) {
+      var s = document.createElement('script');
+      if (o.src) s.src = o.src; else s.textContent = o.textContent;
+      document.body.appendChild(s); o.remove();
+    });
   })();
 </script></body></html>
