@@ -1,36 +1,23 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stephen Sondheim Tickets — Compare Prices | TicketScout</title>
-  <meta name="description" id="meta-description" content="Compare Stephen Sondheim ticket prices across verified sellers. Find the cheapest Stephen Sondheim tickets." />
-  <link rel="canonical" id="canonical" href="https://www.ticketscout.co.uk/theatre/stephen-sondheim" />
-  <meta property="og:title" id="og-title" content="Stephen Sondheim Tickets — Compare Prices | TicketScout" />
-  <meta property="og:description" id="og-description" content="Compare Stephen Sondheim ticket prices across verified sellers." />
-  <meta property="og:url" id="og-url" content="https://www.ticketscout.co.uk/theatre/stephen-sondheim" />
-  <meta name="twitter:title" id="tw-title" content="Stephen Sondheim Tickets — Compare Prices | TicketScout" />
-  <meta name="twitter:description" id="tw-description" content="Compare Stephen Sondheim ticket prices across verified sellers." />
-  <link rel="stylesheet" href="/styles.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <script>window.__THEATRE_SLUG__ = 'stephen-sondheim';</script>
-</head>
-<body>
-<script>
-  fetch('/theatre.html')
-    .then(function(r) { return r.text(); })
-    .then(function(html) {
-      var m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      if (!m) return;
-      document.body.innerHTML = m[1];
-      document.body.querySelectorAll('script').forEach(function(o) {
-        var s = document.createElement('script');
-        if (o.src) { s.src = o.src; } else { s.textContent = o.textContent; }
-        document.head.appendChild(s);
-        o.remove();
-      });
-    })
-    .catch(function(e) { console.error('Load failed', e); });
-</script>
-</body>
-</html>
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stephen Sondheim Tickets | TicketScout</title>
+<script>window.__THEATRE_SLUG__='stephen-sondheim';</script>
+<link rel="stylesheet" href="/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head><body><script>
+var x=new XMLHttpRequest();
+x.open('GET','/theatre.html',true);
+x.onload=function(){
+  if(x.status!==200)return;
+  var d=new DOMParser().parseFromString(x.responseText,'text/html');
+  document.head.querySelectorAll('script').forEach(function(s){s.remove();});
+  d.head.querySelectorAll('link,style').forEach(function(el){document.head.appendChild(document.adoptNode(el));});
+  document.body.innerHTML=d.body.innerHTML;
+  document.body.querySelectorAll('script').forEach(function(o){
+    var s=document.createElement('script');
+    if(o.src){s.src=o.src;}else{s.textContent=o.textContent;}
+    document.body.appendChild(s);o.remove();
+  });
+};
+x.send();
+</script></body></html>

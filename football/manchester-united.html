@@ -1,33 +1,23 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Manchester United Tickets — Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare Manchester United ticket prices across verified sellers. Find the cheapest Manchester United match tickets." />
-  <link rel="canonical" href="https://www.ticketscout.co.uk/football/manchester-united" />
-  <script>window.__FOOTBALL_SLUG__ = 'manchester-united';</script>
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-</head>
-<body>
-<script>
-(async function() {
-  try {
-    const r = await fetch('/football.html');
-    const html = await r.text();
-    const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-    if (!m) return;
-    document.body.innerHTML = m[1];
-    document.body.querySelectorAll('script').forEach(function(o) {
-      var s = document.createElement('script');
-      if (o.src) { s.src = o.src; s.async = false; } else { s.textContent = o.textContent; }
-      document.head.appendChild(s);
-      o.remove();
-    });
-  } catch(e) { console.error('Template load failed', e); }
-})();
-</script>
-</body>
-</html>
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Manchester United Tickets | TicketScout</title>
+<script>window.__FOOTBALL_SLUG__='manchester-united';</script>
+<link rel="stylesheet" href="/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head><body><script>
+var x=new XMLHttpRequest();
+x.open('GET','/football.html',true);
+x.onload=function(){
+  if(x.status!==200)return;
+  var d=new DOMParser().parseFromString(x.responseText,'text/html');
+  document.head.querySelectorAll('script').forEach(function(s){s.remove();});
+  d.head.querySelectorAll('link,style').forEach(function(el){document.head.appendChild(document.adoptNode(el));});
+  document.body.innerHTML=d.body.innerHTML;
+  document.body.querySelectorAll('script').forEach(function(o){
+    var s=document.createElement('script');
+    if(o.src){s.src=o.src;}else{s.textContent=o.textContent;}
+    document.body.appendChild(s);o.remove();
+  });
+};
+x.send();
+</script></body></html>
