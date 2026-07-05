@@ -585,7 +585,8 @@
       const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`;
       const image   = tmImage || 'https://www.ticketscout.co.uk/og-default.png';
 
-      setEl('page-title', null, `${name} Tickets — Compare Prices | TicketScout`;
+      document.title = `${name} Tickets — Compare Prices | TicketScout`;
+      setEl('page-title', null, `${name} Tickets — Compare Prices | TicketScout`);
       document.getElementById('meta-description') && document.getElementById('meta-description').setAttribute('content', description);
       document.getElementById('canonical') && document.getElementById('canonical').setAttribute('href', pageUrl);
       document.getElementById('og-title') && document.getElementById('og-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
