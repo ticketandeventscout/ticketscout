@@ -12,16 +12,36 @@ export async function onRequestGet({ request, env }) {
   const url       = new URL(request.url);
   const name      = (url.searchParams.get('name') || '').trim().toLowerCase();
   const size      = parseInt(url.searchParams.get('size') || '50');
-  const debug     = url.searchParams.get('debug') === '1';
-  const scan      = url.searchParams.get('scan');
   const merchants = url.searchParams.get('merchants') === '1';
   const dates     = url.searchParams.get('dates') === '1';
+  const scan      = url.searchParams.get('scan');
+  // chunk=N — inspect a specific chunk directly
+  const chunkParam = url.searchParams.get('chunk');
 
   try {
     const index = await kv.get(`${CACHE_KEY}:index`, { type: 'json' });
     if (!index?.chunks) return jsonResponse({ events: [], total: 0, note: 'no index' }, 200);
 
-    // LIST ALL MERCHANTS
+    // INSPECT A SPECIFIC CHUNK — show all unique merchant names in that chunk
+    if (chunkParam !== null) {
+      const chunkN = parseInt(chunkParam);
+      const chunk = await kv.get(`${CACHE_KEY}:chunk:${chunkN}`, { type: 'json' });
+      if (!chunk) return jsonResponse({ error: `chunk ${chunkN} not found` }, 200);
+      const merchantsInChunk = {};
+      for (const row of chunk) {
+        const m = row.merchant_name || 'unknown';
+        merchantsInChunk[m] = (merchantsInChunk[m] || 0) + 1;
+      }
+      // Also show first 3 rows raw
+      return jsonResponse({
+        chunk: chunkN,
+        total_rows: chunk.length,
+        merchants: merchantsInChunk,
+        first_3_rows: chunk.slice(0, 3)
+      }, 200);
+    }
+
+    // LIST ALL MERCHANTS across all chunks
     if (merchants) {
       const merchantCounts = {};
       for (let i = 0; i < index.chunks; i++) {
@@ -52,7 +72,7 @@ export async function onRequestGet({ request, env }) {
       return jsonResponse({ date_months: Object.fromEntries(Object.entries(dateCounts).sort()), no_date: noDate }, 200);
     }
 
-    // SCAN MODE — find rows by merchant name substring (handles spaces correctly now)
+    // SCAN — substring match on merchant_name
     if (scan) {
       const scanLower = scan.toLowerCase();
       const found = [];
