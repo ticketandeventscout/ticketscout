@@ -702,12 +702,47 @@
           document.getElementById('hero-bg').style.backgroundImage = `url('${tmImage}')`;
         }
 
-        // Football: only use Ticketmaster — Awin returns city-name matches not fixtures
-        const tmData = attractionId
-          ? await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
-          : {};
-        const tmEvents  = tmData?._embedded?.events || [];
-        const allEvents = tmEvents;
+        // Fetch TM and Awin in parallel
+        // Awin is filtered to football-only merchants (Football TicketNet UK/DE/US)
+        // to avoid concerts/theatre from Gigsberg or Theatre Tickets Direct
+        const FOOTBALL_MERCHANTS = ['football ticketnet uk', 'football ticketnet de', 'football ticketnet us'];
+
+        const [tmData, awinData] = await Promise.all([
+          attractionId
+            ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
+            : Promise.resolve({}),
+          fetch(`/api/awin-events?name=${encodeURIComponent(team.search || team.name)}&size=50`).then(r => r.json()).catch(() => ({ events: [] }))
+        ]);
+
+        const tmEvents   = tmData?._embedded?.events || [];
+        // Filter Awin strictly to football merchants only — prevents concerts bleeding in
+        const awinRaw    = (awinData?.events || []).filter(e =>
+          FOOTBALL_MERCHANTS.includes((e.merchantName || '').toLowerCase())
+        );
+
+        window.__attractionId = attractionId;
+        window.__tmPage       = 1;
+        window.__tmTotal      = tmData?.page?.totalElements || tmEvents.length;
+
+        const awinNormalised = awinRaw.map(e => ({
+          id:     e.id,
+          name:   e.name,
+          _awin:  true,
+          _url:   e.url,
+          _price: e.price,
+          _image: e.image,
+          _merchant: e.merchantName,
+          dates:  { start: { localDate: e.date || '', localTime: '' } },
+          priceRanges: e.price ? [{ min: e.price, currency: e.currency || 'GBP' }] : [],
+          _embedded: {
+            venues: e.venue ? [{ name: e.venue, city: { name: '' } }] : []
+          }
+        }));
+
+        // Merge: TM events first, then Awin events not already covered by TM date
+        const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
+        const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
+        const allEvents = [...tmEvents, ...awinOnly];
 
         updateMeta(team, tmEvents, tmImage);
 
