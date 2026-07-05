@@ -1,13 +1,25 @@
 # TicketScout — Cloudflare Pages redirects
-# NOTE: Subpath pages (concert, football, theatre, venue) are served as static HTML files
-# from their respective folders. Do NOT add catch-all redirects for these paths.
-# The rules below handle category landing pages and legacy redirects only.
+#
+# ROUTING ARCHITECTURE:
+# - /concert/[slug]  → static file at concert/[slug].html  (no redirect needed)
+# - /football/[slug] → static file at football/[slug].html (no redirect needed)
+# - /theatre/[slug]  → static file at theatre/[slug].html  (no redirect needed)
+# - /venue/[slug]    → static file at venue/[slug].html    (no redirect needed)
+#
+# Static files in subfolders are served automatically by Cloudflare Pages.
+# Functions in functions/[category]/[slug].js are a FALLBACK for unknown slugs only.
+# Do NOT add catch-all redirects for any of the above paths — they will break static routing.
+#
+# WHEN ADDING A NEW CATEGORY (e.g. /comedy, /sports):
+# 1. Create a [category].html template at the repo root
+# 2. Create static HTML files in a [category]/ folder (one per item)
+# 3. Add functions/api/[category].js for the data API
+# 4. Add the landing page rule below: /[category] /[category].html 200
+# 5. Do NOT add a catch-all /[category]/* redirect — it will break subpages
+# 6. Optionally add functions/[category]/[slug].js as catch-all for unknown slugs
+#    (but test carefully — worker errors will show as 1101)
 
-# Category landing pages — serve the category HTML templates directly
-/concerts   /concert.html   200
-/football   /football.html  200
-/theatre    /theatre.html   200
-
-# Concert/football/theatre/venue subpaths — pass through to static files in those folders
-# Cloudflare will serve e.g. /football/arsenal.html for /football/arsenal automatically.
-# NO redirect rules needed here — omitting them lets the static files be found.
+# Category landing pages — serve the template for the base path (no slug)
+/concerts  /concert.html   200
+/football  /football.html  200
+/theatre   /theatre.html   200
