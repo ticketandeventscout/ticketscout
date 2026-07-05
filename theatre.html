@@ -734,6 +734,22 @@
       `).join('');
     }
 
+    // Decode HTML entities in Awin feed descriptions
+    function decodeHtmlEntities(str) {
+      if (!str) return '';
+      const entities = {
+        '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'",
+        '&nbsp;': ' ', '&mdash;': '—', '&ndash;': '–', '&lsquo;': '‘',
+        '&rsquo;': '’', '&ldquo;': '“', '&rdquo;': '”',
+        '&hellip;': '…', '&bull;': '•', '&trade;': '™', '&copy;': '©',
+        '&reg;': '®', '&pound;': '£', '&euro;': '€', '&deg;': '°'
+      };
+      let decoded = str.replace(/&[a-z]+;/gi, function(m) { return entities[m] || m; });
+      decoded = decoded.replace(/&#(\d+);/g, function(_, n) { return String.fromCharCode(parseInt(n, 10)); });
+      decoded = decoded.replace(/&#x([0-9a-f]+);/gi, function(_, h) { return String.fromCharCode(parseInt(h, 16)); });
+      decoded = decoded.replace(/<[^>]*>/g, '');
+      return decoded.trim();
+    }
     async function init() {
       const slug = getSlug();
 
@@ -765,7 +781,7 @@
         document.getElementById('about-heading').textContent  = `About ${show.name}`;
         document.getElementById('events-heading').textContent = `${show.name} — upcoming performances`;
         document.getElementById('faq-heading').textContent    = `${show.name} tickets — FAQs`;
-        document.getElementById('artist-bio').textContent     = show.description;
+        document.getElementById('artist-bio').textContent     = decodeHtmlEntities(show.description);
         document.getElementById('mini-faq-content').innerHTML = buildMiniFAQ(show.name);
 
         if (tmImage) {

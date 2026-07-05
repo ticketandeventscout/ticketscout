@@ -744,6 +744,22 @@
       `).join('');
     }
 
+    // Decode HTML entities in Awin feed descriptions
+    function decodeHtmlEntities(str) {
+      if (!str) return '';
+      const entities = {
+        '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'",
+        '&nbsp;': ' ', '&mdash;': '—', '&ndash;': '–', '&lsquo;': '‘',
+        '&rsquo;': '’', '&ldquo;': '“', '&rdquo;': '”',
+        '&hellip;': '…', '&bull;': '•', '&trade;': '™', '&copy;': '©',
+        '&reg;': '®', '&pound;': '£', '&euro;': '€', '&deg;': '°'
+      };
+      let decoded = str.replace(/&[a-z]+;/gi, function(m) { return entities[m] || m; });
+      decoded = decoded.replace(/&#(\d+);/g, function(_, n) { return String.fromCharCode(parseInt(n, 10)); });
+      decoded = decoded.replace(/&#x([0-9a-f]+);/gi, function(_, h) { return String.fromCharCode(parseInt(h, 16)); });
+      decoded = decoded.replace(/<[^>]*>/g, '');
+      return decoded.trim();
+    }
     async function init() {
       const slug = getSlug();
 
@@ -775,45 +791,21 @@
         document.getElementById('about-heading').textContent  = `About ${team.name}`;
         document.getElementById('events-heading').textContent = `${team.name} — upcoming fixtures`;
         document.getElementById('faq-heading').textContent    = `${team.name} tickets — FAQs`;
-        document.getElementById('artist-bio').textContent     = team.description;
+        document.getElementById('artist-bio').textContent     = decodeHtmlEntities(team.description);
         document.getElementById('mini-faq-content').innerHTML = buildMiniFAQ(team.name);
 
         if (tmImage) {
           document.getElementById('hero-bg').style.backgroundImage = `url('${tmImage}')`;
         }
 
-        const [tmData, awinData] = await Promise.all([
-          attractionId
-            ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
-            : Promise.resolve({}),
-          fetch(`/api/awin-events?name=${encodeURIComponent(team.search || team.name)}&size=50`).then(r => r.json()).catch(() => ({ events: [] }))
-        ]);
+        // Football: only use Ticketmaster — Awin search by team name returns
+        // city-name matches (e.g. concerts in Brighton), not football fixtures.
+        const tmData = attractionId
+          ? await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
+          : {};
 
-        const tmEvents   = tmData?._embedded?.events || [];
-        const awinEvents = awinData?.events || [];
-
-        window.__attractionId = attractionId;
-        window.__tmPage       = 1;
-        window.__tmTotal      = tmData?.page?.totalElements || tmEvents.length;
-
-        const awinNormalised = awinEvents.map(e => ({
-          id:     e.id,
-          name:   e.name,
-          _awin:  true,
-          _url:   e.url,
-          _price: e.price,
-          _image: e.image,
-          _merchant: e.merchantName,
-          dates:  { start: { localDate: e.date || '', localTime: '' } },
-          priceRanges: e.price ? [{ min: e.price, currency: e.currency }] : [],
-          _embedded: {
-            venues: e.venue ? [{ name: e.venue, city: { name: '' } }] : []
-          }
-        }));
-
-        const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
-        const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
-        const allEvents = [...tmEvents, ...awinOnly];
+        const tmEvents  = tmData?._embedded?.events || [];
+        const allEvents = tmEvents;
 
         updateMeta(team, tmEvents, tmImage);
 
