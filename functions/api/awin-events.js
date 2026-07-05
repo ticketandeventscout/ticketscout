@@ -9,15 +9,13 @@ export async function onRequestGet({ request, env }) {
   const kv = env.GIGSBERG_KV;
   if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
 
-  const url   = new URL(request.url);
-  const name  = (url.searchParams.get('name') || '').trim().toLowerCase();
-  const size  = parseInt(url.searchParams.get('size') || '50');
-  const debug = url.searchParams.get('debug') === '1';
-  const scan  = url.searchParams.get('scan');
-  // New: ?merchants=1 lists every unique merchant name across all chunks
+  const url       = new URL(request.url);
+  const name      = (url.searchParams.get('name') || '').trim().toLowerCase();
+  const size      = parseInt(url.searchParams.get('size') || '50');
+  const debug     = url.searchParams.get('debug') === '1';
+  const scan      = url.searchParams.get('scan');
   const merchants = url.searchParams.get('merchants') === '1';
-  // New: ?dates=1 shows date distribution
-  const dates = url.searchParams.get('dates') === '1';
+  const dates     = url.searchParams.get('dates') === '1';
 
   try {
     const index = await kv.get(`${CACHE_KEY}:index`, { type: 'json' });
@@ -37,7 +35,7 @@ export async function onRequestGet({ request, env }) {
       return jsonResponse({ merchants: merchantCounts, cachedAt: index.cachedAt }, 200);
     }
 
-    // DATE DISTRIBUTION — show what dates exist in the feed
+    // DATE DISTRIBUTION
     if (dates) {
       const dateCounts = {};
       let noDate = 0;
@@ -47,15 +45,14 @@ export async function onRequestGet({ request, env }) {
         for (const row of chunk) {
           const d = extractDate(row.description);
           if (!d) { noDate++; continue; }
-          const month = d.slice(0, 7); // YYYY-MM
+          const month = d.slice(0, 7);
           dateCounts[month] = (dateCounts[month] || 0) + 1;
         }
       }
-      const sorted = Object.fromEntries(Object.entries(dateCounts).sort());
-      return jsonResponse({ date_months: sorted, no_date: noDate, cachedAt: index.cachedAt }, 200);
+      return jsonResponse({ date_months: Object.fromEntries(Object.entries(dateCounts).sort()), no_date: noDate }, 200);
     }
 
-    // SCAN MODE
+    // SCAN MODE — find rows by merchant name substring (handles spaces correctly now)
     if (scan) {
       const scanLower = scan.toLowerCase();
       const found = [];
@@ -72,10 +69,10 @@ export async function onRequestGet({ request, env }) {
               description: (row.description || '').slice(0, 200),
               price: row.price
             });
-            if (found.length >= 5) break;
+            if (found.length >= 10) break;
           }
         }
-        if (found.length >= 5) break;
+        if (found.length >= 10) break;
       }
       return jsonResponse({ scan, found, chunks_total: index.chunks }, 200);
     }
