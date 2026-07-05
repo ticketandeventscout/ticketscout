@@ -52,10 +52,9 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
-  // Fallback — try to construct a basic team from the slug
+  // Fallback — try Awin events for this team name
   if (!team) {
     const name = toTitleCase(normSlug.replace(/-/g, ' '));
-    // Try Awin events for sports teams
     try {
       const origin   = new URL(request.url).origin;
       const awinUrl  = `${origin}/api/awin-events?name=${encodeURIComponent(name)}&size=1`;
@@ -75,9 +74,10 @@ export async function onRequestGet({ request, env }) {
       }
     } catch {}
 
-    // Slug-based fallback — if no Awin data but the slug contains a hyphen, it's likely
-    // a valid auto-discovered team whose KV data has expired. Synthesise from the slug
-    // so the page loads correctly and TM lookup can still find the team.
+    // Slug-based fallback — if Awin has nothing but the slug contains a hyphen,
+    // it is likely a valid auto-discovered team whose KV data has expired.
+    // Synthesise from the slug so TM lookup and the page still work.
+    // Single-word slugs with no data anywhere are likely misspellings — still 404.
     if (!team) {
       if (normSlug.includes('-')) {
         const displayName = toTitleCase(normSlug.replace(/-/g, ' '));

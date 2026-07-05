@@ -75,8 +75,10 @@ export async function onRequestGet({ request, env }) {
       }
     } catch {}
 
-    // Slug-based fallback — if no Awin data but the slug contains a hyphen, it's likely
-    // a valid auto-discovered show whose KV data has expired. Synthesise from the slug.
+    // Slug-based fallback — if Awin has nothing but the slug contains a hyphen,
+    // it is likely a valid auto-discovered show whose KV data has expired.
+    // Synthesise from the slug so TM lookup and the page still work.
+    // Single-word slugs with no data anywhere are likely misspellings — still 404.
     if (!show) {
       if (normSlug.includes('-')) {
         const displayName = toTitleCase(normSlug.replace(/-/g, ' '));

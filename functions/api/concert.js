@@ -53,10 +53,7 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
-  // Final fallback — check Awin events for any unknown slug
-  // This handles theatre shows and events in our Awin feed
-  // that aren't in the ARTISTS array or KV cache
-  // Single-word slugs not found anywhere are likely misspellings — return 404
+  // Fallback — check Awin events for any unknown slug
   if (!artist) {
     const name = normSlug.replace(/-/g, ' ');
     try {
@@ -80,15 +77,12 @@ export async function onRequestGet({ request, env }) {
       }
     } catch {}
 
-    // If Awin also has nothing — try to serve the page anyway if the slug looks valid.
-    // A static HTML file at concert/[slug].html was committed by the auto-discovery pipeline
-    // but KV data may have expired (30-day TTL) or never been written for older pages.
-    // Returning 404 here causes events.js to fall back to hash routing instead of the SEO page.
-    // Multi-word slugs (containing a hyphen) are treated as valid auto-discovered artists.
+    // Slug-based fallback — if Awin has nothing but the slug contains a hyphen,
+    // it is likely a valid auto-discovered artist whose KV data has expired or was
+    // never written. Synthesise from the slug so TM lookup and the page still work.
     // Single-word slugs with no data anywhere are likely misspellings — still 404.
     if (!artist) {
       if (normSlug.includes('-')) {
-        // Reconstruct a display name from the slug — good enough for TM lookup and page render
         const displayName = toTitleCase(normSlug.replace(/-/g, ' '));
         artist = {
           slug:        normSlug,
@@ -113,14 +107,13 @@ export async function onRequestGet({ request, env }) {
       const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/attractions.json');
       tmUrl.searchParams.set('apikey', apiKey);
       tmUrl.searchParams.set('keyword', artist.search);
-      tmUrl.searchParams.set('size', '10'); // fetch more so we can filter properly
+      tmUrl.searchParams.set('size', '10');
 
       const tmResp = await fetch(tmUrl.toString());
       const tmData = await tmResp.json();
       const attractions = tmData?._embedded?.attractions || [];
 
       if (attractions.length > 0) {
-        // Score attractions — exact name match wins, tribute acts penalised
         const TRIBUTE_KEYWORDS = ['tribute', 'salute', 'legacy', 'experience', 'revival',
           'forever', 'reunion', 'story of', 'performed by', 'feat.', 'vs.', ' vs '];
 
@@ -133,7 +126,6 @@ export async function onRequestGet({ request, env }) {
           else if (normName.startsWith(normSearch)) score = 50;
           else if (normName.includes(normSearch))   score = 20;
 
-          // Penalise tribute acts heavily
           const isTribute = TRIBUTE_KEYWORDS.some(kw => a.name.toLowerCase().includes(kw));
           if (isTribute) score -= 60;
 
@@ -143,7 +135,6 @@ export async function onRequestGet({ request, env }) {
         const best = scored[0].attraction;
         attractionId = best.id;
         const images = best.images || [];
-        // Prefer largest 16:9 image for hero background quality
         const sixteenNine = images
           .filter(img => img.ratio === '16_9' && img.width > 500)
           .sort((a, b) => (b.width || 0) - (a.width || 0));
@@ -175,7 +166,7 @@ function jsonResponse(body, status) {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': 'public, max-age=3600' // cache for 1 hour — attraction IDs don't change
+      'Cache-Control': 'public, max-age=3600'
     }
   });
 }
