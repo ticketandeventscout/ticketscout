@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blackburn Rovers Tickets — Compare Prices | TicketScout</title>
+  <meta name="description" id="meta-description" content="Compare Blackburn Rovers ticket prices across verified sellers. Find the cheapest Blackburn Rovers tickets." />
+  <link rel="canonical" id="canonical" href="https://www.ticketscout.co.uk/football/blackburn-rovers" />
+  <meta property="og:title" id="og-title" content="Blackburn Rovers Tickets — Compare Prices | TicketScout" />
+  <meta property="og:description" id="og-description" content="Compare Blackburn Rovers ticket prices across verified sellers." />
+  <meta property="og:url" id="og-url" content="https://www.ticketscout.co.uk/football/blackburn-rovers" />
+  <meta name="twitter:title" id="tw-title" content="Blackburn Rovers Tickets — Compare Prices | TicketScout" />
+  <meta name="twitter:description" id="tw-description" content="Compare Blackburn Rovers ticket prices across verified sellers." />
+  <link rel="stylesheet" href="/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script>window.__FOOTBALL_SLUG__ = 'blackburn-rovers';</script>
+</head>
+<body>
+<script>
+  fetch('/football.html')
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      var m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (!m) return;
+      document.body.innerHTML = m[1];
+      var scripts = document.body.querySelectorAll('script');
+      scripts.forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) { s.src = o.src; } else { s.textContent = o.textContent; }
+        document.head.appendChild(s);
+        o.remove();
+      });
+    })
+    .catch(function(e) { console.error('Load failed', e); });
+</script>
+</body>
+</html>
