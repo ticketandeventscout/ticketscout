@@ -147,8 +147,8 @@ async function runSearch(keyword) {
         fetch(`/api/theatre?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`/api/concert?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
-      const isRichFootball = (footballResp?.team?.description?.length || 0) > 80;
-      const isRichTheatre  = (theatreResp?.show?.description?.length || 0) > 80;
+      const isRichFootball = (footballResp?.team?.description?.length || 0) > 150;
+      const isRichTheatre  = (theatreResp?.show?.description?.length || 0) > 150;
       if (isRichFootball) { window.location.href = `/football/${slug}`; return; }
       if (isRichTheatre)  { window.location.href = `/theatre/${slug}`; return; }
       if (concertResp)    { window.location.href = `/concert/${slug}`; return; }
@@ -304,8 +304,8 @@ async function showArtistEvents(attractionId, name) {
         // Only redirect to football/theatre if the API returned RICH data
         // (hardcoded entry or KV data — description > 80 chars means it's real, not synthesised)
         // This prevents generic words like "grease" or "oliver" routing to football
-        const isRichFootball = footballResp?.team?.description?.length > 80;
-        const isRichTheatre  = theatreResp?.show?.description?.length > 80;
+        const isRichFootball = footballResp?.team?.description?.length > 150;
+        const isRichTheatre  = theatreResp?.show?.description?.length > 150;
 
         if (isRichFootball) { window.location.href = `/football/${slug}`; return; }
         if (isRichTheatre)  { window.location.href = `/theatre/${slug}`; return; }
