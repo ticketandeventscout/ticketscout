@@ -1,9 +1,13 @@
 # TicketScout — Cloudflare Pages redirects
-# NOTE: Concert/artist pages are handled by Pages Functions, not redirects.
-# See functions/concert/[slug].js for the concert URL router.
-# Future category routers should follow the same pattern.
+# NOTE: Subpath pages (concert, football, theatre, venue) are served as static HTML files
+# from their respective folders. Do NOT add catch-all redirects for these paths.
+# The rules below handle category landing pages and legacy redirects only.
 
-# Redirect /concerts to homepage (category browsing handled there for now)
-/concerts /  302
-/theatre  /  302
-/football /  302
+# Category landing pages — serve the category HTML templates directly
+/concerts   /concert.html   200
+/football   /football.html  200
+/theatre    /theatre.html   200
+
+# Concert/football/theatre/venue subpaths — pass through to static files in those folders
+# Cloudflare will serve e.g. /football/arsenal.html for /football/arsenal automatically.
+# NO redirect rules needed here — omitting them lets the static files be found.
