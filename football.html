@@ -555,8 +555,17 @@
       const slug = toSearchSlug(keyword);
       if (slug) {
         try {
-          const check = await fetch(`/api/football?slug=${encodeURIComponent(slug)}`);
-          if (check.ok) { window.location.href = `/football/${slug}`; return; }
+          // Check all three categories in parallel — same logic as homepage
+          const [footballResp, theatreResp, concertResp] = await Promise.all([
+            fetch(`/api/football?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch(`/api/theatre?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch(`/api/concert?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+          ]);
+          const isRichFootball = (footballResp?.team?.description?.length || 0) > 150;
+          const isRichTheatre  = (theatreResp?.show?.description?.length || 0) > 150;
+          if (isRichFootball) { window.location.href = `/football/${slug}`; return; }
+          if (isRichTheatre)  { window.location.href = `/theatre/${slug}`; return; }
+          if (concertResp)    { window.location.href = `/concert/${slug}`; return; }
         } catch {}
       }
       window.location.href = `/#/search/${encodeURIComponent(keyword)}`;

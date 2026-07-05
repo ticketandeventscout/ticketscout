@@ -610,12 +610,20 @@
       const keyword = document.getElementById('search-input').value.trim();
       if (!keyword) return;
 
-      // Check if a concert page exists for this keyword first
+      // Check all three categories — allows cross-category navigation from concert pages
       const slug = toSearchSlug(keyword);
       if (slug) {
         try {
-          const check = await fetch(`/api/concert?slug=${encodeURIComponent(slug)}`);
-          if (check.ok) {
+          const [footballResp, theatreResp, concertResp] = await Promise.all([
+            fetch(`/api/football?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch(`/api/theatre?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch(`/api/concert?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
+          ]);
+          const isRichFootball = (footballResp?.team?.description?.length || 0) > 150;
+          const isRichTheatre  = (theatreResp?.show?.description?.length || 0) > 150;
+          if (isRichFootball) { window.location.href = `/football/${slug}`; return; }
+          if (isRichTheatre)  { window.location.href = `/theatre/${slug}`; return; }
+          if (concertResp) {
             window.location.href = `/concert/${slug}`;
             return;
           }
