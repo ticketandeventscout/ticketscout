@@ -19,45 +19,6 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-    <!-- Static schema — readable by Google/AI crawlers without JS execution -->
-  <!-- JS populates #schema-org with page-specific event data after load -->
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "Organization",
-        "@id": "https://www.ticketscout.co.uk/#organization",
-        "name": "TicketScout",
-        "url": "https://www.ticketscout.co.uk",
-        "logo": "https://www.ticketscout.co.uk/og-default.png",
-        "description": "TicketScout compares football ticket prices from verified UK sellers. Find the cheapest match tickets for Premier League and more."
-      },
-      {
-        "@type": "WebSite",
-        "@id": "https://www.ticketscout.co.uk/#website",
-        "url": "https://www.ticketscout.co.uk",
-        "name": "TicketScout",
-        "publisher": {"@id": "https://www.ticketscout.co.uk/#organization"}
-      },
-      {
-        "@type": "WebPage",
-        "url": "https://www.ticketscout.co.uk/football/",
-        "name": "Football Tickets — Compare Prices | TicketScout",
-        "description": "Compare football tickets across verified UK sellers on TicketScout. Find the cheapest prices and buy direct.",
-        "isPartOf": {"@id": "https://www.ticketscout.co.uk/#website"},
-        "breadcrumb": {
-          "@type": "BreadcrumbList",
-          "itemListElement": [
-            {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.ticketscout.co.uk"},
-            {"@type": "ListItem", "position": 2, "name": "Football", "item": "https://www.ticketscout.co.uk/football/"}
-          ]
-        }
-      }
-    ]
-  }
-  </script>
-  <!-- Dynamic schema populated by JS with page-specific event + FAQ data -->
   <script type="application/ld+json" id="schema-org"></script>
   <style>
     .artist-hero {
@@ -495,7 +456,7 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         <input type="text" id="search-input" placeholder="Search for another team or event…" autocomplete="off" />
         <button onclick="handleSearch()">Search</button>
-        <div id="search-suggestions" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #b0d8b0; border-top:none; border-radius:0 0 8px 8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:100; max-height:280px; overflow-y:auto;"></div>
+        <div id="search-suggestions" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #b0d8b0; border-top:none; border-radius:0 0 8px 8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:9999; max-height:300px; overflow-y:auto;"></div>
       </div>
     </div>
   </div>
@@ -629,59 +590,16 @@
       document.getElementById('tw-description').setAttribute('content', description);
       document.getElementById('tw-image').setAttribute('content', image);
 
-      // ── JSON-LD schema graph ─────────────────────────────────────────────
-      const schemaGraph = [];
-
-      // WebPage + BreadcrumbList
-      schemaGraph.push({
-        '@type': 'WebPage',
-        '@id': pageUrl,
-        'url': pageUrl,
-        'name': `${name} Tickets — Compare Prices | TicketScout`,
-        'description': description,
-        'image': image,
-        'inLanguage': 'en-GB',
-        'isPartOf': { '@type': 'WebSite', 'url': 'https://www.ticketscout.co.uk', 'name': 'TicketScout' },
-        'breadcrumb': {
-          '@type': 'BreadcrumbList',
-          'itemListElement': [
-            { '@type': 'ListItem', 'position': 1, 'name': 'Home',     'item': 'https://www.ticketscout.co.uk' },
-            { '@type': 'ListItem', 'position': 2, 'name': 'Football', 'item': 'https://www.ticketscout.co.uk/football/' },
-            { '@type': 'ListItem', 'position': 3, 'name': `${name} Tickets`, 'item': pageUrl }
-          ]
-        }
-      });
-
-      // SportsTeam
-      schemaGraph.push({
-        '@type': 'SportsTeam',
-        '@id': `${pageUrl}#team`,
-        'name': name,
-        'sport': 'Football',
-        'url': pageUrl
-      });
-
-      // SportsEvent — one per upcoming fixture (up to 8)
       if (events.length > 0) {
-        events.slice(0, 8).forEach(e => {
-          const venue     = e._embedded?.venues?.[0];
-          const minPrice  = e.priceRanges?.[0]?.min;
-          const startDate = e.dates?.start?.localDate;
-          const startTime = e.dates?.start?.localTime;
-          if (!startDate) return;
-          const ev = {
+        const schemaEvents = events.slice(0, 5).map(e => {
+          const venue    = e._embedded?.venues?.[0];
+          const minPrice = e.priceRanges?.[0]?.min;
+          return {
             '@type': 'SportsEvent',
-            'name': e.name || `${name} Match`,
-            'startDate': startTime ? `${startDate}T${startTime}` : startDate,
+            'name': e.name,
+            'startDate': e.dates?.start?.localDate,
             'image': image,
-            'competitor': [{ '@type': 'SportsTeam', '@id': `${pageUrl}#team`, 'name': name }],
-            'url': pageUrl,
-            'sport': 'Football',
-            'eventStatus': 'https://schema.org/EventScheduled',
-            'eventAttendanceMode': 'https://schema.org/OfflineEventAttendanceMode'
-          };
-          if (venue) {
-            ev['location'] = {
+            'location': venue ? {
               '@type': 'SportsActivityLocation',
               'name': venue.name,
               'address': {
@@ -689,57 +607,23 @@
                 'addressLocality': venue.city?.name || '',
                 'addressCountry': venue.country?.countryCode || 'GB'
               }
-            };
-          }
-          if (minPrice) {
-            ev['offers'] = {
+            } : undefined,
+            'competitor': [{ '@type': 'SportsTeam', 'name': name }],
+            'offers': minPrice ? {
               '@type': 'Offer',
               'price': minPrice,
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
-              'url': pageUrl,
-              'seller': { '@type': 'Organization', 'name': 'TicketScout' }
-            };
-          }
-          schemaGraph.push(ev);
+              'url': pageUrl
+            } : undefined,
+            'url': pageUrl
+          };
+        });
+        document.getElementById('schema-org').textContent = JSON.stringify({
+          '@context': 'https://schema.org',
+          '@graph': schemaEvents
         });
       }
-
-      // FAQPage
-      schemaGraph.push({
-        '@type': 'FAQPage',
-        'mainEntity': [
-          {
-            '@type': 'Question',
-            'name': `Where can I buy ${name} tickets?`,
-            'acceptedAnswer': {
-              '@type': 'Answer',
-              'text': `TicketScout compares ${name} ticket prices from verified resale and primary sellers. Compare prices and buy direct at ticketscout.co.uk/football/${slug}`
-            }
-          },
-          {
-            '@type': 'Question',
-            'name': `How much are ${name} tickets?`,
-            'acceptedAnswer': {
-              '@type': 'Answer',
-              'text': `${name} ticket prices depend on the fixture, opponent, and seat location. TicketScout shows live prices from multiple verified sellers so you can find the best available price.`
-            }
-          },
-          {
-            '@type': 'Question',
-            'name': `Can I get ${name} tickets when they are sold out?`,
-            'acceptedAnswer': {
-              '@type': 'Answer',
-              'text': `When ${name} official tickets are sold out, verified resale sellers often have tickets available. TicketScout compares prices from trusted resale platforms all in one place.`
-            }
-          }
-        ]
-      });
-
-      document.getElementById('schema-org').textContent = JSON.stringify({
-        '@context': 'https://schema.org',
-        '@graph': schemaGraph
-      });
     }
 
     function buildMiniFAQ(teamName) {
@@ -770,22 +654,6 @@
       `).join('');
     }
 
-    // Decode HTML entities in Awin feed descriptions
-    function decodeHtmlEntities(str) {
-      if (!str) return '';
-      const entities = {
-        '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'",
-        '&nbsp;': ' ', '&mdash;': '—', '&ndash;': '–', '&lsquo;': '‘',
-        '&rsquo;': '’', '&ldquo;': '“', '&rdquo;': '”',
-        '&hellip;': '…', '&bull;': '•', '&trade;': '™', '&copy;': '©',
-        '&reg;': '®', '&pound;': '£', '&euro;': '€', '&deg;': '°'
-      };
-      let decoded = str.replace(/&[a-z]+;/gi, function(m) { return entities[m] || m; });
-      decoded = decoded.replace(/&#(\d+);/g, function(_, n) { return String.fromCharCode(parseInt(n, 10)); });
-      decoded = decoded.replace(/&#x([0-9a-f]+);/gi, function(_, h) { return String.fromCharCode(parseInt(h, 16)); });
-      decoded = decoded.replace(/<[^>]*>/g, '');
-      return decoded.trim();
-    }
     async function init() {
       const slug = getSlug();
 
@@ -817,21 +685,45 @@
         document.getElementById('about-heading').textContent  = `About ${team.name}`;
         document.getElementById('events-heading').textContent = `${team.name} — upcoming fixtures`;
         document.getElementById('faq-heading').textContent    = `${team.name} tickets — FAQs`;
-        document.getElementById('artist-bio').textContent     = decodeHtmlEntities(team.description);
+        document.getElementById('artist-bio').textContent     = team.description;
         document.getElementById('mini-faq-content').innerHTML = buildMiniFAQ(team.name);
 
         if (tmImage) {
           document.getElementById('hero-bg').style.backgroundImage = `url('${tmImage}')`;
         }
 
-        // Football: only use Ticketmaster — Awin search by team name returns
-        // city-name matches (e.g. concerts in Brighton), not football fixtures.
-        const tmData = attractionId
-          ? await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
-          : {};
+        const [tmData, awinData] = await Promise.all([
+          attractionId
+            ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
+            : Promise.resolve({}),
+          fetch(`/api/awin-events?name=${encodeURIComponent(team.search || team.name)}&size=50`).then(r => r.json()).catch(() => ({ events: [] }))
+        ]);
 
-        const tmEvents  = tmData?._embedded?.events || [];
-        const allEvents = tmEvents;
+        const tmEvents   = tmData?._embedded?.events || [];
+        const awinEvents = awinData?.events || [];
+
+        window.__attractionId = attractionId;
+        window.__tmPage       = 1;
+        window.__tmTotal      = tmData?.page?.totalElements || tmEvents.length;
+
+        const awinNormalised = awinEvents.map(e => ({
+          id:     e.id,
+          name:   e.name,
+          _awin:  true,
+          _url:   e.url,
+          _price: e.price,
+          _image: e.image,
+          _merchant: e.merchantName,
+          dates:  { start: { localDate: e.date || '', localTime: '' } },
+          priceRanges: e.price ? [{ min: e.price, currency: e.currency }] : [],
+          _embedded: {
+            venues: e.venue ? [{ name: e.venue, city: { name: '' } }] : []
+          }
+        }));
+
+        const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
+        const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
+        const allEvents = [...tmEvents, ...awinOnly];
 
         updateMeta(team, tmEvents, tmImage);
 
