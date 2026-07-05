@@ -19,19 +19,45 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-    <!-- Static org/website schema — crawlable without JS -->
+    <!-- Static schema — readable by Google/AI crawlers without JS execution -->
+  <!-- JS populates #schema-org with page-specific event data after load -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "Organization",
-    "name": "TicketScout",
-    "url": "https://www.ticketscout.co.uk",
-    "logo": "https://www.ticketscout.co.uk/og-default.png",
-    "description": "TicketScout is a UK ticket price comparison platform. We compare prices from verified sellers for concerts, football, theatre and live events.",
-    "contactPoint": { "@type": "ContactPoint", "contactType": "customer support", "url": "https://www.ticketscout.co.uk/contact" }
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://www.ticketscout.co.uk/#organization",
+        "name": "TicketScout",
+        "url": "https://www.ticketscout.co.uk",
+        "logo": "https://www.ticketscout.co.uk/og-default.png",
+        "description": "TicketScout compares football ticket prices from verified UK sellers. Find the cheapest match tickets for Premier League and more."
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://www.ticketscout.co.uk/#website",
+        "url": "https://www.ticketscout.co.uk",
+        "name": "TicketScout",
+        "publisher": {"@id": "https://www.ticketscout.co.uk/#organization"}
+      },
+      {
+        "@type": "WebPage",
+        "url": "https://www.ticketscout.co.uk/football/",
+        "name": "Football Tickets — Compare Prices | TicketScout",
+        "description": "Compare football tickets across verified UK sellers on TicketScout. Find the cheapest prices and buy direct.",
+        "isPartOf": {"@id": "https://www.ticketscout.co.uk/#website"},
+        "breadcrumb": {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.ticketscout.co.uk"},
+            {"@type": "ListItem", "position": 2, "name": "Football", "item": "https://www.ticketscout.co.uk/football/"}
+          ]
+        }
+      }
+    ]
   }
   </script>
-  <!-- Dynamic event + FAQ + breadcrumb schema — populated by JS on page load -->
+  <!-- Dynamic schema populated by JS with page-specific event + FAQ data -->
   <script type="application/ld+json" id="schema-org"></script>
   <style>
     .artist-hero {
