@@ -11,7 +11,7 @@
 //   - Date format: dd/mm/yyyy (NOT YYYY-MM-DD)
 //   - Event response includes: dateOfEvent, timeOfEvent, eventUrl, minTicketPrice{price,currency}
 //   - Currency can be requested via ?currency=GBP
-//   - Affiliate URL: ticket.sportsevents365.com/event/{id}?affid={affiliateId}
+//   - Affiliate URL: ticket.sportsevents365.com/event/{id}?a_aid={affiliateId}
 //
 // Required env vars (Cloudflare Pages → Settings → Variables and secrets):
 //   SE365_API_KEY                — API key (Secret)
@@ -267,7 +267,7 @@ function findBestEvent(events, targetDate) {
 // ===========================
 // Affiliate URL builder
 // SE365 event URL format: https://ticket.sportsevents365.com/event/{id}
-// Append affiliate ID as affid parameter
+// Append affiliate ID as a_aid parameter (confirmed by Nir at SE365)
 // ===========================
 
 function buildAffiliateUrl(event, affiliateId) {
@@ -279,11 +279,11 @@ function buildAffiliateUrl(event, affiliateId) {
 
   try {
     const u = new URL(baseUrl);
-    u.searchParams.set('affid', affiliateId);
+    u.searchParams.set('a_aid', affiliateId);
     return u.toString();
   } catch {
     const sep = baseUrl.includes('?') ? '&' : '?';
-    return `${baseUrl}${sep}affid=${affiliateId}`;
+    return `${baseUrl}${sep}a_aid=${affiliateId}`;
   }
 }
 
