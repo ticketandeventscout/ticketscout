@@ -59,6 +59,18 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/concert/all-points-east</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/concert/allegra</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/concert/arctic-monkeys</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
@@ -95,12 +107,6 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/black-sabbath</loc>
-    <lastmod>2026-07-05</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://www.ticketscout.co.uk/concert/blink-182</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
@@ -131,12 +137,6 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/deep-purple</loc>
-    <lastmod>2026-07-05</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://www.ticketscout.co.uk/concert/doja-cat</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
@@ -161,13 +161,13 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/feeder</loc>
+    <loc>https://www.ticketscout.co.uk/concert/foo-fighters</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/foo-fighters</loc>
+    <loc>https://www.ticketscout.co.uk/concert/gojira</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -215,7 +215,7 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/kiss</loc>
+    <loc>https://www.ticketscout.co.uk/concert/knocked-loose</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -233,12 +233,6 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/madonna</loc>
-    <lastmod>2026-07-05</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
     <loc>https://www.ticketscout.co.uk/concert/manic-street-preachers</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
@@ -251,13 +245,13 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/motley-crue</loc>
+    <loc>https://www.ticketscout.co.uk/concert/my-chemical-romance</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/my-chemical-romance</loc>
+    <loc>https://www.ticketscout.co.uk/concert/now-you-see-me-live</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -269,7 +263,7 @@
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/concert/ozzy-osbourne</loc>
+    <loc>https://www.ticketscout.co.uk/concert/pantera</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -401,13 +395,31 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/concert/two-door-cinema-club</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/concert/wolf-alice</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/football/aberdeen</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/football/arsenal</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/football/arsenal-women</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -473,6 +485,12 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/football/chelsea-women</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/football/coventry-city</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
@@ -486,6 +504,12 @@
   </url>
   <url>
     <loc>https://www.ticketscout.co.uk/football/derby-county</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/football/dundee-united</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -527,6 +551,12 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/football/ipswich-town</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/football/leeds-united</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
@@ -540,6 +570,12 @@
   </url>
   <url>
     <loc>https://www.ticketscout.co.uk/football/liverpool</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/football/liverpool-women</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -563,6 +599,12 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/football/manchester-united-women</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/football/middlesbrough</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
@@ -570,6 +612,12 @@
   </url>
   <url>
     <loc>https://www.ticketscout.co.uk/football/millwall</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/football/motherwell</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
@@ -677,7 +725,25 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/theatre/a-little-night-music</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/theatre/a-midsummer-nights-dream</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/allegra</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/avenue-q</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -689,13 +755,49 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/beautiful-the-carole-king-musical</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/be-like-blippi</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/beautiful-carole-king-musical</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.ticketscout.co.uk/theatre/beetlejuice-the-musical</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/berlin</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/big-bad-wolf</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/bill-bailey-vaudevillean</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/billy-elliot-the-musical</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/black-is-the-color-of-my-voice</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -713,7 +815,13 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/cat-on-a-hot-tin-roof</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/cat</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/charlie-and-the-chocolate-factory</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -731,7 +839,25 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/dear-evan-hansen</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/company</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/dirty-dancing</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/disney-aladdin</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/frozen-the-musical</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -761,7 +887,19 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/hamlet</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/hamlet-globe</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/harry-potter-cursed-child</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/into-the-woods</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -773,13 +911,19 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/theatre/joseph-amazing-technicolor-dreamcoat</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/theatre/les-miserables</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/macbeth</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/les-miserables-sondheim-theatre</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -791,13 +935,7 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/matilda</loc>
-    <lastmod>2026-07-05</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://www.ticketscout.co.uk/theatre/mean-girls-the-musical</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/matilda-the-musical</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -809,13 +947,25 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/operation-mincemeat</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/now-you-see-me-live</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/othello</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/oliver</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/one-man-two-guvnors</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/operation-mincemeat</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -827,13 +977,25 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/rock-of-ages</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/phantom-of-the-opera-movie</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/romeo-and-juliet</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/rent</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/rocky-horror-show</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/romeo-and-juliet-globe</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -851,7 +1013,37 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://www.ticketscout.co.uk/theatre/spring-awakening</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://www.ticketscout.co.uk/theatre/standing-at-the-sky-edge</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/stephen-sondheim</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/sweeney-todd</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/the-book-of-mormon</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/the-curious-incident-of-the-dog-in-the-night-time</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
@@ -863,7 +1055,13 @@
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://www.ticketscout.co.uk/theatre/the-phantom-of-the-opera</loc>
+    <loc>https://www.ticketscout.co.uk/theatre/the-play-that-goes-wrong</loc>
+    <lastmod>2026-07-05</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.ticketscout.co.uk/theatre/uncle-vanya</loc>
     <lastmod>2026-07-05</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>

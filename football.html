@@ -711,19 +711,19 @@
           document.getElementById('hero-bg').style.backgroundImage = `url('${tmImage}')`;
         }
 
-        // Fetch TM and Awin in parallel
-        // Filter Awin by category to keep football rows from ALL merchants
-        // (Football TicketNet UK/DE/US + Gigsberg football listings)
-        // while excluding concerts/theatre from the same merchants
-        const [tmData, awinData] = await Promise.all([
+        // Fetch TM, Awin, and SE365 in parallel
+        // Awin: filtered to football/sport category only (Football TicketNet + Gigsberg football)
+        // SE365: 7% commission, strong football inventory — only active when SE365_PROD=true
+        const [tmData, awinData, se365Data] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
             : Promise.resolve({}),
-          fetch(`/api/awin-events?name=${encodeURIComponent(team.search || team.name)}&size=50`).then(r => r.json()).catch(() => ({ events: [] }))
+          fetch(`/api/awin-events?name=${encodeURIComponent(team.search || team.name)}&size=50`).then(r => r.json()).catch(() => ({ events: [] })),
+          fetch(`/api/sportsevents365?q=${encodeURIComponent(team.search || team.name)}`).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];
-        // Filter by category not merchant — captures Gigsberg football rows too
+        // Filter Awin by category — captures Gigsberg football AND Football TicketNet
         const awinRaw    = (awinData?.events || []).filter(e => {
           const cat = (e.category || '').toLowerCase();
           return cat.includes('football') || cat.includes('soccer') || cat.includes('sport');
@@ -748,10 +748,34 @@
           }
         }));
 
-        // Merge: TM events first, then Awin events not already covered by TM date
+        // Merge: TM first, then Awin (not already covered by TM date), then SE365
         const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
         const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
-        const allEvents = [...tmEvents, ...awinOnly];
+
+        // SE365: convert single match result to event card format if available
+        const se365Events = [];
+        if (se365Data?.match?.url) {
+          const m = se365Data.match;
+          const se365Date = m.date ? m.date.split('T')[0] : '';
+          // Only add if not already covered by TM or Awin
+          if (!se365Date || !tmDates.has(se365Date)) {
+            se365Events.push({
+              id:     `se365-${encodeURIComponent(m.name || team.name)}`,
+              name:   m.name || `${team.name} - Tickets`,
+              _se365: true,
+              _url:   m.url,
+              _price: m.price,
+              _merchant: 'SportsEvents365',
+              dates:  { start: { localDate: se365Date, localTime: m.time || '' } },
+              priceRanges: m.price ? [{ min: m.price, currency: m.currency || 'GBP' }] : [],
+              _embedded: {
+                venues: m.venue ? [{ name: m.venue, city: { name: '' } }] : []
+              }
+            });
+          }
+        }
+
+        const allEvents = [...tmEvents, ...awinOnly, ...se365Events];
 
         updateMeta(team, tmEvents, tmImage);
 
@@ -967,7 +991,7 @@
       const minPrice  = e.priceRanges?.[0]?.min;
       const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
 
-      if (e._awin) {
+      if (e._awin || e._se365) {
         const merchantBadge = e._merchant
           ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>`
           : '';
@@ -989,7 +1013,7 @@
       }
 
       return `
-        <a class="event-list-item" href="/#/event/${e.id}">
+        <a class="event-list-item" href="https://www.ticketscout.co.uk/#/event/${e.id}">
           <div class="event-list-left">
             <div class="event-list-name">${e.name}</div>
             <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
