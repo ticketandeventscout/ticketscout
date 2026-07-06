@@ -514,6 +514,20 @@
       </div>
 
       <div class="sidebar-card">
+        <h3>Popular artists</h3>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <a href="/concert/coldplay" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Coldplay →</a>
+          <a href="/concert/taylor-swift" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Taylor Swift →</a>
+          <a href="/concert/ed-sheeran" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Ed Sheeran →</a>
+          <a href="/concert/beyonce" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Beyoncé →</a>
+          <a href="/concert/metallica" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Metallica →</a>
+          <a href="/concert/oasis" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Oasis →</a>
+          <a href="/concert/the-killers" style="font-size:13px; color:#1a6fc4; text-decoration:none;">The Killers →</a>
+          <a href="/concert/arctic-monkeys" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Arctic Monkeys →</a>
+        </div>
+      </div>
+
+      <div class="sidebar-card">
         <h3>How it works</h3>
         <p style="font-size:13px; color:#555; line-height:1.7;">
           Click any event to see a full price comparison across all available sellers. 
@@ -1062,7 +1076,7 @@
 
       // TM events link to the comparison page
       return `
-        <a class="event-list-item" href="/#/event/${e.id}">
+        <a class="event-list-item" href="https://www.ticketscout.co.uk/#/event/${e.id}">
           <div class="event-list-left">
             <div class="event-list-name">${e.name}</div>
             <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>

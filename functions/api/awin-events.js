@@ -10,67 +10,12 @@ export async function onRequestGet({ request, env }) {
   if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
 
   const url       = new URL(request.url);
-  const name      = (url.searchParams.get('name') || '').trim().toLowerCase();
-  const size      = parseInt(url.searchParams.get('size') || '50');
-  const merchants = url.searchParams.get('merchants') === '1';
-  const dates     = url.searchParams.get('dates') === '1';
-  const scan      = url.searchParams.get('scan');
-  // chunk=N — inspect a specific chunk directly
-  const chunkParam = url.searchParams.get('chunk');
+  const name = (url.searchParams.get('name') || '').trim().toLowerCase();
+  const size = parseInt(url.searchParams.get('size') || '50');
 
   try {
     const index = await kv.get(`${CACHE_KEY}:index`, { type: 'json' });
     if (!index?.chunks) return jsonResponse({ events: [], total: 0, note: 'no index' }, 200);
-
-    // INSPECT A SPECIFIC CHUNK — show all unique merchant names in that chunk
-    if (chunkParam !== null) {
-      const chunkN = parseInt(chunkParam);
-      const chunk = await kv.get(`${CACHE_KEY}:chunk:${chunkN}`, { type: 'json' });
-      if (!chunk) return jsonResponse({ error: `chunk ${chunkN} not found` }, 200);
-      const merchantsInChunk = {};
-      for (const row of chunk) {
-        const m = row.merchant_name || 'unknown';
-        merchantsInChunk[m] = (merchantsInChunk[m] || 0) + 1;
-      }
-      // Also show first 3 rows raw
-      return jsonResponse({
-        chunk: chunkN,
-        total_rows: chunk.length,
-        merchants: merchantsInChunk,
-        first_3_rows: chunk.slice(0, 3)
-      }, 200);
-    }
-
-    // LIST ALL MERCHANTS across all chunks
-    if (merchants) {
-      const merchantCounts = {};
-      for (let i = 0; i < index.chunks; i++) {
-        const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
-        if (!chunk) continue;
-        for (const row of chunk) {
-          const m = row.merchant_name || 'unknown';
-          merchantCounts[m] = (merchantCounts[m] || 0) + 1;
-        }
-      }
-      return jsonResponse({ merchants: merchantCounts, cachedAt: index.cachedAt }, 200);
-    }
-
-    // DATE DISTRIBUTION
-    if (dates) {
-      const dateCounts = {};
-      let noDate = 0;
-      for (let i = 0; i < index.chunks; i++) {
-        const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
-        if (!chunk) continue;
-        for (const row of chunk) {
-          const d = extractDate(row.description);
-          if (!d) { noDate++; continue; }
-          const month = d.slice(0, 7);
-          dateCounts[month] = (dateCounts[month] || 0) + 1;
-        }
-      }
-      return jsonResponse({ date_months: Object.fromEntries(Object.entries(dateCounts).sort()), no_date: noDate }, 200);
-    }
 
     // SCAN — substring match on merchant_name
     if (scan) {
