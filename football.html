@@ -714,6 +714,14 @@
               otherClubs.map(function(c) { return clubLink(c[0], c[1]); }).join('') +
             '</div>' +
           '</div>';
+
+        // Hide team-specific sections that don't apply to the landing page
+        var bioSection = document.getElementById('about-heading');
+        if (bioSection) bioSection.closest('div').style.display = 'none';
+        var faqSection = document.getElementById('faq-heading');
+        if (faqSection) faqSection.closest('.mini-faq').style.display = 'none';
+        var eventsHeading = document.getElementById('events-heading');
+        if (eventsHeading) eventsHeading.style.display = 'none';
         return;
       }
 

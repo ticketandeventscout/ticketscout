@@ -4,11 +4,11 @@
 // ===========================
 
 const CATEGORY_MAP = {
-  all: '',
-  music: 'Music',
-  sports: 'Sports',
-  arts: 'Arts & Theatre',
-  comedy: 'Arts & Theatre'
+  all:    { segment: '' },
+  music:  { segment: 'Music' },
+  sports: { segment: 'Sports' },
+  arts:   { segment: 'Arts & Theatre' },
+  comedy: { segment: 'Arts & Theatre', genreId: 'KnvZfZ7vAe4' }
 };
 
 const CATEGORY_ICONS = {
@@ -86,7 +86,7 @@ function render() {
 // Home view — trending / category browse
 // ===========================
 
-async function fetchEvents(keyword = '', segmentName = '') {
+async function fetchEvents(keyword = '', segmentName = '', genreId = '') {
   const grid = getResultsEl();
   grid.className = 'events-grid';
   grid.innerHTML = '<div class="loading">Loading events…</div>';
@@ -95,6 +95,7 @@ async function fetchEvents(keyword = '', segmentName = '') {
     const params = new URLSearchParams({ size: '12' });
     if (keyword) params.set('keyword', keyword);
     if (segmentName) params.set('segmentName', segmentName);
+    if (genreId) params.set('genreId', genreId);
 
     const response = await fetch(`/api/ticketmaster?${params.toString()}`);
     const data = await response.json();
@@ -115,8 +116,8 @@ function filterCategory(pill, category) {
   document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
   pill.classList.add('active');
   navigate('/');
-  const segmentName = CATEGORY_MAP[category] || '';
-  fetchEvents('', segmentName);
+  const cat = CATEGORY_MAP[category] || {};
+  fetchEvents('', cat.segment || '', cat.genreId || '');
 }
 
 // ===========================
