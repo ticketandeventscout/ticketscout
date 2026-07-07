@@ -50,6 +50,9 @@ export async function onRequestGet({ request, env }) {
     const genreId = incoming.searchParams.get('genreId');
     if (genreId) tmUrl.searchParams.set('genreId', genreId);
 
+    const subGenreId = incoming.searchParams.get('subGenreId');
+    if (subGenreId) tmUrl.searchParams.set('subGenreId', subGenreId);
+
     // Setting this guarantees results belong to exactly one artist/attraction
     const attractionId = incoming.searchParams.get('attractionId');
     if (attractionId) tmUrl.searchParams.set('attractionId', attractionId);
