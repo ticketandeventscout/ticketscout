@@ -776,7 +776,7 @@
             if (!vsDate || !allDates.has(vsDate)) {
               vsEvents.push({
                 id:        `vs-${encodeURIComponent(vs.name||'')}`,
-                name:      vs.isFallback ? `Search ${${show.name}} on Vivid Seats` : (vs.name || `${${show.name}} - Tickets`),
+                name:      vs.isFallback ? `Search ${show.name} on Vivid Seats` : (vs.name || `${show.name} - Tickets`),
                 _vs:       true,
                 _url:      vs.url,
                 _price:    vs.price,

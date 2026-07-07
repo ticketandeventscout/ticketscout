@@ -25,6 +25,7 @@
 //   Mon 00:00 — ?trigger=1&source=ticketmaster
 //   Mon 00:10 — ?trigger=1&phase=commit          (after TM discovery + Awin cache writes)
 //   Mon 00:15 — ?trigger=1&source=se365          (prod only — no-op until SE365_PROD=true)
+//   Mon 00:20 — ?trigger=1&source=vividseats      — discover new artists from VS catalog
 //
 // Required env vars:
 //   TM_API_KEY     — Ticketmaster API key (Secret)
@@ -59,6 +60,7 @@ export async function onRequestGet({ request, env }) {
       'TicketScout page discovery — usage:',
       '  ?trigger=1&source=ticketmaster  — discover from Ticketmaster, queue to KV',
       '  ?trigger=1&source=se365         — discover from SE365, queue to KV',
+      '  ?trigger=1&source=vividseats    — discover from Vivid Seats catalog, queue to KV',
       '  ?trigger=1&phase=commit         — commit queued pages to GitHub',
       '  ?trigger=1&phase=backfill       — write KV data for already-committed pages',
       '  &dry=1                          — dry run, no writes',
@@ -204,6 +206,82 @@ export async function onRequestGet({ request, env }) {
       }
     } catch (err) {
       results.errors.push({ source: 'se365', error: String(err) });
+    }
+  }
+
+  // ── Vivid Seats (Impact catalog) ─────────────────────────────────────────
+  if (source === 'vividseats') {
+    const accountSid = env.IMPACT_ACCOUNT_SID;
+    const authToken  = env.IMPACT_AUTH_TOKEN;
+    if (!accountSid || !authToken) {
+      results.errors.push({ source: 'vividseats', error: 'Impact credentials not configured' });
+    } else {
+      try {
+        const basicAuth  = btoa(`${accountSid}:${authToken}`);
+        let   page       = 1;
+        let   totalPages = 1;
+        let   scanned    = 0;
+
+        while (page <= totalPages && page <= 10) { // cap at 10 pages to stay within 30s limit
+          const catalogUrl = new URL(`https://api.impact.com/Mediapartners/${accountSid}/Catalogs/Items`);
+          catalogUrl.searchParams.set('CampaignId', '12730');
+          catalogUrl.searchParams.set('PageSize',   '100');
+          catalogUrl.searchParams.set('Page',       String(page));
+
+          const resp = await fetch(catalogUrl.toString(), {
+            headers: { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' }
+          });
+
+          if (!resp.ok) {
+            results.errors.push({ source: 'vividseats', error: `HTTP ${resp.status} on page ${page}` });
+            break;
+          }
+
+          const text = await resp.text();
+          let items = [];
+
+          // Try JSON first, fall back to XML parsing
+          try {
+            const data = JSON.parse(text);
+            items = data?.Items || data?.CatalogItems || [];
+            if (page === 1) {
+              totalPages = Math.ceil((data?.total || data?.Total || items.length) / 100) || 1;
+            }
+          } catch {
+            // XML: extract Name fields
+            const nameMatches = [...text.matchAll(/<Name>(.*?)<\/Name>/gi)];
+            items = nameMatches.map(m => ({ Name: m[1] }));
+            const totalMatch = text.match(/<Catalogs[^>]+total="(\d+)"/i);
+            if (totalMatch && page === 1) totalPages = Math.ceil(parseInt(totalMatch[1]) / 100);
+          }
+
+          for (const item of items) {
+            const rawName = item.Name || item.name || '';
+            if (!rawName || !isValidName(rawName) || isTribute(rawName)) continue;
+            // Strip common event suffixes to get artist/team name
+            const cleanName = rawName
+              .replace(/\s*(tickets?|tour|live|concert|at\s+.+)$/i, '')
+              .trim();
+            if (!cleanName || cleanName.length < 3) continue;
+            const slug = toSlug(cleanName);
+            if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
+            const genre    = 'Live Events';
+            const category = 'concert'; // default; TM will classify on page load
+            newArtists.set(slug, {
+              slug, name: cleanName, search: cleanName,
+              genre, category,
+              description: generateArtistDescription(cleanName, genre),
+              source: 'vividseats'
+            });
+          }
+
+          scanned += items.length;
+          page++;
+        }
+        results.vsScanned = scanned;
+      } catch (err) {
+        results.errors.push({ source: 'vividseats', error: String(err) });
+      }
     }
   }
 
