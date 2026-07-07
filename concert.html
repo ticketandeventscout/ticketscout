@@ -813,7 +813,18 @@
           return;
         }
 
-        const { artist, attractionId, tmImage } = await resp.json();
+        const ct0 = resp.headers.get('content-type') || '';
+        if (!ct0.includes('application/json')) {
+          document.getElementById('events-container').innerHTML =
+            '<div class="no-events"><p>Unable to load artist data. Please try again shortly.</p></div>';
+          return;
+        }
+        const { artist, attractionId, tmImage } = await resp.json().catch(() => ({}));
+        if (!artist) {
+          document.getElementById('events-container').innerHTML =
+            '<div class="no-events"><p>Unable to load artist data. Please try again shortly.</p></div>';
+          return;
+        }
 
         // Update hero
         document.getElementById('genre-badge').textContent = artist.genre;
@@ -831,16 +842,16 @@
         }
 
         // Fetch events from Ticketmaster AND Awin in parallel
-        // safeJson — guards against HTML error pages returned instead of JSON
+        // safeJson: checks Content-Type before parsing to prevent SyntaxError from HTML error pages
         const safeJson = r => {
           const ct = r.headers.get('content-type') || '';
           if (!ct.includes('application/json')) return Promise.resolve(null);
           return r.json().catch(() => null);
         };
-                const [tmData, awinData] = await Promise.all([
+        const [tmData, awinData] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
-            : Promise.resolve({}),
+            : Promise.resolve(null),
           fetch(`/api/awin-events?name=${encodeURIComponent(artist.search || artist.name)}&size=50`).then(safeJson).catch(() => null)
         ]);
 
@@ -952,10 +963,13 @@
           try {
             const aid  = window.__attractionId;
             const resp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=20&startDateTime=${selectedDate}T00:00:00Z&endDateTime=${selectedDate}T23:59:59Z`);
-            const ct4 = resp.headers.get('content-type') || '';
-            if (!resp.ok || !ct4.includes('application/json')) { renderPage(); return; }
+            const ct3 = resp.headers.get('content-type') || '';
+            if (!resp.ok || !ct3.includes('application/json')) {
+              document.getElementById('event-list-inner').innerHTML = '<div class="no-events"><p>Unable to check this date. Please try again.</p></div>';
+              return;
+            }
             const data = await resp.json().catch(() => null);
-            if (!data) { renderPage(); return; }
+            if (!data) { document.getElementById('event-list-inner').innerHTML = '<div class="no-events"><p>Unable to check this date. Please try again.</p></div>'; return; }
             const found = data?._embedded?.events || [];
             window.__filteredEvents = found;
             if (found.length === 0) {
@@ -1066,9 +1080,12 @@
       try {
         const nextPage      = window.__tmPage || 1;
         window.__tmPage     = nextPage + 1;
-        const resp          = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=50&page=${nextPage}`);
-        const ct5 = resp.headers.get('content-type') || '';
-        if (!resp.ok || !ct5.includes('application/json')) { if (btn) { btn.textContent = 'Load more dates ↓'; btn.disabled = false; } return; }
+        const resp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=50&page=${nextPage}`);
+        const ct4  = resp.headers.get('content-type') || '';
+        if (!resp.ok || !ct4.includes('application/json')) {
+          if (btn) { btn.textContent = 'Load more dates ↓'; btn.disabled = false; }
+          return;
+        }
         const data = await resp.json().catch(() => null);
         if (!data) { if (btn) { btn.textContent = 'Load more dates ↓'; btn.disabled = false; } return; }
         const newEvents     = data?._embedded?.events || [];
