@@ -831,22 +831,21 @@
         }
 
         // Fetch events from Ticketmaster AND Awin in parallel
-        // safeJson guards against HTML error pages being returned instead of JSON
+        // safeJson — guards against HTML error pages returned instead of JSON
         const safeJson = r => {
           const ct = r.headers.get('content-type') || '';
-          if (!r.ok || !ct.includes('application/json')) return Promise.resolve(null);
+          if (!ct.includes('application/json')) return Promise.resolve(null);
           return r.json().catch(() => null);
         };
-        const [tmData, awinData] = await Promise.all([
+                const [tmData, awinData] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
-            : Promise.resolve(null),
+            : Promise.resolve({}),
           fetch(`/api/awin-events?name=${encodeURIComponent(artist.search || artist.name)}&size=50`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];
         const awinEvents = awinData?.events || [];
-        // Note: tmData/awinData may be null if the API returned non-JSON (safeJson returns null)
 
         // Store TM total for load more
         window.__attractionId = attractionId;
@@ -953,7 +952,10 @@
           try {
             const aid  = window.__attractionId;
             const resp = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=20&startDateTime=${selectedDate}T00:00:00Z&endDateTime=${selectedDate}T23:59:59Z`);
-            const data = await resp.json();
+            const ct4 = resp.headers.get('content-type') || '';
+            if (!resp.ok || !ct4.includes('application/json')) { renderPage(); return; }
+            const data = await resp.json().catch(() => null);
+            if (!data) { renderPage(); return; }
             const found = data?._embedded?.events || [];
             window.__filteredEvents = found;
             if (found.length === 0) {
@@ -1065,7 +1067,10 @@
         const nextPage      = window.__tmPage || 1;
         window.__tmPage     = nextPage + 1;
         const resp          = await fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(aid)}&size=50&page=${nextPage}`);
-        const data          = await resp.json();
+        const ct5 = resp.headers.get('content-type') || '';
+        if (!resp.ok || !ct5.includes('application/json')) { if (btn) { btn.textContent = 'Load more dates ↓'; btn.disabled = false; } return; }
+        const data = await resp.json().catch(() => null);
+        if (!data) { if (btn) { btn.textContent = 'Load more dates ↓'; btn.disabled = false; } return; }
         const newEvents     = data?._embedded?.events || [];
         if (newEvents.length > 0) {
           window.__allEvents = [...(window.__allEvents || []), ...newEvents];
