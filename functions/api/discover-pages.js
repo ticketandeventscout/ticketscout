@@ -539,16 +539,24 @@ function generateArtistPageHtml(slug) {
 </head>
 <body><script>
   (async function() {
-    const r = await fetch('/concert.html');
-    const html = await r.text();
-    const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
-    if (!m) return;
-    document.body.innerHTML = m[1];
-    document.body.querySelectorAll('script').forEach(function(o) {
-      var s = document.createElement('script');
-      if (o.src) s.src = o.src; else s.textContent = o.textContent;
-      document.body.appendChild(s); o.remove();
-    });
+    try {
+      const r = await fetch('/concert.html');
+      const html = await r.text();
+      const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
+      if (headStyleMatch) {
+        const st = document.createElement('style');
+        st.textContent = headStyleMatch[1];
+        document.head.appendChild(st);
+      }
+      const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
+      if (!m) return;
+      document.body.innerHTML = m[1];
+      document.body.querySelectorAll('script').forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) s.src = o.src; else s.textContent = o.textContent;
+        document.body.appendChild(s); o.remove();
+      });
+    } catch(e) { console.error('Failed to load concert template:', e); }
   })();
 </script></body></html>`;
 }
@@ -633,16 +641,24 @@ function generateVenuePageHtml(slug) {
 </head>
 <body><script>
   (async function() {
-    const r = await fetch('/venue.html');
-    const html = await r.text();
-    const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
-    if (!m) return;
-    document.body.innerHTML = m[1];
-    document.body.querySelectorAll('script').forEach(function(o) {
-      var s = document.createElement('script');
-      if (o.src) s.src = o.src; else s.textContent = o.textContent;
-      document.body.appendChild(s); o.remove();
-    });
+    try {
+      const r = await fetch('/venue.html');
+      const html = await r.text();
+      const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
+      if (headStyleMatch) {
+        const st = document.createElement('style');
+        st.textContent = headStyleMatch[1];
+        document.head.appendChild(st);
+      }
+      const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
+      if (!m) return;
+      document.body.innerHTML = m[1];
+      document.body.querySelectorAll('script').forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) s.src = o.src; else s.textContent = o.textContent;
+        document.body.appendChild(s); o.remove();
+      });
+    } catch(e) { console.error('Failed to load venue template:', e); }
   })();
 </script></body></html>`;
 }
