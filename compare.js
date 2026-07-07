@@ -160,6 +160,32 @@ const ADAPTERS = [
     }
   },
 
+  {
+    // Vivid Seats (via Impact affiliate deep-link)
+    // Strong US/UK/Canada inventory — concerts, sports, theatre
+    // Commission tracked via Impact: vivid-seats.pxf.io/c/7443544/952533/12730
+    source: 'Vivid Seats',
+
+    buildUrl(eventName, venueCity, eventDate, venueName) {
+      const params = new URLSearchParams({ q: eventName });
+      if (eventDate) params.set('date', eventDate);
+      return `/api/vividseats?${params.toString()}`;
+    },
+
+    normalise(data, eventName) {
+      if (data.error || !data.match || !data.match.url) return null;
+      const match = data.match;
+      // Always surface VS even with no price — their deep-link still earns commission
+      return {
+        source:    'Vivid Seats',
+        price:     match.price ? Math.round(match.price) : null,
+        currency:  'GBP',
+        url:       match.url,
+        available: true
+      };
+    }
+  },
+
   // ── Future adapters go here ──────────────────────────────────────────────
   //
   // {
@@ -298,4 +324,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}         
+}
