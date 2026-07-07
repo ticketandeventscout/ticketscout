@@ -373,22 +373,30 @@
         </div>`).join('');
     }
 
+    // setEl — safe head-element updater, no-ops if element absent (stub context)
+    function setEl(id, attr, val) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      if (attr) el.setAttribute(attr, val); else el.textContent = val;
+    }
+
     function updateMeta(venue, events) {
-      document.getElementById('page-title').textContent =
-        `${venue.name} Tickets — Upcoming Events & Prices | TicketScout`;
-      document.getElementById('meta-description').setAttribute('content',
-        `Compare ticket prices for upcoming events at ${venue.name}${venue.city ? ', ' + venue.city : ''}. Find the best deal across verified sellers.`);
-      document.getElementById('canonical').setAttribute('href',
-        `https://www.ticketscout.co.uk/venue/${venue.slug}`);
+      setEl('page-title', null,
+        venue.name + ' Tickets \u2014 Upcoming Events & Prices | TicketScout');
+      setEl('meta-description', 'content',
+        'Compare ticket prices for upcoming events at ' + venue.name +
+        (venue.city ? ', ' + venue.city : '') + '. Find the best deal across verified sellers.');
+      setEl('canonical', 'href',
+        'https://www.ticketscout.co.uk/venue/' + venue.slug);
 
       if (events.length > 0) {
-        const schema = {
+        var schema = {
           '@context': 'https://schema.org',
           '@type': 'EventVenue',
           'name': venue.name,
           'address': { '@type': 'PostalAddress', 'addressLocality': venue.city, 'addressCountry': venue.country || 'GB' }
         };
-        document.getElementById('schema-org').textContent = JSON.stringify(schema);
+        setEl('schema-org', null, JSON.stringify(schema));
       }
     }
 
