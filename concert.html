@@ -831,15 +831,22 @@
         }
 
         // Fetch events from Ticketmaster AND Awin in parallel
+        // safeJson guards against HTML error pages being returned instead of JSON
+        const safeJson = r => {
+          const ct = r.headers.get('content-type') || '';
+          if (!r.ok || !ct.includes('application/json')) return Promise.resolve(null);
+          return r.json().catch(() => null);
+        };
         const [tmData, awinData] = await Promise.all([
           attractionId
-            ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(r => r.json()).catch(() => ({}))
-            : Promise.resolve({}),
-          fetch(`/api/awin-events?name=${encodeURIComponent(artist.search || artist.name)}&size=50`).then(r => r.json()).catch(() => ({ events: [] }))
+            ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
+            : Promise.resolve(null),
+          fetch(`/api/awin-events?name=${encodeURIComponent(artist.search || artist.name)}&size=50`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];
         const awinEvents = awinData?.events || [];
+        // Note: tmData/awinData may be null if the API returned non-JSON (safeJson returns null)
 
         // Store TM total for load more
         window.__attractionId = attractionId;
