@@ -816,6 +816,8 @@
           return;
         }
 
+        const respText = await resp.clone().text();
+        console.log('API raw response (first 80 chars):', respText.slice(0, 80));
         const { artist, attractionId, tmImage } = await resp.json();
         console.log('Artist loaded:', artist?.name, '| attractionId:', attractionId);
 
