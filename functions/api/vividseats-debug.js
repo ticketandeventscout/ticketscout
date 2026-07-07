@@ -79,11 +79,53 @@ export async function onRequestGet({ request, env }) {
       return raw(text, r.status, r.headers.get('content-type'));
     }
 
-    return json({ error: 'Unknown step. Use: catalogs, items&id=X, search&q=X&id=X, ads, links' }, 400);
+    // ── Step 6: Raw keyword search on catalog 7904 ─────────────────────────
+    // Tests exactly what vividseats.js does — shows raw result + scoring
+    if (step === 'rawsearch' && q) {
+      // Try A: Keywords param only
+      const urlA = new URL(`${base}/Catalogs/7904/Items`);
+      urlA.searchParams.set('Keywords', q);
+      urlA.searchParams.set('PageSize', '5');
+
+      // Try B: Keywords + no date filter (in case SearchQuery param breaks it)
+      const urlB = new URL(`${base}/Catalogs/7904/Items`);
+      urlB.searchParams.set('Keywords', q);
+      urlB.searchParams.set('PageSize', '5');
+      urlB.searchParams.set('SearchQuery', `ExpirationDate>${new Date().toISOString().split('T')[0]}`);
+
+      // Try C: Name contains search using SearchQuery only
+      const urlC = new URL(`${base}/Catalogs/7904/Items`);
+      urlC.searchParams.set('PageSize', '5');
+      urlC.searchParams.set('SearchQuery', `Name~${q}`);
+
+      const [rA, rB, rC] = await Promise.all([
+        fetch(urlA.toString(), { headers }),
+        fetch(urlB.toString(), { headers }),
+        fetch(urlC.toString(), { headers })
+      ]);
+
+      const [tA, tB, tC] = await Promise.all([rA.text(), rB.text(), rC.text()]);
+
+      return json({
+        query: q,
+        urlA: urlA.toString(), statusA: rA.status,
+        responseA: tryJson(tA),
+        urlB: urlB.toString(), statusB: rB.status,
+        responseB: tryJson(tB),
+        urlC: urlC.toString(), statusC: rC.status,
+        responseC: tryJson(tC)
+      }, 200);
+    }
+
+    return json({ error: 'Unknown step. Use: catalogs, items&id=X, search&q=X&id=X, ads, links, rawsearch&q=X' }, 400);
 
   } catch (err) {
     return json({ error: String(err) }, 500);
   }
+}
+
+function tryJson(text) {
+  try { return JSON.parse(text); } catch { return text; }
 }
 
 function raw(text, status, ct) {
