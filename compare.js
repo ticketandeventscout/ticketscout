@@ -175,11 +175,12 @@ const ADAPTERS = [
     normalise(data, eventName) {
       if (data.error || !data.match || !data.match.url) return null;
       const match = data.match;
-      // Always surface VS even with no price — their deep-link still earns commission
+      // Prices are in USD from VS catalog — display as USD, not GBP
+      // Still surface even without price (earns commission on click-through)
       return {
         source:    'Vivid Seats',
         price:     match.price ? Math.round(match.price) : null,
-        currency:  'GBP',
+        currency:  match.currency || 'USD',
         url:       match.url,
         available: true
       };
@@ -259,15 +260,15 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
 
     if (withPrices.length === 0) {
       // No other sellers — show TM as the only source (even if no price)
-      slot.innerHTML = buildRow('Ticketmaster', tmPrice, tmUrl);
+      slot.innerHTML = buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP');
     } else {
       // Other sellers have prices — only include TM if it also has a price
       slot.innerHTML = '';
       if (tmPrice) {
-        slot.insertAdjacentHTML('beforeend', buildRow('Ticketmaster', tmPrice, tmUrl));
+        slot.insertAdjacentHTML('beforeend', buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP'));
       }
       withPrices.forEach(result => {
-        slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url));
+        slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url, result.currency));
       });
     }
 
@@ -277,8 +278,9 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
 
 // Builds a single comparison row as an HTML string.
 // price is a number (GBP) or null/undefined for "See site".
-function buildRow(source, price, url) {
-  const priceDisplay = price ? `£${Math.round(price)}` : 'See site';
+function buildRow(source, price, url, currency) {
+  const symbol = (currency && currency !== 'GBP') ? '$' : '£';
+  const priceDisplay = price ? `${symbol}${Math.round(price)}` : 'See site';
   const dataPrice = price ? Math.round(price) : 0;
   return `
     <div class="compare-row" data-price="${dataPrice}">
@@ -324,4 +326,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}         
+}
