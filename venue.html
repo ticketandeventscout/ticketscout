@@ -388,6 +388,7 @@
         window.__tmPage      = 1;
         window.__venueId     = venue.venueId || null;
         window.__venueName   = venue.name;
+        console.log('Venue events loaded:', (events||[]).length, '| totalElements:', payload.totalElements, '| venueId:', venue.venueId);
 
         // Inject filter bar + pagination into events-container wrapper
         document.getElementById('events-container').innerHTML =

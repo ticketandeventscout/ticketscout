@@ -1,20 +1,11 @@
-# TicketScout — Cloudflare Pages headers
-# Ensures static files are served with correct content types
+/concert.html
+  Cache-Control: no-store
 
-/robots.txt
-  Content-Type: text/plain; charset=utf-8
-  Cache-Control: public, max-age=86400
+/theatre.html
+  Cache-Control: no-store
 
-/sitemap.xml
-  Content-Type: application/xml; charset=utf-8
-  Cache-Control: public, max-age=3600
+/football.html
+  Cache-Control: no-store
 
-/llms.txt
-  Content-Type: text/plain; charset=utf-8
-  Cache-Control: public, max-age=86400
-
-/*.html
-  X-Content-Type-Options: nosniff
-
-/api/*
+/venue.html
   Cache-Control: no-store

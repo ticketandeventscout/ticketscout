@@ -540,7 +540,7 @@ function generateArtistPageHtml(slug) {
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/concert.html');
+      const r = await fetch('/concert.html?v=20260707c');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
@@ -642,7 +642,7 @@ function generateVenuePageHtml(slug) {
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/venue.html');
+      const r = await fetch('/venue.html?v=20260707c');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
