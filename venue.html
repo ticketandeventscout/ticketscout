@@ -384,7 +384,7 @@
         window.__allEvents   = events || [];
         window.__currentPage = 1;
         window.__dateFilter  = '';
-        window.__tmTotal     = events ? events.length : 0; // TM returns max 20 for venue
+        window.__tmTotal     = payload.totalElements || (events ? events.length : 0);
         window.__tmPage      = 1;
         window.__venueId     = venue.venueId || null;
         window.__venueName   = venue.name;
@@ -500,7 +500,7 @@
         window.__tmPage = nextPage;
         var resp = await fetch(
           '/api/ticketmaster?venueId=' + encodeURIComponent(venueId) +
-          '&size=20&sort=date,asc&page=' + (nextPage - 1)
+          '&size=50&sort=date,asc&page=' + (nextPage - 1)
         );
         var ct = resp.headers.get('content-type') || '';
         if (!resp.ok || !ct.includes('application/json')) {

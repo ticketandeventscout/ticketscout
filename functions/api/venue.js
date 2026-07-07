@@ -18,21 +18,23 @@ export async function onRequestGet({ request, env }) {
 
   const apiKey = env.TM_API_KEY;
   let events = [];
+  let totalElements = 0;
 
   if (apiKey && venue.venueId) {
     try {
       const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
       tmUrl.searchParams.set('apikey', apiKey);
       tmUrl.searchParams.set('venueId', venue.venueId);
-      tmUrl.searchParams.set('size', '20');
+      tmUrl.searchParams.set('size', '50');
       tmUrl.searchParams.set('sort', 'date,asc');
       const tmResp = await fetch(tmUrl.toString());
       const tmData = await tmResp.json();
       events = tmData?._embedded?.events || [];
+      totalElements = tmData?.page?.totalElements || events.length;
     } catch (err) { console.error('TM venue events error:', err); }
   }
 
-  return jsonResponse({ venue, events }, 200);
+  return jsonResponse({ venue, events, totalElements }, 200);
 }
 
 function jsonResponse(body, status) {

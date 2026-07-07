@@ -813,18 +813,7 @@
           return;
         }
 
-        const ct0 = resp.headers.get('content-type') || '';
-        if (!ct0.includes('application/json')) {
-          document.getElementById('events-container').innerHTML =
-            '<div class="no-events"><p>Unable to load artist data. Please try again shortly.</p></div>';
-          return;
-        }
-        const { artist, attractionId, tmImage } = await resp.json().catch(() => ({}));
-        if (!artist) {
-          document.getElementById('events-container').innerHTML =
-            '<div class="no-events"><p>Unable to load artist data. Please try again shortly.</p></div>';
-          return;
-        }
+        const { artist, attractionId, tmImage } = await resp.json();
 
         // Update hero
         document.getElementById('genre-badge').textContent = artist.genre;
