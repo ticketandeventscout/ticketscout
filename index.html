@@ -35,10 +35,10 @@
         </div>
       </a>
       <div class="nav-links">
-        <a href="#" onclick="event.preventDefault();filterCategory(document.querySelector('.cat-pill[onclick*=music]'),'music')">Concerts</a>
+        <a href="#" onclick="event.preventDefault();var p=document.querySelectorAll('.cat-pill');filterCategory(p[1],'music')">Concerts</a>
         <a href="/football/">Football</a>
-        <a href="#" onclick="event.preventDefault();filterCategory(document.querySelector('.cat-pill[onclick*=arts]'),'arts')">Theatre</a>
-        <a href="#" onclick="event.preventDefault();filterCategory(document.querySelector('.cat-pill[onclick*=comedy]'),'comedy')">Comedy</a>
+        <a href="#" onclick="event.preventDefault();var p=document.querySelectorAll('.cat-pill');filterCategory(p[3],'arts')">Theatre</a>
+        <a href="#" onclick="event.preventDefault();var p=document.querySelectorAll('.cat-pill');filterCategory(p[4],'comedy')">Comedy</a>
       </div>
     </div>
   </nav>

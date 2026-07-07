@@ -638,10 +638,10 @@
             'url': pageUrl
           };
         });
-        document.getElementById('schema-org').textContent = JSON.stringify({
+        setEl('schema-org', null, JSON.stringify({
           '@context': 'https://schema.org',
           '@graph': schemaEvents
-        });
+        }));
       }
     }
 
@@ -1036,7 +1036,7 @@
       }
 
       return `
-        <a class="event-list-item" href="https://www.ticketscout.co.uk/#/event/${e.id}">
+        <a class="event-list-item" href="${window.location.origin}/#/event/${e.id}">
           <div class="event-list-left">
             <div class="event-list-name">${e.name}</div>
             <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>
