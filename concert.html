@@ -30,7 +30,7 @@
       padding: 52px 24px 44px;
       text-align: center;
       position: relative;
-      overflow: hidden;
+      overflow: visible;
     }
 
     .artist-hero-bg {
@@ -41,11 +41,13 @@
       opacity: 0.35;
       filter: blur(4px);
       transform: scale(1.05);
+      overflow: hidden;
+      border-radius: inherit;
     }
 
     .artist-hero-inner {
       position: relative;
-      z-index: 1;
+      z-index: 1000;
       max-width: 700px;
       margin: 0 auto;
     }
@@ -515,16 +517,45 @@
 
       <div class="sidebar-card">
         <h3>Popular artists</h3>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <a href="/concert/coldplay" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Coldplay →</a>
-          <a href="/concert/taylor-swift" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Taylor Swift →</a>
-          <a href="/concert/ed-sheeran" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Ed Sheeran →</a>
-          <a href="/concert/beyonce" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Beyoncé →</a>
-          <a href="/concert/metallica" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Metallica →</a>
-          <a href="/concert/oasis" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Oasis →</a>
-          <a href="/concert/the-killers" style="font-size:13px; color:#1a6fc4; text-decoration:none;">The Killers →</a>
-          <a href="/concert/arctic-monkeys" style="font-size:13px; color:#1a6fc4; text-decoration:none;">Arctic Monkeys →</a>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <a href="/concert/coldplay" style="text-decoration:none; color:#1a1a1a; text-align:center;">
+            <div style="width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:4px; background:#e8f0fe;">
+              <img src="https://s1.ticketm.net/dam/a/031/8fce3f57-f834-4e00-b426-5f8c9e8b1031_TABLET_LANDSCAPE_LARGE_16_9.jpg" alt="Coldplay" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.style.background='#dde8ff';this.remove()" />
+            </div>
+            <span style="font-size:12px; font-weight:500;">Coldplay</span>
+          </a>
+          <a href="/concert/taylor-swift" style="text-decoration:none; color:#1a1a1a; text-align:center;">
+            <div style="width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:4px; background:#e8f0fe;">
+              <img src="https://s1.ticketm.net/dam/a/7da/b6f7f9c5-6e3b-4f8b-8a7d-2b1c3d4e5f7da_TABLET_LANDSCAPE_LARGE_16_9.jpg" alt="Taylor Swift" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.style.background='#dde8ff';this.remove()" />
+            </div>
+            <span style="font-size:12px; font-weight:500;">Taylor Swift</span>
+          </a>
+          <a href="/concert/oasis" style="text-decoration:none; color:#1a1a1a; text-align:center;">
+            <div style="width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:4px; background:#e8f0fe;">
+              <img src="https://s1.ticketm.net/dam/a/oasis/oasis_TABLET_LANDSCAPE_LARGE_16_9.jpg" alt="Oasis" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.style.background='#dde8ff';this.remove()" />
+            </div>
+            <span style="font-size:12px; font-weight:500;">Oasis</span>
+          </a>
+          <a href="/concert/ed-sheeran" style="text-decoration:none; color:#1a1a1a; text-align:center;">
+            <div style="width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:4px; background:#e8f0fe;">
+              <img src="https://s1.ticketm.net/dam/a/ed-sheeran/ed_TABLET_LANDSCAPE_LARGE_16_9.jpg" alt="Ed Sheeran" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.style.background='#dde8ff';this.remove()" />
+            </div>
+            <span style="font-size:12px; font-weight:500;">Ed Sheeran</span>
+          </a>
+          <a href="/concert/arctic-monkeys" style="text-decoration:none; color:#1a1a1a; text-align:center;">
+            <div style="width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:4px; background:#e8f0fe;">
+              <img src="https://s1.ticketm.net/dam/a/arctic/arctic_TABLET_LANDSCAPE_LARGE_16_9.jpg" alt="Arctic Monkeys" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.style.background='#dde8ff';this.remove()" />
+            </div>
+            <span style="font-size:12px; font-weight:500;">Arctic Monkeys</span>
+          </a>
+          <a href="/concert/the-killers" style="text-decoration:none; color:#1a1a1a; text-align:center;">
+            <div style="width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden; margin-bottom:4px; background:#e8f0fe;">
+              <img src="https://s1.ticketm.net/dam/a/killers/killers_TABLET_LANDSCAPE_LARGE_16_9.jpg" alt="The Killers" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.style.background='#dde8ff';this.remove()" />
+            </div>
+            <span style="font-size:12px; font-weight:500;">The Killers</span>
+          </a>
         </div>
+        <a href="/concert/" style="display:block; text-align:center; margin-top:10px; font-size:12px; color:#1a6fc4; text-decoration:none;">Browse all concerts →</a>
       </div>
 
       <div class="sidebar-card">
@@ -977,12 +1008,13 @@
 
       const countEl = document.getElementById('event-count');
       if (countEl) {
+        const pageInfo = totalPages > 1 ? ` · Page ${page} of ${totalPages}` : '';
         if (!window.__dateFilter && tmTotal > allEvents.length) {
-          countEl.textContent = `Showing ${allEvents.length} of ${tmTotal} upcoming dates`;
+          countEl.textContent = `Showing ${allEvents.length} of ${tmTotal} upcoming dates${pageInfo}`;
         } else {
           countEl.textContent = window.__dateFilter
-            ? `${total} date${total !== 1 ? 's' : ''} found`
-            : `${total} upcoming date${total !== 1 ? 's' : ''}`;
+            ? `${total} date${total !== 1 ? 's' : ''} found${pageInfo}`
+            : `${total} upcoming date${total !== 1 ? 's' : ''}${pageInfo}`;
         }
       }
 
@@ -1029,6 +1061,8 @@
         if (newEvents.length > 0) {
           window.__allEvents = [...(window.__allEvents || []), ...newEvents];
           renderPage();
+          // Scroll to show newly loaded events, not back to top
+          document.getElementById('event-pagination')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
           if (btn) { btn.textContent = 'No more dates'; btn.disabled = true; }
         }

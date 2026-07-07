@@ -26,7 +26,7 @@
       padding: 52px 24px 44px;
       text-align: center;
       position: relative;
-      overflow: hidden;
+      overflow: visible;
     }
 
     .artist-hero-bg {
@@ -41,7 +41,7 @@
 
     .artist-hero-inner {
       position: relative;
-      z-index: 1;
+      z-index: 1000;
       max-width: 700px;
       margin: 0 auto;
     }
@@ -677,11 +677,34 @@
       const slug = getSlug();
 
       if (!slug || slug === 'football') {
-        document.getElementById('genre-badge').textContent     = 'Football';
-        document.getElementById('artist-name').textContent     = 'Football Tickets';
-        document.getElementById('artist-sub').textContent      = 'Compare match ticket prices across verified sellers';
-        document.getElementById('events-container').innerHTML  =
-          '<div class="no-events"><p>Search for a football club above to compare ticket prices.</p></div>';
+        document.getElementById('genre-badge').textContent = 'Football';
+        document.getElementById('artist-name').textContent = 'Football Tickets';
+        document.getElementById('artist-sub').textContent  = 'Compare match ticket prices across verified sellers';
+        document.getElementById('events-container').innerHTML = `
+          <div style="margin-bottom:24px;">
+            <h3 style="font-size:18px;font-weight:600;margin-bottom:16px;color:#1a1a1a;">Premier League</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+              ${[
+                ['arsenal','Arsenal'],['chelsea','Chelsea'],['liverpool','Liverpool'],
+                ['manchester-united','Man United'],['manchester-city','Man City'],
+                ['tottenham','Tottenham'],['newcastle','Newcastle'],['aston-villa','Aston Villa'],
+                ['west-ham','West Ham'],['brighton','Brighton'],['everton','Everton'],
+                ['fulham','Fulham'],['brentford','Brentford'],['crystal-palace','Crystal Palace'],
+                ['nottingham-forest','Nott\'m Forest']
+              ].map(([s,n]) => \`<a href="/football/\${s}" style="display:block;padding:12px 14px;background:#f8f9fa;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;color:#1a1a1a;font-size:14px;font-weight:500;transition:all 0.15s;" onmouseover="this.style.background='#e8f0fe';this.style.borderColor='#1a6fc4'" onmouseout="this.style.background='#f8f9fa';this.style.borderColor='#e5e7eb'">\${n}</a>\`).join('')}
+            </div>
+          </div>
+          <div>
+            <h3 style="font-size:18px;font-weight:600;margin-bottom:16px;color:#1a1a1a;">Championship & Scotland</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">
+              ${[
+                ['leeds-united','Leeds United'],['celtic','Celtic'],['rangers','Rangers'],
+                ['sheffield-united','Sheffield Utd'],['sunderland','Sunderland'],
+                ['middlesbrough','Middlesbrough'],['hearts','Hearts'],['hibernian','Hibernian'],
+                ['burnley','Burnley'],['watford','Watford']
+              ].map(([s,n]) => \`<a href="/football/\${s}" style="display:block;padding:12px 14px;background:#f8f9fa;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;color:#1a1a1a;font-size:14px;font-weight:500;transition:all 0.15s;" onmouseover="this.style.background='#e8f0fe';this.style.borderColor='#1a6fc4'" onmouseout="this.style.background='#f8f9fa';this.style.borderColor='#e5e7eb'">\${n}</a>\`).join('')}
+            </div>
+          </div>`;
         return;
       }
 

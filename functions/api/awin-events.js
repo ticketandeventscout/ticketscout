@@ -17,30 +17,6 @@ export async function onRequestGet({ request, env }) {
     const index = await kv.get(`${CACHE_KEY}:index`, { type: 'json' });
     if (!index?.chunks) return jsonResponse({ events: [], total: 0, note: 'no index' }, 200);
 
-    // SCAN — substring match on merchant_name
-    if (scan) {
-      const scanLower = scan.toLowerCase();
-      const found = [];
-      for (let i = 0; i < index.chunks; i++) {
-        const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
-        if (!chunk) continue;
-        for (const row of chunk) {
-          if ((row.merchant_name || '').toLowerCase().includes(scanLower)) {
-            found.push({
-              chunk: i,
-              product_name: row.product_name,
-              merchant_name: row.merchant_name,
-              merchant_category: row.merchant_category,
-              description: (row.description || '').slice(0, 200),
-              price: row.price
-            });
-            if (found.length >= 10) break;
-          }
-        }
-        if (found.length >= 10) break;
-      }
-      return jsonResponse({ scan, found, chunks_total: index.chunks }, 200);
-    }
 
     if (!name || name.length < 2) {
       return jsonResponse({ error: 'name is required (min 2 chars)' }, 400);
