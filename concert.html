@@ -606,7 +606,7 @@
     // ===========================
     // Concert page — client-side controller
     // VERSION: safeJson-v3 (07-Jul-2026)
-    console.log('concert.html version: safeJson-v3');
+    // version: safeJson-v3
     // Extracts the artist slug from the URL, loads artist data,
     // fetches events from Ticketmaster, and renders the page.
     // Decode HTML entities from Awin feed descriptions
@@ -816,10 +816,7 @@
           return;
         }
 
-        const respText = await resp.clone().text();
-        console.log('API raw response (first 80 chars):', respText.slice(0, 80));
         const { artist, attractionId, tmImage } = await resp.json();
-        console.log('Artist loaded:', artist?.name, '| attractionId:', attractionId);
 
         // Update hero
         document.getElementById('genre-badge').textContent = artist.genre;
