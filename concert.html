@@ -524,40 +524,38 @@
       </div>
       <script>
       (function loadPopularArtists() {
-        const artists = [
-          { name: 'Coldplay',       slug: 'coldplay',        id: 'K8vZ9171p-0' },
-          { name: 'Taylor Swift',   slug: 'taylor-swift',    id: 'K8vZ91710e8' },
-          { name: 'Oasis',          slug: 'oasis',           id: 'K8vZ9171oA7' },
-          { name: 'Ed Sheeran',     slug: 'ed-sheeran',      id: 'K8vZ9171p7A' },
-          { name: 'Arctic Monkeys', slug: 'arctic-monkeys',  id: 'K8vZ9171ouA' },
-          { name: 'The Killers',    slug: 'the-killers',     id: 'K8vZ9171oZf' },
+        var artists = [
+          { name: 'Coldplay',       slug: 'coldplay'       },
+          { name: 'Taylor Swift',   slug: 'taylor-swift'   },
+          { name: 'Oasis',          slug: 'oasis'          },
+          { name: 'Ed Sheeran',     slug: 'ed-sheeran'     },
+          { name: 'Arctic Monkeys', slug: 'arctic-monkeys' },
+          { name: 'The Killers',    slug: 'the-killers'    }
         ];
-        const grid = document.getElementById('popular-artists-grid');
+        var grid = document.getElementById('popular-artists-grid');
         if (!grid) return;
-        // Render placeholders first
-        grid.innerHTML = artists.map(a => `
-          <a href="/concert/${a.slug}" data-slug="${a.slug}" style="text-decoration:none;color:#1a1a1a;text-align:center;">
-            <div style="width:100%;aspect-ratio:1;border-radius:8px;overflow:hidden;margin-bottom:4px;background:#dde8ff;display:flex;align-items:center;justify-content:center;">
-              <img id="img-${a.slug}" alt="${a.name}" style="width:100%;height:100%;object-fit:cover;display:none;" />
-              <span id="init-${a.slug}" style="font-size:22px;color:#1a6fc4;">${a.name[0]}</span>
-            </div>
-            <span style="font-size:12px;font-weight:500;">${a.name}</span>
-          </a>`).join('');
-        // Fetch TM images for each artist
+        // Render placeholders with initial letters
+        grid.innerHTML = artists.map(function(a) {
+          return '<a href="/concert/' + a.slug + '" style="text-decoration:none;color:#1a1a1a;text-align:center;">' +
+            '<div style="width:100%;aspect-ratio:1;border-radius:8px;overflow:hidden;margin-bottom:4px;background:#dde8ff;display:flex;align-items:center;justify-content:center;">' +
+              '<img id="img-' + a.slug + '" alt="' + a.name + '" style="width:100%;height:100%;object-fit:cover;display:none;" />' +
+              '<span id="init-' + a.slug + '" style="font-size:22px;color:#1a6fc4;font-weight:600;">' + a.name[0] + '</span>' +
+            '</div>' +
+            '<span style="font-size:12px;font-weight:500;">' + a.name + '</span>' +
+          '</a>';
+        }).join('');
+        // Fetch artist data via /api/concert which returns tmImage from TM
         artists.forEach(function(a) {
-          fetch('/api/ticketmaster?attractionId=' + encodeURIComponent(a.id) + '&size=1')
+          fetch('/api/concert?slug=' + encodeURIComponent(a.slug))
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
-              const img = data?._embedded?.events?.[0]?.images;
-              if (!img) return;
-              // Pick a square-ish image
-              const best = img.sort(function(a,b){return b.width-a.width;}).find(function(i){return i.width>200;});
-              if (!best) return;
-              const el = document.getElementById('img-' + a.slug);
-              const init = document.getElementById('init-' + a.slug);
-              if (el) { el.src = best.url; el.style.display = 'block'; }
-              if (init) init.style.display = 'none';
-            }).catch(function(){});
+              var imgUrl = data && data.tmImage;
+              if (!imgUrl) return;
+              var el   = document.getElementById('img-' + a.slug);
+              var init = document.getElementById('init-' + a.slug);
+              if (el)   { el.src = imgUrl; el.style.display = 'block'; }
+              if (init) { init.style.display = 'none'; }
+            }).catch(function() {});
         });
       })();
       </script>

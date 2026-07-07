@@ -422,8 +422,12 @@
         document.getElementById('venue-bio').textContent = venue.description;
         document.getElementById('mini-faq-content').innerHTML = buildMiniFAQ(venue.name);
 
-        updateMeta(venue, events);
-        renderEvents(events, venue);
+        try { updateMeta(venue, events); } catch(e) { console.error('updateMeta error:', e); }
+        try { renderEvents(events, venue); } catch(e) {
+          console.error('renderEvents error:', e);
+          document.getElementById('events-container').innerHTML =
+            '<div class="no-events">Unable to load events right now. Please try again shortly.</div>';
+        }
 
       } catch (err) {
         console.error('Venue page error:', err);
