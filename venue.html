@@ -381,15 +381,43 @@
 
         try { updateMeta(venue, events); } catch(e) { console.error('updateMeta error:', e); }
 
+        // Fetch Vivid Seats for this venue in parallel with page setup
+        var vsSearchTerm = venue.name;
+        var vsData = null;
+        try {
+          var vsResp = await fetch('/api/vividseats?q=' + encodeURIComponent(vsSearchTerm));
+          vsData = await safeJson(vsResp);
+        } catch(e) {}
+
+        // Merge VS results into events list
+        var allVenueEvents = events ? events.slice() : [];
+        if (vsData && vsData.match && vsData.match.url && !vsData.match.isFallback) {
+          var vs = vsData.match;
+          var vsDate = vs.date ? vs.date.split('T')[0] : '';
+          var existingDates = new Set(allVenueEvents.map(function(e) { return e.dates && e.dates.start && e.dates.start.localDate; }).filter(Boolean));
+          if (!vsDate || !existingDates.has(vsDate)) {
+            allVenueEvents.push({
+              id:        'vs-' + encodeURIComponent(vs.name || venue.name),
+              name:      vs.name || (venue.name + ' - Tickets'),
+              _vs:       true,
+              _url:      vs.url,
+              _price:    vs.price,
+              _merchant: 'Vivid Seats',
+              dates:     { start: { localDate: vsDate, localTime: '' } },
+              priceRanges: vs.price ? [{ min: vs.price, currency: 'GBP' }] : [],
+              _embedded: { venues: [{ name: venue.name, city: { name: venue.city || '' } }] }
+            });
+          }
+        }
+
         // Store state for pagination
-        window.__allEvents   = events || [];
+        window.__allEvents   = allVenueEvents;
         window.__currentPage = 1;
         window.__dateFilter  = '';
         window.__tmTotal     = payload.totalElements || (events ? events.length : 0);
         window.__tmPage      = 1;
         window.__venueId     = venue.venueId || null;
         window.__venueName   = venue.name;
-        console.log('Venue events loaded:', (events||[]).length, '| totalElements:', payload.totalElements, '| venueId:', venue.venueId);
 
         // Inject filter bar + pagination into events-container wrapper
         document.getElementById('events-container').innerHTML =
@@ -526,6 +554,20 @@
     }
 
     function buildEventRow(e) {
+      // Vivid Seats / Awin affiliate events — link directly to seller
+      if (e._vs || e._awin) {
+        var date     = formatDate(e.dates && e.dates.start ? e.dates.start.localDate : null);
+        var minPrice = e.priceRanges && e.priceRanges[0] ? e.priceRanges[0].min : null;
+        var priceHtml = minPrice ? '<div class="event-list-price">From £' + Math.round(minPrice) + '</div>' : '';
+        var badge = e._merchant ? '<span style="font-size:10px;color:#888;margin-left:6px;">via ' + e._merchant + '</span>' : '';
+        return '<a class="event-list-item" href="' + e._url + '" target="_blank" rel="noopener noreferrer">' +
+          '<div class="event-list-left">' +
+            '<div class="event-list-name">' + e.name + badge + '</div>' +
+            '<div class="event-list-meta">' + date + '</div>' +
+          '</div>' +
+          '<div class="event-list-right">' + priceHtml + '<span class="event-list-cta">Buy tickets →</span></div>' +
+        '</a>';
+      }
       var date      = formatDate(e.dates && e.dates.start ? e.dates.start.localDate : null);
       var time      = (e.dates && e.dates.start && e.dates.start.localTime)
                       ? e.dates.start.localTime.slice(0, 5) : '';

@@ -732,11 +732,12 @@
           return r.json().catch(() => null);
         };
         
-        const [tmData, awinData] = await Promise.all([
+        const [tmData, awinData, vsData] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
             : Promise.resolve(null),
-          fetch(`/api/awin-events?name=${encodeURIComponent(show.search || show.name)}&size=50`).then(safeJson).catch(() => null)
+          fetch(`/api/awin-events?name=${encodeURIComponent(show.search || show.name)}&size=50`).then(safeJson).catch(() => null),
+          fetch(`/api/vividseats?q=${encodeURIComponent(show.search || show.name)}`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];
@@ -763,7 +764,31 @@
 
         const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
         const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
-        const allEvents = [...tmEvents, ...awinOnly];
+
+        // Vivid Seats: convert match result to event card format
+        const vsEvents = [];
+        if (vsData?.match?.url) {
+          const vs = vsData.match;
+          const vsDate = vs.date ? vs.date.split('T')[0] : '';
+          const allDates = new Set([...tmDates, ...(awinNormalised||[]).map(e=>e.dates?.start?.localDate).filter(Boolean)]);
+          // Only add if not a fallback search link OR no TM/Awin coverage at all
+          if (!vs.isFallback || (tmEvents.length === 0 && (awinNormalised||[]).length === 0)) {
+            if (!vsDate || !allDates.has(vsDate)) {
+              vsEvents.push({
+                id:        `vs-${encodeURIComponent(vs.name||'')}`,
+                name:      vs.isFallback ? `Search ${${show.name}} on Vivid Seats` : (vs.name || `${${show.name}} - Tickets`),
+                _vs:       true,
+                _url:      vs.url,
+                _price:    vs.price,
+                _merchant: 'Vivid Seats',
+                dates:     { start: { localDate: vsDate, localTime: '' } },
+                priceRanges: vs.price ? [{ min: vs.price, currency: 'GBP' }] : [],
+                _embedded: { venues: vs.venue ? [{ name: vs.venue, city: { name: '' } }] : [] }
+              });
+            }
+          }
+        }
+        const allEvents = [...tmEvents, ...awinOnly, ...vsEvents];
 
         updateMeta(show, tmEvents, tmImage);
 
@@ -985,7 +1010,7 @@
       const minPrice  = e.priceRanges?.[0]?.min;
       const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
 
-      if (e._awin) {
+      if (e._awin || e._vs) {
         const merchantBadge = e._merchant
           ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>`
           : '';
