@@ -7,8 +7,8 @@ const CATEGORY_MAP = {
   all:    { segment: '' },
   music:  { segment: 'Music' },
   sports: { segment: 'Sports' },
-  arts:   { segment: 'Arts & Theatre', genreId: 'KnvZfZ7vAv761' },
-  comedy: { segment: 'Arts & Theatre', genreId: 'KnvZfZ7vAe4', subGenreId: 'KZazBEonSMnZfZ7vF17' }
+  arts:   { segment: 'Arts & Theatre' },
+  comedy: { segment: 'Arts & Theatre', keyword: 'comedy' }
 };
 
 const CATEGORY_ICONS = {
@@ -95,8 +95,6 @@ async function fetchEvents(keyword = '', segmentName = '', genreId = '', subGenr
     const params = new URLSearchParams({ size: '12' });
     if (keyword) params.set('keyword', keyword);
     if (segmentName) params.set('segmentName', segmentName);
-    if (genreId) params.set('genreId', genreId);
-    if (subGenreId) params.set('subGenreId', subGenreId);
 
     const response = await fetch(`/api/ticketmaster?${params.toString()}`);
     const data = await response.json();
@@ -118,7 +116,7 @@ function filterCategory(pill, category) {
   pill.classList.add('active');
   navigate('/');
   const cat = CATEGORY_MAP[category] || {};
-  fetchEvents('', cat.segment || '', cat.genreId || '', cat.subGenreId || '');
+  fetchEvents(cat.keyword || '', cat.segment || '');
 }
 
 // ===========================
