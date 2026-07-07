@@ -27,6 +27,16 @@ const CATEGORY_ICONS = {
 // ===========================
 
 window.addEventListener('hashchange', render);
+
+// Auto-trigger category filter from URL param e.g. /?cat=comedy from nav links
+window.addEventListener('DOMContentLoaded', function() {
+  const cat = new URLSearchParams(window.location.search).get('cat');
+  if (cat) {
+    const pills = document.querySelectorAll('.cat-pill');
+    const pill = Array.from(pills).find(p => p.getAttribute('onclick') && p.getAttribute('onclick').includes("'" + cat + "'"));
+    if (pill) { window.history.replaceState({}, '', '/'); filterCategory(pill, cat); }
+  }
+});
 window.addEventListener('DOMContentLoaded', render);
 
 function navigate(path) {
