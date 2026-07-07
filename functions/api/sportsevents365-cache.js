@@ -77,15 +77,20 @@ async function refreshCache(env, dryRun) {
   const apiKey   = env.SE365_API_KEY;
   const httpUser = env.SE365_HTTP_USERNAME;
   const httpPass = env.SE365_HTTP_PASSWORD;
+  const httpSource = env.SE365_HTTP_SOURCE || '';
   const kv       = env.GIGSBERG_KV;
-  const isProd   = env.SE365_PROD === 'true';
+  const isProd   = env.SE365_PROD === 'true' || env.SE365_PROD === true;
 
   if (!apiKey || !httpUser || !httpPass) return { success: false, error: 'Missing SE365 credentials' };
   if (!kv)                               return { success: false, error: 'Missing GIGSBERG_KV binding' };
 
   const baseUrl   = isProd ? PRODUCTION_BASE : SANDBOX_BASE;
   const basicAuth = btoa(`${httpUser}:${httpPass}`);
-  const headers   = { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' };
+  const headers   = {
+    'Authorization': `Basic ${basicAuth}`,
+    'Accept': 'application/json',
+    ...(httpSource ? { 'Source': httpSource } : {})
+  };
 
   const startTime = Date.now();
   console.log('SE365 participant cache refresh started');

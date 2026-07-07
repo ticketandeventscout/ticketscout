@@ -30,9 +30,10 @@ export async function onRequestGet({ request, env }) {
   const apiKey      = env.SE365_API_KEY;
   const httpUser    = env.SE365_HTTP_USERNAME;
   const httpPass    = env.SE365_HTTP_PASSWORD;
+  const httpSource  = env.SE365_HTTP_SOURCE || '';
   const affiliateId = env.SPORTSEVENTS365_AFFILIATE_ID;
   const kv          = env.GIGSBERG_KV;
-  const isProd      = env.SE365_PROD === 'true';
+  const isProd      = env.SE365_PROD === 'true' || env.SE365_PROD === true;
 
   if (!apiKey || !httpUser || !httpPass) {
     return jsonResponse({ error: 'SE365 credentials not configured.' }, 500);
@@ -45,7 +46,8 @@ export async function onRequestGet({ request, env }) {
   const basicAuth = btoa(`${httpUser}:${httpPass}`);
   const headers   = {
     'Authorization': `Basic ${basicAuth}`,
-    'Accept': 'application/json'
+    'Accept': 'application/json',
+    ...(httpSource ? { 'Source': httpSource } : {})
   };
 
   const incoming = new URL(request.url);
