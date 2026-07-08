@@ -99,47 +99,25 @@ const ADAPTERS = [
   },
 
   {
-    // Gigsberg adapter via Awin events feed
-    // Uses the same /api/awin-events endpoint as the event list pages
+    // Gigsberg adapter — uses /api/gigsberg which reads from gigsberg:feed:latest KV
+    // Gigsberg's product_name is the performer name (e.g. "Metallica"), matched via q param
     source: 'Gigsberg',
 
     buildUrl(eventName, venueCity, eventDate, venueName) {
-      const params = new URLSearchParams({ name: eventName });
+      const params = new URLSearchParams({ q: eventName });
       if (eventDate) params.set('date', eventDate);
-      return `/api/awin-events?${params.toString()}`;
+      return `/api/gigsberg?${params.toString()}`;
     },
 
     normalise(data, eventName) {
-      // awin-events returns { events: [...] }
-      const events = data?.events || [];
-      console.log('[Gigsberg] response keys:', Object.keys(data||{}), '| events:', events.length, '| error:', data?.error, '| note:', data?.note);
-      if (events.length > 0) console.log('[Gigsberg] first event:', events[0]?.name, '|', events[0]?.date);
-      if (!events.length) return null;
-
-      // Pick the best matching event — prefer exact date match then lowest price
-      const normQ = eventName.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-      const scored = events
-        .filter(e => e.url && e.price)
-        .map(e => {
-          const n = (e.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-          let score = 0;
-          if (n === normQ)                  score = 100;
-          else if (n.startsWith(normQ))     score = 70;
-          else if (n.includes(normQ))       score = 50;
-          else if (normQ.includes(n) && n.length > 4) score = 30;
-          return { e, score };
-        })
-        .filter(s => s.score > 0)
-        .sort((a, b) => b.score - a.score || a.e.price - b.e.price);
-
-      if (!scored.length) return null;
-      const best = scored[0].e;
-
+      // gigsberg returns { match: { name, price, url, currency, date, venue } } or { match: null }
+      if (!data?.match?.url) return null;
+      const match = data.match;
       return {
-        source:    best.merchantName || 'Gigsberg',
-        price:     Math.round(best.price),
-        currency:  best.currency || 'GBP',
-        url:       best.url,
+        source:    'Gigsberg',
+        price:     match.price ? Math.round(match.price) : null,
+        currency:  match.currency || 'GBP',
+        url:       match.url,
         available: true
       };
     }
