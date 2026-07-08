@@ -282,6 +282,19 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         .compare-loading { padding:20px; text-align:center; color:#888; font-size:14px; }
         .compare-footnote { font-size:11px; color:#999; text-align:center; padding:12px 20px 4px; line-height:1.5; }
         .compare-title { font-size:14px; font-weight:600; color:#1a1a1a; padding:14px 20px 10px; border-bottom:1px solid #f0f0f0; }
+        @media(max-width:560px) {
+          .compare-row { padding:11px 14px; gap:8px; }
+          .compare-source-name { font-size:13px; }
+          .compare-from { font-size:10px; width:24px; }
+          .price-label { font-size:15px; min-width:52px; }
+          .compare-buy { padding:8px 11px; font-size:12px; }
+        }
+        @media(max-width:400px) {
+          .compare-row { padding:10px 12px; gap:6px; }
+          .compare-from { display:none; }
+          .price-label { font-size:14px; min-width:48px; }
+          .compare-buy { padding:7px 9px; font-size:11px; }
+        }
       </style>
       <div id="compare-rows">
         <div id="adapter-prices">
@@ -412,4 +425,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
+}         
