@@ -242,7 +242,8 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
       const data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
       if (!data) return null;
       const result = await adapter.normalise(data, performerName);
-      console.log('[compare]', adapter.source, '->', result ? `price:${result.price} currency:${result.currency}` : 'null');
+      if (!result) console.log('[compare]', adapter.source, 'raw response keys:', Object.keys(data||{}), JSON.stringify(data).slice(0,200));
+      else console.log('[compare]', adapter.source, '->', `price:${result.price} currency:${result.currency}`);
       return result;
     })
   );
