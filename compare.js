@@ -337,7 +337,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
 
     // Include VS and other sources even without price — affiliate click still earns commission
     const withPrices = results
-      .filter(r => r.available && (r.price || r.source === 'Vivid Seats'))
+      .filter(r => r.available && (r.price || r.source === 'Vivid Seats' || r.source === 'Ticombo'))
       .sort((a, b) => {
         // Sort by price ascending (best/lowest first)
         // Items without price go to the bottom

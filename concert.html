@@ -909,7 +909,7 @@
         // Ticombo: add as a search deep-link card when VS/TM/Awin have coverage
         // Always present — earns commission on click regardless of specific event match
         const tcEvents = [];
-        if (vsData?.match?.url !== undefined) { // only add if other APIs responded (page loaded OK)
+        if (tcData !== null) { // add Ticombo card whenever the API responded
           const tcSearchUrl = 'https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:' +
             encodeURIComponent('https://www.ticombo.com/en/search?q=' + encodeURIComponent(artist.search || artist.name));
           tcEvents.push({
