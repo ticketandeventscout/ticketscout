@@ -94,19 +94,26 @@ export async function onRequestGet({ request, env }) {
     const lines  = rawText.split('\n');
     const header = lines[0] ? parseCSVLine(lines[0]) : [];
 
+    // Normalise header names for flexible matching
     const col = name => header.findIndex(
       h => h.toLowerCase().replace(/[\s_"]/g, '') === name.toLowerCase().replace(/[\s_]/g, '')
     );
 
+    // Map actual Vivid Seats CSV columns (flexible — works for both formats)
     const iName   = col('name');
     const iUrl    = col('url');
-    const iPrice  = col('currentprice') !== -1 ? col('currentprice') : col('price');
-    const iCurr   = col('currency');
-    const iExpiry = col('expirationdate');
-    const iVenue  = col('text1');
-    const iCity   = col('text2');
+    // Price: try 'price' first (VS format), fall back to 'currentprice' (Impact standard)
+    const iPrice  = col('price') !== -1 ? col('price') : col('currentprice');
+    const iCurr   = col('currency');  // may not exist in VS feed (all USD)
+    // Date: VS uses PRODUCTION_EXPIRATION_DATE
+    const iExpiry = col('productionexpirationdate') !== -1
+                      ? col('productionexpirationdate')
+                      : col('expirationdate');
+    // Venue/city: VS uses VENUE and CITY directly
+    const iVenue  = col('venue') !== -1  ? col('venue')  : col('text1');
+    const iCity   = col('city')  !== -1  ? col('city')   : col('text2');
     const iCat    = col('category');
-    const iSubCat = col('subcategory');
+    const iSubCat = col('subcategory') !== -1 ? col('subcategory') : -1;
 
     const today = new Date();
     const index = [];
