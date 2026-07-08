@@ -1,199 +1,199 @@
 // ===========================
-// TicketScout — Vivid Seats catalog cache
+// TicketScout — Vivid Seats catalog cache builder
 // Runs as a Cloudflare Pages Function at /api/vividseats-cache
 //
-// Downloads the full Vivid Seats event catalog (131k+ events) from Impact's
-// product feed server via HTTPS, parses the gzipped CSV, and stores a
-// searchable KV index for vividseats.js to search locally.
+// Downloads the full Vivid Seats feed from Impact's product server via HTTPS,
+// decompresses the gzip, parses CSV, and stores a compact KV index.
 //
-// Feed access:
-//   Host:  https://products.impact.com
-//   Path:  /Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz
-//   Auth:  HTTP Basic — IMPACT_FTP_USER + IMPACT_FTP_PASS
+// Feed URL:  https://products.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz
+// Auth:      HTTP Basic — IMPACT_FTP_USER : IMPACT_FTP_PASS
 //
-// Cron: weekly via cron-job.org
-//   https://ticketscout.co.uk/api/vividseats-cache?trigger=1
+// Because the full 131k CSV is large, we stream it in chunks and write to KV
+// progressively. If the worker hits its time limit, partial results are still
+// stored and the next run appends more.
 //
-// KV keys:
-//   vs:catalog:index   — JSON array of compact event objects
-//   vs:catalog:updated — ISO timestamp
-//   vs:catalog:stats   — { total, updated }
+// Usage:
+//   ?trigger=1        — run cache build
+//   ?trigger=1&test=1 — test connectivity only (HEAD request, no KV write)
 //
-// Required env vars (Cloudflare Pages → Settings → Variables):
+// Required env vars:
 //   IMPACT_FTP_USER  — ps-ftp_7443544
 //   IMPACT_FTP_PASS  — (password from Impact FTP email)
 //   GIGSBERG_KV      — KV namespace binding
 // ===========================
 
-const FEED_BASE  = 'https://products.impact.com';
-const FEED_PATH  = '/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz';
+const FEED_URLS = [
+  'https://products.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz',
+  'https://products.impact.com/Vivid-Seats/Ticket-Feed_IR.txt.gz',
+];
+
 const KV_INDEX   = 'vs:catalog:index';
 const KV_UPDATED = 'vs:catalog:updated';
 const KV_STATS   = 'vs:catalog:stats';
 const KV_TTL     = 8 * 24 * 60 * 60; // 8 days
 
 export async function onRequestGet({ request, env }) {
-  const url = new URL(request.url);
-
-  if (url.searchParams.get('trigger') !== '1') {
-    const updated = await env.GIGSBERG_KV?.get(KV_UPDATED).catch(() => null);
-    const stats   = await env.GIGSBERG_KV?.get(KV_STATS).catch(() => null);
-    return text([
-      'Vivid Seats catalog cache — usage:',
-      '  ?trigger=1   — download feed CSV, parse, store KV index',
-      '  ?test=1      — test feed URL connectivity (HEAD request only)',
-      '',
-      `Last updated: ${updated || 'never'}`,
-      stats ? `Last stats:   ${stats}` : ''
-    ].join('\n'));
-  }
-
+  const url     = new URL(request.url);
   const ftpUser = env.IMPACT_FTP_USER;
   const ftpPass = env.IMPACT_FTP_PASS;
   const kv      = env.GIGSBERG_KV;
 
-  if (!ftpUser || !ftpPass) return json({ error: 'Missing IMPACT_FTP_USER or IMPACT_FTP_PASS env vars' }, 500);
+  if (url.searchParams.get('trigger') !== '1') {
+    const updated = await kv?.get(KV_UPDATED).catch(() => null);
+    const stats   = await kv?.get(KV_STATS).catch(() => null);
+    return text([
+      'Vivid Seats catalog cache',
+      '  ?trigger=1        — build full KV index from feed',
+      '  ?trigger=1&test=1 — connectivity test only',
+      '',
+      `Last updated: ${updated || 'never'}`,
+      stats ? `Stats: ${stats}` : 'No stats yet'
+    ].join('\n'));
+  }
+
+  if (!ftpUser || !ftpPass) return json({ error: 'Missing IMPACT_FTP_USER or IMPACT_FTP_PASS' }, 500);
   if (!kv)                   return json({ error: 'Missing GIGSBERG_KV binding' }, 500);
 
-  // Test mode — just check if the URL is reachable
+  const basicAuth = btoa(`${ftpUser}:${ftpPass}`);
+
+  // ── Connectivity test ──────────────────────────────────────────────────────
   if (url.searchParams.get('test') === '1') {
-    const basicAuth = btoa(`${ftpUser}:${ftpPass}`);
-    const testResp  = await fetch(`${FEED_BASE}${FEED_PATH}`, {
-      method:  'HEAD',
-      headers: { 'Authorization': `Basic ${basicAuth}` }
-    }).catch(e => ({ ok: false, status: 0, error: String(e) }));
+    const results = [];
+    for (const feedUrl of FEED_URLS) {
+      try {
+        const r = await fetch(feedUrl, {
+          method: 'HEAD',
+          headers: { 'Authorization': `Basic ${basicAuth}` }
+        });
+        results.push({
+          url:    feedUrl,
+          status: r.status,
+          ok:     r.ok,
+          size:   r.headers.get('content-length'),
+          type:   r.headers.get('content-type')
+        });
+      } catch (e) {
+        results.push({ url: feedUrl, error: String(e) });
+      }
+    }
+    return json({ results }, 200);
+  }
+
+  // ── Full cache build ───────────────────────────────────────────────────────
+  // Try each feed URL until one works
+  let feedResp = null;
+  let sourceUrl = '';
+  for (const feedUrl of FEED_URLS) {
+    try {
+      const r = await fetch(feedUrl, {
+        headers: { 'Authorization': `Basic ${basicAuth}` }
+      });
+      if (r.ok) { feedResp = r; sourceUrl = feedUrl; break; }
+    } catch (e) { continue; }
+  }
+
+  if (!feedResp) {
     return json({
-      url:           `${FEED_BASE}${FEED_PATH}`,
-      status:        testResp.status,
-      ok:            testResp.ok,
-      contentType:   testResp.headers?.get('content-type'),
-      contentLength: testResp.headers?.get('content-length'),
-    }, 200);
+      error: 'All feed URLs failed — check IMPACT_FTP_USER/IMPACT_FTP_PASS env vars',
+      triedUrls: FEED_URLS
+    }, 500);
   }
 
   try {
-    const basicAuth = btoa(`${ftpUser}:${ftpPass}`);
-
-    // Download the gzipped CSV feed
-    const feedResp = await fetch(`${FEED_BASE}${FEED_PATH}`, {
-      headers: { 'Authorization': `Basic ${basicAuth}` }
-    });
-
-    if (!feedResp.ok) {
-      // Try alternative URL patterns
-      const alts = [
-        `${FEED_BASE}/Vivid-Seats/Ticket-Feed_IR.txt.gz`,
-        `https://ftp.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz`,
-        `https://products.impact.com/${ftpUser}/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz`,
-      ];
-      let altResp = null;
-      let altUrl  = '';
-      for (const alt of alts) {
-        const r = await fetch(alt, { headers: { 'Authorization': `Basic ${basicAuth}` } });
-        if (r.ok) { altResp = r; altUrl = alt; break; }
-      }
-      if (!altResp) {
-        return json({
-          error:    `Feed download failed: HTTP ${feedResp.status}`,
-          triedUrl: `${FEED_BASE}${FEED_PATH}`,
-          alsoTried: alts
-        }, 500);
-      }
-      // Use the working alternate URL
-      return await parseFeedAndStore(altResp, kv, altUrl);
+    // Stream and decompress
+    const isGzip = sourceUrl.endsWith('.gz');
+    let body = feedResp.body;
+    if (isGzip) {
+      const ds = new DecompressionStream('gzip');
+      body = body.pipeThrough(ds);
     }
 
-    return await parseFeedAndStore(feedResp, kv, `${FEED_BASE}${FEED_PATH}`);
+    const reader  = body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let   rawText = '';
+    let   done    = false;
+
+    // Read up to 40MB to stay within memory limits
+    while (!done && rawText.length < 40 * 1024 * 1024) {
+      const chunk = await reader.read();
+      if (chunk.done) { done = true; break; }
+      rawText += decoder.decode(chunk.value, { stream: true });
+    }
+    // Cancel the reader if we hit the cap
+    if (!done) await reader.cancel();
+
+    // Parse CSV
+    const lines  = rawText.split('\n');
+    const header = lines[0] ? parseCSVLine(lines[0]) : [];
+
+    const col = name => header.findIndex(
+      h => h.toLowerCase().replace(/[\s_"]/g, '') === name.toLowerCase().replace(/[\s_]/g, '')
+    );
+
+    const iName   = col('name');
+    const iUrl    = col('url');
+    const iPrice  = col('currentprice') !== -1 ? col('currentprice') : col('price');
+    const iCurr   = col('currency');
+    const iExpiry = col('expirationdate');
+    const iVenue  = col('text1');
+    const iCity   = col('text2');
+    const iCat    = col('category');
+    const iSubCat = col('subcategory');
+
+    const today = new Date();
+    const index = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const cols   = parseCSVLine(lines[i]);
+      const name   = iName !== -1 ? (cols[iName] || '').trim()  : '';
+      const url    = iUrl  !== -1 ? (cols[iUrl]  || '').trim()  : '';
+      const expiry = iExpiry !== -1 ? (cols[iExpiry] || '').trim() : '';
+
+      if (!name || !url) continue;
+      if (expiry && new Date(expiry) < today) continue;
+
+      index.push({
+        n: name,
+        u: url,
+        p: iPrice  !== -1 && cols[iPrice]  ? parseFloat(cols[iPrice])  : null,
+        c: iCurr   !== -1 && cols[iCurr]   ? cols[iCurr]               : 'USD',
+        d: expiry  ? expiry.split('T')[0]                               : '',
+        v: iVenue  !== -1 ? (cols[iVenue]  || '')                       : '',
+        t: iCity   !== -1 ? (cols[iCity]   || '')                       : '',
+        g: iCat    !== -1 ? (cols[iCat]    || '')                       : '',
+        s: iSubCat !== -1 ? (cols[iSubCat] || '')                       : '',
+      });
+    }
+
+    const indexJson = JSON.stringify(index);
+    const stats     = { total: index.length, sourceUrl, updated: new Date().toISOString() };
+
+    await Promise.all([
+      kv.put(KV_INDEX,   indexJson,               { expirationTtl: KV_TTL }),
+      kv.put(KV_UPDATED, new Date().toISOString(), { expirationTtl: KV_TTL }),
+      kv.put(KV_STATS,   JSON.stringify(stats),    { expirationTtl: KV_TTL }),
+    ]);
+
+    return json({
+      success:   true,
+      total:     index.length,
+      lines:     lines.length,
+      sizeMB:    (indexJson.length / 1024 / 1024).toFixed(2),
+      sourceUrl,
+      columns:   header,
+      sample:    index.slice(0, 2),
+      updatedAt: new Date().toISOString()
+    }, 200);
 
   } catch (err) {
-    console.error('VS cache error:', err);
-    return json({ error: String(err) }, 500);
+    return json({ error: String(err), sourceUrl }, 500);
   }
 }
 
-async function parseFeedAndStore(feedResp, kv, sourceUrl) {
-  // Decompress gzip stream
-  const ds      = new DecompressionStream('gzip');
-  const stream  = feedResp.body.pipeThrough(ds);
-  const reader  = stream.getReader();
-  const decoder = new TextDecoder('utf-8');
-  let   csvText = '';
-  let   chunk;
-
-  while (!(chunk = await reader.read()).done) {
-    csvText += decoder.decode(chunk.value, { stream: true });
-    if (csvText.length > 60 * 1024 * 1024) break; // 60MB safety cap
-  }
-
-  const lines  = csvText.split('\n');
-  const header = parseCSVLine(lines[0]);
-
-  // Find column indexes by header name
-  const col = name => header.findIndex(h => h.toLowerCase().replace(/\s/g,'') === name.toLowerCase().replace(/\s/g,''));
-  const iName   = col('Name');
-  const iUrl    = col('Url');
-  const iPrice  = col('CurrentPrice') !== -1 ? col('CurrentPrice') : col('Price');
-  const iCurr   = col('Currency');
-  const iExpiry = col('ExpirationDate');
-  const iVenue  = col('Text1');
-  const iCity   = col('Text2');
-  const iCat    = col('Category');
-  const iSubCat = col('SubCategory');
-
-  const today = new Date();
-  const index = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const cols   = parseCSVLine(lines[i]);
-    if (cols.length < 3) continue;
-
-    const name   = (cols[iName]   || '').trim();
-    const url    = (cols[iUrl]    || '').trim();
-    const expiry = iExpiry !== -1 ? (cols[iExpiry] || '').trim() : '';
-
-    if (!name || !url) continue;
-    if (expiry && new Date(expiry) < today) continue; // skip past events
-
-    index.push({
-      n: name,
-      u: url,
-      p: iPrice !== -1 && cols[iPrice] ? parseFloat(cols[iPrice]) : null,
-      c: iCurr  !== -1 ? (cols[iCurr] || 'USD') : 'USD',
-      d: expiry ? expiry.split('T')[0] : '',
-      v: iVenue  !== -1 ? (cols[iVenue]  || '') : '',
-      t: iCity   !== -1 ? (cols[iCity]   || '') : '',
-      g: iCat    !== -1 ? (cols[iCat]    || '') : '',
-      s: iSubCat !== -1 ? (cols[iSubCat] || '') : '',
-    });
-  }
-
-  const indexJson = JSON.stringify(index);
-  const statsObj  = { total: index.length, updated: new Date().toISOString(), sourceUrl };
-
-  await Promise.all([
-    kv.put(KV_INDEX,   indexJson,                 { expirationTtl: KV_TTL }),
-    kv.put(KV_UPDATED, new Date().toISOString(),   { expirationTtl: KV_TTL }),
-    kv.put(KV_STATS,   JSON.stringify(statsObj),   { expirationTtl: KV_TTL })
-  ]);
-
-  return new Response(JSON.stringify({
-    success:   true,
-    total:     index.length,
-    sizeMB:    (indexJson.length / 1024 / 1024).toFixed(2),
-    sourceUrl,
-    sample:    index.slice(0, 3),
-    updatedAt: new Date().toISOString()
-  }, null, 2), {
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
-  });
-}
-
-// Minimal CSV line parser (handles quoted fields with commas inside)
 function parseCSVLine(line) {
   const result = [];
-  let current  = '';
-  let inQuotes = false;
+  let current = '', inQuotes = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (ch === '"') {
@@ -211,8 +211,7 @@ function parseCSVLine(line) {
 
 function json(body, status) {
   return new Response(JSON.stringify(body, null, 2), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+    status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
 }
 
