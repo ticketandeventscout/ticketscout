@@ -80,6 +80,21 @@ export async function onRequestGet({ request, env }) {
 
   // Test 4: Deep-link generation
   const sampleDestination = 'https://www.ticombo.com/en/search?q=Metallica';
+  // Test 5: Try to discover feed URLs for each campaign
+  // Feed URL format: https://feeds.performancehorizon.com/{accountName}/{campaignId}/{hash}
+  // Account name: ticketandeventscoutpartnerize (from publisher profile)
+  const campaignIds = ['1011l6397','1011l6398','1011l6399','1011l6400','1100l6335','1100l6336','1100l6567','1101l6348','1110l49'];
+  const feedResults = [];
+  for (const cid of campaignIds) {
+    try {
+      const feedListUrl = `${BASE}/campaign/${cid}/feed.json`;
+      const r = await fetch(feedListUrl, { headers });
+      const text = await r.text();
+      feedResults.push({ campaign: cid, status: r.status, response: tryJson(text.slice(0, 300)) });
+    } catch(e) { feedResults.push({ campaign: cid, error: String(e) }); }
+  }
+  results.feedDiscovery = feedResults;
+
   results.sampleLinks = {
     UK:    `https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:${encodeURIComponent(sampleDestination)}`,
     US:    `https://ticombo.prf.hn/click/camref:1100l5P9x3/destination:${encodeURIComponent(sampleDestination)}`,
