@@ -195,9 +195,13 @@ const ADAPTERS = [
     },
 
     normalise(data, eventName) {
-      if (data.error || !data.match || !data.match.url) return null;
+      console.log('[Ticombo] raw response:', JSON.stringify(data).slice(0, 200));
+      if (data.error || !data.match || !data.match.url) {
+        console.log('[Ticombo] returning null — no match or error');
+        return null;
+      }
       const match = data.match;
-      // Show even if isFallback — Ticombo earns commission on click-through to search
+      console.log('[Ticombo] match found:', match.url.slice(0, 80), '| isFallback:', match.isFallback);
       return {
         source:     'Ticombo',
         price:      match.price ? Math.round(match.price) : null,
@@ -452,4 +456,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}         
+}
