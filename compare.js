@@ -267,26 +267,21 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     <div class="compare-block">
       <div class="compare-title">Compare prices from verified sellers</div>
       <style>
-        .compare-block { font-family:'Inter','Helvetica Neue',Arial,sans-serif; overflow:hidden; box-sizing:border-box; }
-        .compare-row { display:flex; align-items:center; gap:12px; padding:12px 16px 12px 16px; border-bottom:1px solid #f0f0f0; box-sizing:border-box; }
+        .compare-block { font-family:'Inter','Helvetica Neue',Arial,sans-serif; box-sizing:border-box; }
+        .compare-row { display:flex; align-items:center; gap:10px; padding:12px 20px; border-bottom:1px solid #f0f0f0; box-sizing:border-box; }
         .compare-row:last-child { border-bottom:none; }
-        .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; letter-spacing:0; }
-        .compare-source-name { flex:1; font-size:14px; font-weight:600; color:#1a1a1a; min-width:100px; }
-        .compare-right { display:flex; align-items:center; gap:10px; margin-left:auto; flex-shrink:0; padding-right:4px; }
-        .compare-from { font-size:11px; color:#888; white-space:nowrap; min-width:28px; }
-        .price-label { font-size:18px; font-weight:700; color:#1a1a1a; white-space:nowrap; min-width:56px; max-width:90px; text-align:right; }
-        .compare-buy { background:#1a6fc4; color:#fff; padding:9px 16px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; flex-shrink:0; }
+        .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+        .compare-source-name { flex:1; font-size:14px; font-weight:600; color:#1a1a1a; }
+        .compare-right { display:flex; align-items:center; gap:8px; }
+        .compare-from { font-size:11px; color:#888; white-space:nowrap; width:28px; text-align:right; flex-shrink:0; }
+        .compare-price-wrap { display:flex; flex-direction:column; align-items:flex-end; min-width:64px; }
+        .price-label { font-size:17px; font-weight:700; color:#1a1a1a; white-space:nowrap; }
+        .compare-buy { background:#1a6fc4; color:#fff; padding:9px 16px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; flex-shrink:0; margin-left:4px; }
         .compare-buy:hover { background:#155da0; }
-        .best-price-badge { display:block; background:#22c55e; color:#fff; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; text-align:center; margin-top:3px; white-space:nowrap; }
-        .compare-price-wrap { display:flex; flex-direction:column; align-items:flex-end; }
+        .best-price-badge { display:block; background:#22c55e; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; text-align:center; margin-top:2px; }
         .compare-loading { padding:20px; text-align:center; color:#888; font-size:14px; }
-        .compare-footnote { font-size:11px; color:#999; text-align:center; padding:12px 16px 4px; line-height:1.5; }
-        .compare-title { font-size:14px; font-weight:600; color:#1a1a1a; padding:14px 16px 8px; border-bottom:1px solid #f0f0f0; }
-        @media(max-width:480px) {
-          .compare-source-name { font-size:13px; min-width:80px; }
-          .price-label { font-size:16px; }
-          .compare-buy { padding:8px 12px; font-size:12px; }
-        }
+        .compare-footnote { font-size:11px; color:#999; text-align:center; padding:12px 20px 4px; line-height:1.5; }
+        .compare-title { font-size:14px; font-weight:600; color:#1a1a1a; padding:14px 20px 10px; border-bottom:1px solid #f0f0f0; }
       </style>
       <div id="compare-rows">
         <div id="adapter-prices">
@@ -334,18 +329,17 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
 // Builds a single comparison row as an HTML string.
 // price is a number (GBP) or null/undefined for "See site".
 // Source styles — logo image URLs where available, coloured abbr badge as fallback
-// Logos hosted at /public/logos/ — SVG files committed to repo
-// To add a new affiliate: create public/logos/[name].svg and add entry here
+// Source logos — favicons from affiliate sites with coloured abbr badge as fallback
 const SOURCE_STYLES = {
-  'Ticketmaster':          { logo: '/public/logos/ticketmaster.svg',          bg: '#026cdf', color: '#fff', abbr: 'TM' },
-  'Gigsberg':              { logo: '/public/logos/gigsberg.svg',               bg: '#0a1628', color: '#fff', abbr: 'GS' },
-  'Gigsberg UK':           { logo: '/public/logos/gigsberg.svg',               bg: '#0a1628', color: '#fff', abbr: 'GS' },
-  'Vivid Seats':           { logo: '/public/logos/vividseats.svg',             bg: '#00a0e9', color: '#fff', abbr: 'VS' },
-  'SportsEvents365':       { logo: '/public/logos/sportsevents365.svg',        bg: '#e85d04', color: '#fff', abbr: 'SE' },
-  'Skiddle':               { logo: '/public/logos/skiddle.svg',                bg: '#00b4b4', color: '#fff', abbr: 'SK' },
-  'SeatGeek':              { logo: null,                                        bg: '#de5448', color: '#fff', abbr: 'SG' },
-  'Theatre Tickets Direct':{ logo: '/public/logos/theatre-tickets-direct.svg', bg: '#7c3aed', color: '#fff', abbr: 'TD' },
-  'Football TicketNet UK': { logo: '/public/logos/football-ticketnet.svg',     bg: '#16a34a', color: '#fff', abbr: 'FT' },
+  'Ticketmaster':          { logo: 'https://www.ticketmaster.co.uk/favicon.ico', bg: '#026cdf', color: '#fff', abbr: 'TM' },
+  'Gigsberg':              { logo: 'https://www.gigsberg.com/favicon.ico',        bg: '#0a1628', color: '#fff', abbr: 'GS' },
+  'Gigsberg UK':           { logo: 'https://www.gigsberg.com/favicon.ico',        bg: '#0a1628', color: '#fff', abbr: 'GS' },
+  'Vivid Seats':           { logo: 'https://www.vividseats.com/favicon.ico',      bg: '#00a0e9', color: '#fff', abbr: 'VS' },
+  'SportsEvents365':       { logo: 'https://www.sportsevents365.com/favicon.ico', bg: '#e85d04', color: '#fff', abbr: 'SE' },
+  'Skiddle':               { logo: 'https://www.skiddle.com/favicon.ico',         bg: '#00b4b4', color: '#fff', abbr: 'SK' },
+  'SeatGeek':              { logo: 'https://seatgeek.com/favicon.ico',            bg: '#de5448', color: '#fff', abbr: 'SG' },
+  'Theatre Tickets Direct':{ logo: 'https://www.theatreticketsdirect.co.uk/favicon.ico', bg: '#7c3aed', color: '#fff', abbr: 'TD' },
+  'Football TicketNet UK': { logo: null,                                           bg: '#16a34a', color: '#fff', abbr: 'FT' },
 };
 
 function buildLogoEl(style) {
