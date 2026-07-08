@@ -444,25 +444,44 @@ async function showEventDetail(eventId) {
 
   // Handle Awin-sourced events (no TM ID) — extract name+date from synthetic ID
   if (eventId.startsWith('awin-')) {
-    const decoded    = decodeURIComponent(eventId.slice(5)); // strip 'awin-'
-    const dateMatch  = decoded.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
-    const eventDate  = dateMatch ? dateMatch[1] : '';
-    const eventName  = dateMatch ? dateMatch[2] : decoded;
-    const dateStr    = eventDate ? new Date(eventDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '';
+    const decoded   = decodeURIComponent(eventId.slice(5));
+    const dateMatch = decoded.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
+    const eventDate = dateMatch ? dateMatch[1] : '';
+    const eventName = dateMatch ? dateMatch[2] : decoded;
+    const dateStr   = eventDate
+      ? new Date(eventDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
+      : '';
 
+    // Fetch enriched event data from Awin cache to get venue, image etc.
+    let venue = '', city = '', image = '';
+    try {
+      const awinResp = await fetch(`/api/awin-events?name=${encodeURIComponent(eventName)}&size=5`);
+      const awinData = await awinResp.json().catch(() => ({}));
+      const match = (awinData.events || []).find(e =>
+        !eventDate || !e.date || e.date === eventDate || e.date.startsWith(eventDate)
+      ) || (awinData.events || [])[0];
+      if (match) {
+        venue = match.venue || '';
+        city  = match.city  || '';
+        image = match.image || '';
+      }
+    } catch(e) {}
+
+    const metaParts = [dateStr, [venue, city].filter(Boolean).join(', ')].filter(Boolean);
     document.getElementById('results-title').textContent = eventName;
     grid.innerHTML = `
       <div class="detail-card">
+        ${image ? `<img class="detail-img" src="${image}" alt="${eventName}" />` : ''}
         <div class="detail-body">
           <h3 class="detail-name">${eventName}</h3>
-          <div class="detail-meta">${dateStr}</div>
+          <div class="detail-meta">${metaParts.join('<br/>')}</div>
         </div>
       </div>
       <div id="detail-compare"></div>
     `;
     renderComparePrices(
       document.getElementById('detail-compare'),
-      eventName, null, '#', '', eventDate, ''
+      eventName, null, '#', city, eventDate, venue
     );
     return;
   }
