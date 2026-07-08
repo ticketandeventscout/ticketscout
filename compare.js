@@ -99,42 +99,25 @@ const ADAPTERS = [
   },
 
   {
-    // Gigsberg adapter — uses /api/awin-events which reads from awin:category:latest KV
-    // This is the same cache the event list pages use — Gigsberg events are in the Awin feed
+    // Gigsberg adapter — uses /api/awin-category which reads from awin:category:latest KV
+    // Returns { matches: [...] } — picks best match by name then lowest price
     source: 'Gigsberg',
 
     buildUrl(eventName, venueCity, eventDate, venueName) {
-      const params = new URLSearchParams({ name: eventName, size: '10' });
+      const params = new URLSearchParams({ q: eventName });
       if (eventDate) params.set('date', eventDate);
-      return `/api/awin-events?${params.toString()}`;
+      return `/api/awin-category?${params.toString()}`;
     },
 
     normalise(data, eventName) {
-      // awin-events returns { events: [...] }
-      const events = data?.events || [];
-      if (!events.length) return null;
-
-      // Score by name match — Gigsberg uses performer name as product_name
-      const normQ = eventName.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-      const scored = events
-        .filter(e => e.url && e.price)
-        .map(e => {
-          const n = (e.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-          let score = 0;
-          if (n === normQ)                           score = 100;
-          else if (n.startsWith(normQ))              score = 70;
-          else if (n.includes(normQ))                score = 50;
-          else if (normQ.includes(n) && n.length > 4) score = 30;
-          return { e, score };
-        })
-        .filter(s => s.score > 0)
-        .sort((a, b) => b.score - a.score || a.e.price - b.e.price);
-
-      if (!scored.length) return null;
-      const best = scored[0].e;
+      // awin-category returns { matches: [...] } or { matches: [] }
+      const matches = data?.matches || [];
+      if (!matches.length) return null;
+      const best = matches[0]; // already ranked best match
+      if (!best.url) return null;
       return {
-        source:    best.merchantName || 'Gigsberg',
-        price:     Math.round(best.price),
+        source:    best.merchant_name || 'Gigsberg',
+        price:     best.price ? Math.round(best.price) : null,
         currency:  best.currency || 'GBP',
         url:       best.url,
         available: true
