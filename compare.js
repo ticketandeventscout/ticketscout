@@ -334,7 +334,7 @@ const SOURCE_STYLES = {
   'Ticketmaster':          { logo: 'https://www.ticketmaster.co.uk/favicon.ico', bg: '#026cdf', color: '#fff', abbr: 'TM' },
   'Gigsberg':              { logo: 'https://www.gigsberg.com/favicon.ico',        bg: '#0a1628', color: '#fff', abbr: 'GS' },
   'Gigsberg UK':           { logo: 'https://www.gigsberg.com/favicon.ico',        bg: '#0a1628', color: '#fff', abbr: 'GS' },
-  'Vivid Seats':           { logo: 'https://www.vividseats.com/favicon.ico',      bg: '#00a0e9', color: '#fff', abbr: 'VS' },
+  'Vivid Seats':           { logo: 'https://img.logokit.com/vividseats.com',       bg: '#00a0e9', color: '#fff', abbr: 'VS' },
   'SportsEvents365':       { logo: 'https://www.sportsevents365.com/favicon.ico', bg: '#e85d04', color: '#fff', abbr: 'SE' },
   'Skiddle':               { logo: 'https://www.skiddle.com/favicon.ico',         bg: '#00b4b4', color: '#fff', abbr: 'SK' },
   'SeatGeek':              { logo: 'https://seatgeek.com/favicon.ico',            bg: '#de5448', color: '#fff', abbr: 'SG' },
