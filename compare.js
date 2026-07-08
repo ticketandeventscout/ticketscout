@@ -315,27 +315,40 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
 
 // Builds a single comparison row as an HTML string.
 // price is a number (GBP) or null/undefined for "See site".
-// Source logo map — maps seller name to a logo URL or abbreviation colour
+// Source styles — logo image URLs where available, coloured abbr badge as fallback
 const SOURCE_STYLES = {
-  'Ticketmaster':  { bg: '#026cdf', color: '#fff', abbr: 'TM' },
-  'Gigsberg':      { bg: '#e84545', color: '#fff', abbr: 'GS' },
-  'Vivid Seats':   { bg: '#00a0e9', color: '#fff', abbr: 'VS' },
-  'SportsEvents365': { bg: '#ff6600', color: '#fff', abbr: 'SE' },
-  'Skiddle':       { bg: '#00b4b4', color: '#fff', abbr: 'SK' },
-  'SeatGeek':      { bg: '#de5448', color: '#fff', abbr: 'SG' },
-  'Awin':          { bg: '#555',    color: '#fff', abbr: 'AW' },
+  'Ticketmaster':    { logo: 'https://www.ticketmaster.co.uk/favicon.ico',           bg: '#026cdf', color: '#fff', abbr: 'TM' },
+  'Gigsberg':        { logo: 'https://www.gigsberg.com/favicon.ico',                 bg: '#e84545', color: '#fff', abbr: 'GS' },
+  'Gigsberg UK':     { logo: 'https://www.gigsberg.com/favicon.ico',                 bg: '#e84545', color: '#fff', abbr: 'GS' },
+  'Vivid Seats':     { logo: 'https://www.vividseats.com/favicon.ico',               bg: '#00a0e9', color: '#fff', abbr: 'VS' },
+  'SportsEvents365': { logo: 'https://www.sportsevents365.com/favicon.ico',          bg: '#ff6600', color: '#fff', abbr: 'SE' },
+  'Skiddle':         { logo: 'https://www.skiddle.com/favicon.ico',                  bg: '#00b4b4', color: '#fff', abbr: 'SK' },
+  'SeatGeek':        { logo: 'https://seatgeek.com/favicon.ico',                     bg: '#de5448', color: '#fff', abbr: 'SG' },
+  'Theatre Tickets Direct': { logo: 'https://www.theatreticketsdirect.co.uk/favicon.ico', bg: '#7c3aed', color: '#fff', abbr: 'TD' },
+  'Football TicketNet UK':  { logo: null,                                            bg: '#16a34a', color: '#fff', abbr: 'FT' },
 };
 
+function buildLogoEl(style) {
+  if (style.logo) {
+    // Use img tag with fallback to abbr badge if image fails to load
+    return `<img src="${style.logo}" alt="" width="36" height="36"
+      style="border-radius:6px;object-fit:contain;background:#f5f5f5;padding:4px;"
+      onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+      <div class="compare-source-logo" style="display:none;background:${style.bg};color:${style.color};">${style.abbr}</div>`;
+  }
+  return `<div class="compare-source-logo" style="background:${style.bg};color:${style.color};">${style.abbr}</div>`;
+}
+
 function buildRow(source, price, url, currency) {
-  const symbol      = (currency && currency !== 'GBP') ? '$' : '£';
-  const priceText   = price ? `${symbol}${Math.round(price)}` : null;
-  const dataPrice   = price ? Math.round(price) : 0;
-  const style       = SOURCE_STYLES[source] || { bg: '#1a6fc4', color: '#fff', abbr: source.slice(0,2).toUpperCase() };
+  const symbol    = (currency && currency !== 'GBP') ? '$' : '£';
+  const priceText = price ? `${symbol}${Math.round(price)}` : null;
+  const dataPrice = price ? Math.round(price) : 0;
+  const style     = SOURCE_STYLES[source] || { logo: null, bg: '#1a6fc4', color: '#fff', abbr: source.slice(0,2).toUpperCase() };
 
   return `
     <div class="compare-row" data-price="${dataPrice}">
-      <div class="compare-source-logo" style="background:${style.bg};color:${style.color};">
-        ${style.abbr}
+      <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;">
+        ${buildLogoEl(style)}
       </div>
       <div class="compare-source-name">${source}</div>
       <div class="compare-right">
@@ -382,4 +395,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
+}         
