@@ -209,11 +209,30 @@ const ADAPTERS = [
 // Returns an array of normalised results (nulls and errors silently dropped)
 // ===========================
 
+// Extract the core performer/artist name from a full TM event title
+// "Metallica: Life Burns Faster" -> "Metallica"
+// "Arsenal vs Chelsea" -> "Arsenal"  (keep vs format for sports)
+// "Phantom of the Opera" -> "Phantom of the Opera" (no colon = keep as-is)
+function extractPerformerName(fullName) {
+  if (!fullName) return '';
+  // Strip subtitle after colon (e.g. "Metallica: Life Burns Faster" -> "Metallica")
+  const colonIdx = fullName.indexOf(':');
+  if (colonIdx > 0) return fullName.slice(0, colonIdx).trim();
+  // Strip subtitle after " - " (e.g. "Metallica - Suite Reservation" -> "Metallica")
+  const dashIdx = fullName.indexOf(' - ');
+  if (dashIdx > 0) return fullName.slice(0, dashIdx).trim();
+  return fullName.trim();
+}
+
 async function comparePrices(eventName, venueCity, eventDate, venueName) {
+  // Use performer name (stripped of subtitles) for adapter searches
+  // so "Metallica: Life Burns Faster" matches "Metallica" on Gigsberg/VS
+  const performerName = extractPerformerName(eventName);
   const settled = await Promise.allSettled(
     ADAPTERS.map(async adapter => {
-      const url = adapter.buildUrl(eventName, venueCity, eventDate, venueName);
-      console.log('[compare] Fetching:', adapter.source, '->', url);
+      // Pass performerName for search queries, but keep full eventName for normalise matching
+      const url = adapter.buildUrl(performerName, venueCity, eventDate, venueName);
+      console.log('[compare] Fetching:', adapter.source, 'performer:', performerName, 'date:', eventDate, '->', url);
       const response = await fetch(url);
       const ct = response.headers.get('content-type') || '';
       if (!ct.includes('application/json')) {
@@ -222,7 +241,7 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
       }
       const data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
       if (!data) return null;
-      const result = await adapter.normalise(data, eventName);
+      const result = await adapter.normalise(data, performerName);
       console.log('[compare]', adapter.source, '->', result ? `price:${result.price} currency:${result.currency}` : 'null');
       return result;
     })
