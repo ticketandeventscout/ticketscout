@@ -117,7 +117,34 @@ export async function onRequestGet({ request, env }) {
       }, 200);
     }
 
-    return json({ error: 'Unknown step. Use: catalogs, items&id=X, search&q=X&id=X, ads, links, rawsearch&q=X' }, 400);
+    // ── Step 7: Test feed download URLs ──────────────────────────────────
+    if (step === 'feed') {
+      const accountSid = env.IMPACT_ACCOUNT_SID || ACCOUNT_SID;
+      const authToken  = env.IMPACT_AUTH_TOKEN;
+      const basicAuth  = btoa(`${accountSid}:${authToken}`);
+      const hdrs       = { 'Authorization': `Basic ${basicAuth}` };
+
+      // Try different URL formats for the bulk feed
+      const urls = [
+        `https://api.impact.com/Mediapartners/${accountSid}/Catalogs/7904/Items/Download`,
+        `https://ftp.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz`,
+        `https://api.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz`,
+        `https://files.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz`,
+      ];
+
+      const results = [];
+      for (const u of urls) {
+        try {
+          const r = await fetch(u, { headers: hdrs, method: 'HEAD' });
+          results.push({ url: u, status: r.status, contentType: r.headers.get('content-type'), contentLength: r.headers.get('content-length') });
+        } catch(e) {
+          results.push({ url: u, error: String(e) });
+        }
+      }
+      return json({ feedUrlTests: results }, 200);
+    }
+
+    return json({ error: 'Unknown step. Use: catalogs, items&id=X, search&q=X&id=X, ads, links, rawsearch&q=X, feed' }, 400);
 
   } catch (err) {
     return json({ error: String(err) }, 500);

@@ -24,7 +24,11 @@
 const KV_INDEX_KEY   = 'vs:catalog:index';
 const KV_UPDATED_KEY = 'vs:catalog:updated';
 const KV_TTL         = 7 * 24 * 60 * 60; // 7 days
-const FEED_URL       = 'https://api.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz';
+// Feed URL — Impact hosts catalog feeds at a specific authenticated endpoint.
+// The catalog metadata returns relative paths like /Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz
+// The full authenticated URL uses the mediapartners base with the account SID.
+// We build this dynamically using the account SID from env.
+const FEED_PATH = '/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz';
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -50,12 +54,24 @@ export async function onRequestGet({ request, env }) {
 
   try {
     // Download the gzipped CSV feed
-    const feedResp = await fetch(FEED_URL, {
+    // Impact feed URLs use the account SID in the path
+    const FEED_URL = `https://api.impact.com/Mediapartners/${accountSid}${FEED_PATH}`;
+    const FEED_URL_ALT = `https://api.impact.com${FEED_PATH}`;
+    let feedResp = await fetch(FEED_URL, {
       headers: { 'Authorization': `Basic ${basicAuth}` }
     });
+    // Fallback to path without accountSid if first attempt fails
+    if (!feedResp.ok) {
+      feedResp = await fetch(FEED_URL_ALT, {
+        headers: { 'Authorization': `Basic ${basicAuth}` }
+      });
+    }
 
     if (!feedResp.ok) {
-      return json({ error: `Feed download failed: HTTP ${feedResp.status}` }, 500);
+      return json({
+        error: `Feed download failed: HTTP ${feedResp.status}`,
+        triedUrls: [FEED_URL, FEED_URL_ALT]
+      }, 500);
     }
 
     // Decompress and parse CSV
