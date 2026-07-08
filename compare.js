@@ -251,8 +251,8 @@ function extractPerformerName(fullName) {
 
 async function comparePrices(eventName, venueCity, eventDate, venueName) {
   // Use performer name (stripped of subtitles) for adapter searches
-  // so "Metallica: Life Burns Faster" matches "Metallica" on Gigsberg/VS
   const performerName = extractPerformerName(eventName);
+  console.log('[compare] v2 running | eventName:', eventName, '| performerName:', performerName, '| adapters:', ADAPTERS.length);
   const settled = await Promise.allSettled(
     ADAPTERS.map(async adapter => {
       // Pass performerName for search queries, but keep full eventName for normalise matching
