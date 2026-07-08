@@ -61,6 +61,7 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&source=ticketmaster  — discover from Ticketmaster, queue to KV',
       '  ?trigger=1&source=se365         — discover from SE365, queue to KV',
       '  ?trigger=1&source=vividseats    — discover from Vivid Seats catalog, queue to KV',
+      '  ?trigger=1&source=ticombo       — discover from Ticombo via Partnerize API, queue to KV',
       '  ?trigger=1&phase=commit         — commit queued pages to GitHub',
       '  ?trigger=1&phase=backfill       — write KV data for already-committed pages',
       '  &dry=1                          — dry run, no writes',
@@ -281,6 +282,42 @@ export async function onRequestGet({ request, env }) {
         results.vsScanned = scanned;
       } catch (err) {
         results.errors.push({ source: 'vividseats', error: String(err) });
+      }
+    }
+  }
+
+  // ── Ticombo (Partnerize) ──────────────────────────────────────────────────
+  if (source === 'ticombo') {
+    const apiKey      = env.PARTNERIZE_API_KEY;
+    const userKey     = env.PARTNERIZE_USER_KEY;
+    const publisherId = env.PARTNERIZE_PUBLISHER_ID;
+
+    if (!apiKey || !userKey || !publisherId) {
+      results.errors.push({ source: 'ticombo', error: 'Missing Partnerize credentials' });
+    } else {
+      try {
+        const basicAuth = btoa(`${userKey}:${apiKey}`);
+        // Try to list product feeds for Ticombo campaigns via Partnerize publisher API
+        const resp = await fetch(
+          `https://api.partnerize.com/user/${publisherId}/campaigns.json?limit=100`,
+          { headers: { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' } }
+        );
+        if (!resp.ok) {
+          results.errors.push({ source: 'ticombo', error: `Partnerize API: HTTP ${resp.status}` });
+        } else {
+          const data = await resp.json();
+          const campaigns = data?.campaigns || [];
+          const ticombo = campaigns.filter(c =>
+            (c.campaign_name || c.title || '').toLowerCase().includes('ticombo')
+          );
+          results.ticomboDiscovery = {
+            totalCampaigns: campaigns.length,
+            ticomboFound: ticombo.length,
+            note: 'Event-level discovery requires product feed access — using Ticombo search deep-links for now'
+          };
+        }
+      } catch (err) {
+        results.errors.push({ source: 'ticombo', error: String(err) });
       }
     }
   }

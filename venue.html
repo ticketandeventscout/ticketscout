@@ -381,12 +381,17 @@
 
         try { updateMeta(venue, events); } catch(e) { console.error('updateMeta error:', e); }
 
-        // Fetch Vivid Seats for this venue in parallel with page setup
+        // Fetch Vivid Seats and Ticombo for this venue in parallel
         var vsSearchTerm = venue.name;
         var vsData = null;
+        var tcData = null;
         try {
-          var vsResp = await fetch('/api/vividseats?q=' + encodeURIComponent(vsSearchTerm));
+          var [vsResp, tcResp] = await Promise.all([
+            fetch('/api/vividseats?q=' + encodeURIComponent(vsSearchTerm)),
+            fetch('/api/ticombo?q=' + encodeURIComponent(vsSearchTerm))
+          ]);
           vsData = await safeJson(vsResp);
+          tcData = await safeJson(tcResp);
         } catch(e) {}
 
         // Merge VS results into events list
@@ -408,6 +413,21 @@
               _embedded: { venues: [{ name: venue.name, city: { name: venue.city || '' } }] }
             });
           }
+        }
+
+        // Add Ticombo search card
+        if (tcData && tcData.match && tcData.match.url) {
+          allVenueEvents.push({
+            id:        'tc-' + encodeURIComponent(venue.name),
+            name:      venue.name + ' tickets on Ticombo',
+            _vs:       true,
+            _url:      tcData.match.url,
+            _price:    null,
+            _merchant: 'Ticombo',
+            dates:     { start: { localDate: '', localTime: '' } },
+            priceRanges: [],
+            _embedded: { venues: [{ name: venue.name, city: { name: venue.city || '' } }] }
+          });
         }
 
         // Store state for pagination

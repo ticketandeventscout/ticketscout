@@ -182,6 +182,32 @@ const ADAPTERS = [
     }
   },
 
+  {
+    // Ticombo (via Partnerize) — global ticket marketplace
+    // Region-aware: CF-IPCountry header routes to correct regional camref
+    // 9 campaigns: UK, US, Europe, Germany, Spain, Singapore, Mexico, APAC, LATAM
+    source: 'Ticombo',
+
+    buildUrl(eventName, venueCity, eventDate, venueName) {
+      const params = new URLSearchParams({ q: eventName });
+      if (eventDate) params.set('date', eventDate);
+      return `/api/ticombo?${params.toString()}`;
+    },
+
+    normalise(data, eventName) {
+      if (data.error || !data.match || !data.match.url) return null;
+      const match = data.match;
+      // Show even if isFallback — Ticombo earns commission on click-through to search
+      return {
+        source:     'Ticombo',
+        price:      match.price ? Math.round(match.price) : null,
+        currency:   match.currency || 'GBP',
+        url:        match.url,
+        available:  true
+      };
+    }
+  },
+
   // ── Future adapters go here ──────────────────────────────────────────────
   //
   // {
@@ -353,6 +379,7 @@ const SOURCE_STYLES = {
   'SeatGeek':              { logo: 'https://seatgeek.com/favicon.ico',            bg: '#de5448', color: '#fff', abbr: 'SG' },
   'Theatre Tickets Direct':{ logo: 'https://www.theatreticketsdirect.co.uk/favicon.ico', bg: '#7c3aed', color: '#fff', abbr: 'TD' },
   'Football TicketNet UK': { logo: null,                                           bg: '#16a34a', color: '#fff', abbr: 'FT' },
+  'Ticombo':               { logo: '/public/logos/ticombo.svg',                     bg: '#6366f1', color: '#fff', abbr: 'TC' },
 };
 
 function buildLogoEl(style) {
