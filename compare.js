@@ -351,6 +351,8 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         return a.price - b.price;
       });
 
+    console.log('[compare] withPrices count:', withPrices.length, '| sources:', withPrices.map(r => r.source + '(' + r.price + ')').join(', '));
+
     if (withPrices.length === 0) {
       // No other sellers — show TM as the only source (even if no price)
       slot.innerHTML = buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP');
