@@ -21,20 +21,24 @@
 // Returns: { match: { name, url, price, currency, date, venue, city } } or { match: null }
 // ===========================
 
-// Camrefs per region (from Partnerize campaign approvals)
-const CAMREFS = {
-  GB:  '1100l5P9x2',  // UK
-  US:  '1100l5P9x3',  // US
-  // Europe (non-specific)
-  DE:  '1100l5P9wR',  // Germany
-  ES:  '1100l5P9wT',  // Spain
-  SG:  '1100l5P9wS',  // Singapore
-  MX:  '1100l5P9wN',  // Mexico
-  // Regional fallbacks
-  EU:  '1100l5P9wQ',  // Europe (all other EU countries)
-  APAC:'1100l5P9wP',  // APAC (all other Asia-Pacific)
-  LATAM:'1100l5P9wM', // LATAM (all other Latin America)
+// Ticombo Partnerize campaigns — confirmed from API
+// campaign_id → for API calls | camref → for tracking links
+const CAMPAIGNS = {
+  GB:    { camref: '1100l5P9x2', campaign_id: '1100l6335', title: 'Ticombo UK'        },
+  US:    { camref: '1100l5P9x3', campaign_id: '1011l6397', title: 'Ticombo US'        },
+  EU:    { camref: '1100l5P9wQ', campaign_id: '1011l6399', title: 'Ticombo Europe'    },
+  DE:    { camref: '1100l5P9wR', campaign_id: '1011l6400', title: 'Ticombo Germany'   },
+  ES:    { camref: '1100l5P9wT', campaign_id: '1100l6336', title: 'Ticombo Spain'     },
+  SG:    { camref: '1100l5P9wS', campaign_id: '1101l6348', title: 'Ticombo Singapore' },
+  MX:    { camref: '1100l5P9wN', campaign_id: '1110l49',   title: 'Ticombo Mexico'   },
+  APAC:  { camref: '1100l5P9wP', campaign_id: '1011l6398', title: 'Ticombo APAC'     },
+  LATAM: { camref: '1100l5P9wM', campaign_id: '1100l6567', title: 'Ticombo LATAM'    },
 };
+
+// Convenience map: just camrefs for building tracking links
+const CAMREFS = Object.fromEntries(Object.entries(CAMPAIGNS).map(([k,v]) => [k, v.camref]));
+
+// Commission rate: 7% on all sales (confirmed from API)
 
 // Country → camref mapping
 const COUNTRY_TO_CAMREF = {
@@ -116,14 +120,10 @@ async function findSpecificEvent(q, date, camref, env) {
   if (!apiKey || !userKey || !publisherId) return null;
 
   try {
-    // Confirmed working base: api.performancehorizon.com
-    const basicAuth = btoa(`${userKey}:${apiKey}`);
-    const BASE = `https://api.performancehorizon.com/user/publisher/${publisherId}`;
-
-    // Check creatives for Ticombo UK campaign — look for product feed URLs
-    // Campaign IDs confirmed: US=1011l6397, more via /campaign.json
-    // For now return null — product feed search to be added once creative endpoints confirmed
-    // The search deep-link fallback earns commission on any purchase
+    // Ticombo does NOT provide a product feed via Partnerize (confirmed via creatives API)
+    // 34 creatives = image banners + tracking links only — no event CSV/XML feed
+    // Search deep-link is the correct permanent approach for Ticombo
+    // 7% commission tracked on any purchase made after clicking through
     return null;
 
   } catch (e) {

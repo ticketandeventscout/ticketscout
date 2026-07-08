@@ -843,26 +843,25 @@
             _embedded:   { venues: vs.venue ? [{ name: vs.venue, city: { name: vs.city || '' } }] : [] }
           });
         }
-        const allEvents = 
         // Ticombo: add as a search deep-link card when VS/TM/Awin have coverage
         // Always present — earns commission on click regardless of specific event match
         const tcEvents = [];
         if (vsData?.match?.url !== undefined) { // only add if other APIs responded (page loaded OK)
           const tcSearchUrl = 'https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:' +
             encodeURIComponent('https://www.ticombo.com/en/search?q=' + encodeURIComponent(team.search || team.name));
-          tcEvents.push({{
+          tcEvents.push({
             id:          'tc-' + encodeURIComponent(team.name),
             name:        team.name + ' tickets on Ticombo',
             _vs:         true,  // reuse _vs rendering (direct link, "Buy tickets →")
             _url:        tcSearchUrl,
             _price:      null,
             _merchant:   'Ticombo',
-            dates:       {{ start: {{ localDate: '', localTime: '' }} }},
+            dates:       { start: {{ localDate: '', localTime: '' }} }},
             priceRanges: [],
-            _embedded:   {{ venues: [] }}
-          }});
+            _embedded:   { venues: [] }
+          });
         }
-        [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tcEvents];
+        const allEvents = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tcEvents];
 
         updateMeta(team, tmEvents, tmImage);
 

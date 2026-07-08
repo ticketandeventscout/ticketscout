@@ -250,8 +250,25 @@ Rt has emailed Nir. Re-trigger cache after credentials confirmed.
 
 **Ticombo tracking format:** `https://ticombo.prf.hn/click/camref:{CAMREF}/destination:{ENCODED_URL}`
 **Region detection:** CF-IPCountry header routes to correct regional camref automatically
+**Commission:** 7% on all sales (confirmed via Partnerize API)
+**Publisher ID:** 1110l36128 (account: ticketandeventscoutpartnerize)
+**API base:** https://api.performancehorizon.com (legacy domain — api.partnerize.com returns 404)
+**Product feed:** None — Ticombo provides 34 image/banner creatives only, no event CSV/XML
+**Approach:** Search deep-link to ticombo.com/en/search?q={artist} — earns 7% on any purchase
 **Env vars required:** PARTNERIZE_API_KEY, PARTNERIZE_USER_KEY, PARTNERIZE_PUBLISHER_ID
 **Logo:** public/logos/ticombo.svg
+
+| Region | Campaign ID | Camref |
+|---|---|---|
+| UK | 1100l6335 | 1100l5P9x2 |
+| US | 1011l6397 | 1100l5P9x3 |
+| Europe | 1011l6399 | 1100l5P9wQ |
+| Germany | 1011l6400 | 1100l5P9wR |
+| Spain | 1100l6336 | 1100l5P9wT |
+| Singapore | 1101l6348 | 1100l5P9wS |
+| Mexico | 1110l49 | 1100l5P9wN |
+| APAC | 1011l6398 | 1100l5P9wP |
+| LATAM | 1100l6567 | 1100l5P9wM |
 
 ### Commission Junction (CJ)
 | Merchant | Commission | Status | Notes |
