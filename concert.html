@@ -867,6 +867,7 @@
         // Exception: if TM+Awin return zero events, show VS as a fallback card.
 
         console.log('Events loaded — TM:', tmEvents.length, '| Awin:', (awinEvents||[]).length, '| VS:', vsData?.match?.name || 'null');
+        console.log('attractionId:', attractionId, '| tmData keys:', tmData ? Object.keys(tmData).join(',') : 'null', '| awinData keys:', awinData ? Object.keys(awinData).join(',') : 'null');
         const tmDates = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
 
         // Awin events not covered by TM — shown as separate dated cards
