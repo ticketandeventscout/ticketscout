@@ -213,9 +213,18 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
   const settled = await Promise.allSettled(
     ADAPTERS.map(async adapter => {
       const url = adapter.buildUrl(eventName, venueCity, eventDate, venueName);
+      console.log('[compare] Fetching:', adapter.source, '->', url);
       const response = await fetch(url);
-      const data = await response.json();
-      return await adapter.normalise(data, eventName);
+      const ct = response.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        console.warn('[compare]', adapter.source, 'returned non-JSON:', response.status, ct);
+        return null;
+      }
+      const data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
+      if (!data) return null;
+      const result = await adapter.normalise(data, eventName);
+      console.log('[compare]', adapter.source, '->', result ? `price:${result.price} currency:${result.currency}` : 'null');
+      return result;
     })
   );
 
@@ -359,4 +368,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}         
+}
