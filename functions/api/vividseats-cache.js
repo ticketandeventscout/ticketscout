@@ -2,44 +2,35 @@
 // TicketScout — Vivid Seats catalog cache
 // Runs as a Cloudflare Pages Function at /api/vividseats-cache
 //
-// Builds a searchable KV index from the Vivid Seats catalog via Impact API.
-// The bulk CSV feed requires FTP credentials (separate from API credentials).
-// Instead we paginate through the catalog Items API using AfterId cursor pagination,
-// filtering to UK/IE events and upcoming events to keep the index manageable.
+// Downloads the full Vivid Seats event catalog (131k+ events) from Impact's
+// product feed server via HTTPS, parses the gzipped CSV, and stores a
+// searchable KV index for vividseats.js to search locally.
 //
-// Strategy:
-//   - Fetch up to MAX_PAGES pages of 100 items each (capped at 60s worker limit)
-//   - Filter to: ExpirationDate in future AND (UK/IE city OR Concert/Sport category)
-//   - Store as KV index for fast in-memory search by vividseats.js
+// Feed access:
+//   Host:  https://products.impact.com
+//   Path:  /Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz
+//   Auth:  HTTP Basic — IMPACT_FTP_USER + IMPACT_FTP_PASS
 //
-// Cron: run weekly via cron-job.org
+// Cron: weekly via cron-job.org
 //   https://ticketscout.co.uk/api/vividseats-cache?trigger=1
 //
 // KV keys:
 //   vs:catalog:index   — JSON array of compact event objects
-//   vs:catalog:updated — ISO timestamp of last update
-//   vs:catalog:stats   — { total_fetched, total_kept, pages, updated }
+//   vs:catalog:updated — ISO timestamp
+//   vs:catalog:stats   — { total, updated }
 //
-// Required env vars:
-//   IMPACT_ACCOUNT_SID, IMPACT_AUTH_TOKEN, GIGSBERG_KV
+// Required env vars (Cloudflare Pages → Settings → Variables):
+//   IMPACT_FTP_USER  — ps-ftp_7443544
+//   IMPACT_FTP_PASS  — (password from Impact FTP email)
+//   GIGSBERG_KV      — KV namespace binding
 // ===========================
 
-const CATALOG_ID  = '7904';
-const KV_INDEX    = 'vs:catalog:index';
-const KV_UPDATED  = 'vs:catalog:updated';
-const KV_STATS    = 'vs:catalog:stats';
-const KV_TTL      = 8 * 24 * 60 * 60; // 8 days
-const PAGE_SIZE   = 100;
-const MAX_PAGES   = 200; // 20,000 items max per run — stays well within 30s worker limit
-
-// UK/IE cities to prioritise (lowercase)
-const UK_CITIES = new Set([
-  'london','manchester','birmingham','glasgow','edinburgh','liverpool',
-  'leeds','newcastle','sheffield','bristol','nottingham','cardiff',
-  'belfast','dublin','leicester','southampton','brighton','reading',
-  'coventry','hull','stoke','wolverhampton','derby','sunderland',
-  'portsmouth','oxford','cambridge','bath','york','exeter'
-]);
+const FEED_BASE  = 'https://products.impact.com';
+const FEED_PATH  = '/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz';
+const KV_INDEX   = 'vs:catalog:index';
+const KV_UPDATED = 'vs:catalog:updated';
+const KV_STATS   = 'vs:catalog:stats';
+const KV_TTL     = 8 * 24 * 60 * 60; // 8 days
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -49,110 +40,173 @@ export async function onRequestGet({ request, env }) {
     const stats   = await env.GIGSBERG_KV?.get(KV_STATS).catch(() => null);
     return text([
       'Vivid Seats catalog cache — usage:',
-      '  ?trigger=1        — build KV index from Impact catalog API',
-      '  ?trigger=1&all=1  — include all regions (not just UK/IE)',
+      '  ?trigger=1   — download feed CSV, parse, store KV index',
+      '  ?test=1      — test feed URL connectivity (HEAD request only)',
       '',
       `Last updated: ${updated || 'never'}`,
-      stats ? `Last stats: ${stats}` : ''
+      stats ? `Last stats:   ${stats}` : ''
     ].join('\n'));
   }
 
-  const accountSid = env.IMPACT_ACCOUNT_SID;
-  const authToken  = env.IMPACT_AUTH_TOKEN;
-  const kv         = env.GIGSBERG_KV;
-  const allRegions = url.searchParams.get('all') === '1';
+  const ftpUser = env.IMPACT_FTP_USER;
+  const ftpPass = env.IMPACT_FTP_PASS;
+  const kv      = env.GIGSBERG_KV;
 
-  if (!accountSid || !authToken) return json({ error: 'Missing IMPACT_ACCOUNT_SID or IMPACT_AUTH_TOKEN' }, 500);
-  if (!kv)                        return json({ error: 'Missing GIGSBERG_KV binding'                     }, 500);
+  if (!ftpUser || !ftpPass) return json({ error: 'Missing IMPACT_FTP_USER or IMPACT_FTP_PASS env vars' }, 500);
+  if (!kv)                   return json({ error: 'Missing GIGSBERG_KV binding' }, 500);
 
-  const basicAuth = btoa(`${accountSid}:${authToken}`);
-  const headers   = { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' };
-  const base      = `https://api.impact.com/Mediapartners/${accountSid}/Catalogs/${CATALOG_ID}/Items`;
-  const today     = new Date();
-
-  const index    = [];
-  let   afterId  = null;
-  let   pages    = 0;
-  let   fetched  = 0;
-  let   kept     = 0;
-
-  while (pages < MAX_PAGES) {
-    const reqUrl = new URL(base);
-    reqUrl.searchParams.set('PageSize', String(PAGE_SIZE));
-    if (afterId) reqUrl.searchParams.set('AfterId', afterId);
-
-    const resp = await fetch(reqUrl.toString(), { headers });
-    if (!resp.ok) {
-      return json({ error: `Catalog fetch failed: HTTP ${resp.status} on page ${pages + 1}`, kept, fetched }, 500);
-    }
-
-    const data  = await resp.json();
-    const items = data?.Items || [];
-    pages++;
-    fetched += items.length;
-
-    if (items.length === 0) break;
-
-    for (const item of items) {
-      // Skip expired events
-      if (item.ExpirationDate && new Date(item.ExpirationDate) < today) continue;
-
-      const city    = (item.Text2 || '').toLowerCase().trim();
-      const addr    = (item.Text3 || '').toLowerCase();
-      const cat     = (item.Category || '').toLowerCase();
-
-      // Filter to UK/IE events unless allRegions flag set
-      if (!allRegions) {
-        const isUK = UK_CITIES.has(city) ||
-                     addr.includes('united kingdom') || addr.includes(', uk') ||
-                     addr.includes('england') || addr.includes('scotland') ||
-                     addr.includes('wales') || addr.includes('ireland');
-        if (!isUK) continue;
-      }
-
-      const price = item.CurrentPrice ? parseFloat(item.CurrentPrice) : null;
-      const date  = item.ExpirationDate ? item.ExpirationDate.split('T')[0] : '';
-
-      index.push({
-        n: item.Name          || '',   // event name
-        u: item.Url           || '',   // pre-built affiliate URL
-        p: price,                      // price (USD)
-        c: item.Currency      || 'USD',
-        d: date,                       // event date
-        v: item.Text1         || '',   // venue name
-        t: item.Text2         || '',   // city
-        g: item.Category      || '',   // category
-        s: item.SubCategory   || '',   // subcategory
-      });
-      kept++;
-    }
-
-    // Get next page cursor from nextpageuri
-    const nextUri = data['@nextpageuri'] || '';
-    const afterMatch = nextUri.match(/AfterId=([^&]+)/);
-    if (!afterMatch || items.length < PAGE_SIZE) break;
-    afterId = afterMatch[1];
+  // Test mode — just check if the URL is reachable
+  if (url.searchParams.get('test') === '1') {
+    const basicAuth = btoa(`${ftpUser}:${ftpPass}`);
+    const testResp  = await fetch(`${FEED_BASE}${FEED_PATH}`, {
+      method:  'HEAD',
+      headers: { 'Authorization': `Basic ${basicAuth}` }
+    }).catch(e => ({ ok: false, status: 0, error: String(e) }));
+    return json({
+      url:           `${FEED_BASE}${FEED_PATH}`,
+      status:        testResp.status,
+      ok:            testResp.ok,
+      contentType:   testResp.headers?.get('content-type'),
+      contentLength: testResp.headers?.get('content-length'),
+    }, 200);
   }
 
-  // Store in KV
+  try {
+    const basicAuth = btoa(`${ftpUser}:${ftpPass}`);
+
+    // Download the gzipped CSV feed
+    const feedResp = await fetch(`${FEED_BASE}${FEED_PATH}`, {
+      headers: { 'Authorization': `Basic ${basicAuth}` }
+    });
+
+    if (!feedResp.ok) {
+      // Try alternative URL patterns
+      const alts = [
+        `${FEED_BASE}/Vivid-Seats/Ticket-Feed_IR.txt.gz`,
+        `https://ftp.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz`,
+        `https://products.impact.com/${ftpUser}/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz`,
+      ];
+      let altResp = null;
+      let altUrl  = '';
+      for (const alt of alts) {
+        const r = await fetch(alt, { headers: { 'Authorization': `Basic ${basicAuth}` } });
+        if (r.ok) { altResp = r; altUrl = alt; break; }
+      }
+      if (!altResp) {
+        return json({
+          error:    `Feed download failed: HTTP ${feedResp.status}`,
+          triedUrl: `${FEED_BASE}${FEED_PATH}`,
+          alsoTried: alts
+        }, 500);
+      }
+      // Use the working alternate URL
+      return await parseFeedAndStore(altResp, kv, altUrl);
+    }
+
+    return await parseFeedAndStore(feedResp, kv, `${FEED_BASE}${FEED_PATH}`);
+
+  } catch (err) {
+    console.error('VS cache error:', err);
+    return json({ error: String(err) }, 500);
+  }
+}
+
+async function parseFeedAndStore(feedResp, kv, sourceUrl) {
+  // Decompress gzip stream
+  const ds      = new DecompressionStream('gzip');
+  const stream  = feedResp.body.pipeThrough(ds);
+  const reader  = stream.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let   csvText = '';
+  let   chunk;
+
+  while (!(chunk = await reader.read()).done) {
+    csvText += decoder.decode(chunk.value, { stream: true });
+    if (csvText.length > 60 * 1024 * 1024) break; // 60MB safety cap
+  }
+
+  const lines  = csvText.split('\n');
+  const header = parseCSVLine(lines[0]);
+
+  // Find column indexes by header name
+  const col = name => header.findIndex(h => h.toLowerCase().replace(/\s/g,'') === name.toLowerCase().replace(/\s/g,''));
+  const iName   = col('Name');
+  const iUrl    = col('Url');
+  const iPrice  = col('CurrentPrice') !== -1 ? col('CurrentPrice') : col('Price');
+  const iCurr   = col('Currency');
+  const iExpiry = col('ExpirationDate');
+  const iVenue  = col('Text1');
+  const iCity   = col('Text2');
+  const iCat    = col('Category');
+  const iSubCat = col('SubCategory');
+
+  const today = new Date();
+  const index = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const cols   = parseCSVLine(lines[i]);
+    if (cols.length < 3) continue;
+
+    const name   = (cols[iName]   || '').trim();
+    const url    = (cols[iUrl]    || '').trim();
+    const expiry = iExpiry !== -1 ? (cols[iExpiry] || '').trim() : '';
+
+    if (!name || !url) continue;
+    if (expiry && new Date(expiry) < today) continue; // skip past events
+
+    index.push({
+      n: name,
+      u: url,
+      p: iPrice !== -1 && cols[iPrice] ? parseFloat(cols[iPrice]) : null,
+      c: iCurr  !== -1 ? (cols[iCurr] || 'USD') : 'USD',
+      d: expiry ? expiry.split('T')[0] : '',
+      v: iVenue  !== -1 ? (cols[iVenue]  || '') : '',
+      t: iCity   !== -1 ? (cols[iCity]   || '') : '',
+      g: iCat    !== -1 ? (cols[iCat]    || '') : '',
+      s: iSubCat !== -1 ? (cols[iSubCat] || '') : '',
+    });
+  }
+
   const indexJson = JSON.stringify(index);
-  const statsObj  = { total_fetched: fetched, total_kept: kept, pages, updated: new Date().toISOString() };
+  const statsObj  = { total: index.length, updated: new Date().toISOString(), sourceUrl };
 
   await Promise.all([
-    kv.put(KV_INDEX,   indexJson,                   { expirationTtl: KV_TTL }),
-    kv.put(KV_UPDATED, new Date().toISOString(),     { expirationTtl: KV_TTL }),
-    kv.put(KV_STATS,   JSON.stringify(statsObj),     { expirationTtl: KV_TTL })
+    kv.put(KV_INDEX,   indexJson,                 { expirationTtl: KV_TTL }),
+    kv.put(KV_UPDATED, new Date().toISOString(),   { expirationTtl: KV_TTL }),
+    kv.put(KV_STATS,   JSON.stringify(statsObj),   { expirationTtl: KV_TTL })
   ]);
 
-  return json({
-    success:  true,
-    kept,
-    fetched,
-    pages,
-    sizeMB:   (indexJson.length / 1024 / 1024).toFixed(2),
-    sample:   index.slice(0, 3),
+  return new Response(JSON.stringify({
+    success:   true,
+    total:     index.length,
+    sizeMB:    (indexJson.length / 1024 / 1024).toFixed(2),
+    sourceUrl,
+    sample:    index.slice(0, 3),
     updatedAt: new Date().toISOString()
-  }, 200);
+  }, null, 2), {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+  });
+}
+
+// Minimal CSV line parser (handles quoted fields with commas inside)
+function parseCSVLine(line) {
+  const result = [];
+  let current  = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current); current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
 }
 
 function json(body, status) {
