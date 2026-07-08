@@ -21,25 +21,27 @@ export async function onRequestGet({ request, env }) {
   if (!kv) return jsonResponse({ match: null, reason: 'kv_missing' }, 200);
 
   try {
-    const raw = await kv.get('vs:catalog:index');
-    if (!raw) {
+    // Read chunked index — chunks are stored as vs:catalog:chunk:0, :1, :2 ...
+    const chunkCountRaw = await kv.get('vs:catalog:chunks');
+
+    if (!chunkCountRaw) {
       // Cache not yet built — return search fallback link so page still works
       const searchUrl = `https://www.vividseats.com/search?searchTerm=${encodeURIComponent(q)}`;
       return jsonResponse({
         match: {
           name:       `Search ${q} on Vivid Seats`,
           url:        `${FALLBACK_LINK}?u=${encodeURIComponent(searchUrl)}`,
-          price:      null,
-          currency:   'USD',
-          date:       null,
-          venue:      null,
-          city:       null,
+          price:      null, currency: 'USD', date: null, venue: null, city: null,
           isFallback: true
         }
       }, 200);
     }
 
-    const index    = JSON.parse(raw);
+    // Fetch all chunks in parallel
+    const numChunks  = parseInt(chunkCountRaw, 10);
+    const chunkKeys  = Array.from({ length: numChunks }, (_, i) => `vs:catalog:chunk:${i}`);
+    const chunkRaws  = await Promise.all(chunkKeys.map(k => kv.get(k)));
+    const index      = chunkRaws.flatMap(raw => raw ? JSON.parse(raw) : []);
     const normQ    = normaliseName(q);
     const today    = new Date();
     const targetMs = date ? new Date(date).getTime() : 0;

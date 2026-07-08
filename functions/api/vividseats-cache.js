@@ -134,19 +134,48 @@ export async function onRequestGet({ request, env }) {
       });
     }
 
-    const indexJson = JSON.stringify(index);
-    const stats     = { total: index.length, feedUrl, updated: new Date().toISOString() };
+    // Split index into 20MB chunks to stay under KV's 25MB per-value limit
+    const CHUNK_SIZE_MB = 20;
+    const chunks = [];
+    let   chunk  = [];
+    let   chunkBytes = 0;
 
-    await Promise.all([
-      kv.put(KV_INDEX,   indexJson,               { expirationTtl: KV_TTL }),
-      kv.put(KV_UPDATED, new Date().toISOString(), { expirationTtl: KV_TTL }),
-      kv.put(KV_STATS,   JSON.stringify(stats),    { expirationTtl: KV_TTL }),
-    ]);
+    for (const item of index) {
+      const itemStr = JSON.stringify(item);
+      if (chunkBytes + itemStr.length > CHUNK_SIZE_MB * 1024 * 1024 && chunk.length > 0) {
+        chunks.push(chunk);
+        chunk = [];
+        chunkBytes = 0;
+      }
+      chunk.push(item);
+      chunkBytes += itemStr.length;
+    }
+    if (chunk.length > 0) chunks.push(chunk);
+
+    // Write each chunk to KV
+    const puts = chunks.map((ch, i) =>
+      kv.put(`vs:catalog:chunk:${i}`, JSON.stringify(ch), { expirationTtl: KV_TTL })
+    );
+    const stats = {
+      total:  index.length,
+      chunks: chunks.length,
+      feedUrl,
+      updated: new Date().toISOString()
+    };
+    puts.push(kv.put(KV_STATS,   JSON.stringify(stats),    { expirationTtl: KV_TTL }));
+    puts.push(kv.put(KV_UPDATED, new Date().toISOString(), { expirationTtl: KV_TTL }));
+    // Store chunk count so vividseats.js knows how many to read
+    puts.push(kv.put('vs:catalog:chunks', String(chunks.length), { expirationTtl: KV_TTL }));
+    // Delete old single-key index if present
+    puts.push(kv.delete(KV_INDEX).catch(() => {}));
+
+    await Promise.all(puts);
 
     return json({
       success:   true,
       total:     index.length,
-      sizeMB:    (indexJson.length / 1024 / 1024).toFixed(2),
+      chunks:    chunks.length,
+      sizeMB:    (JSON.stringify(index).length / 1024 / 1024).toFixed(2),
       columns:   header.slice(0, 10),
       sample:    index.slice(0, 2),
       updatedAt: new Date().toISOString()
