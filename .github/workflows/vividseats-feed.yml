@@ -1,0 +1,83 @@
+# ===========================
+# GitHub Action: Vivid Seats Feed Refresh
+# Runs weekly — downloads the Vivid Seats catalog CSV from Impact FTP,
+# commits it to public/vividseats-feed.csv.gz, then triggers the
+# Cloudflare KV cache rebuild.
+#
+# Secrets required (GitHub repo → Settings → Secrets → Actions):
+#   IMPACT_FTP_USER     — ps-ftp_7443544
+#   IMPACT_FTP_PASS     — (password from Impact FTP email)
+#   CLOUDFLARE_CACHE_URL — https://ticketscout.co.uk/api/vividseats-cache?trigger=1
+# ===========================
+
+name: Refresh Vivid Seats Feed
+
+on:
+  schedule:
+    - cron: '0 1 * * 1'   # Every Monday at 01:00 UTC (after Awin cache at 00:00)
+  workflow_dispatch:        # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  refresh-feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install FTP client
+        run: sudo apt-get install -y lftp
+
+      - name: Download Vivid Seats feed via FTP
+        env:
+          FTP_USER: ${{ secrets.IMPACT_FTP_USER }}
+          FTP_PASS: ${{ secrets.IMPACT_FTP_PASS }}
+        run: |
+          mkdir -p public
+          lftp -c "
+            set ftp:ssl-allow no;
+            set net:timeout 120;
+            set net:max-retries 3;
+            open -u '$FTP_USER','$FTP_PASS' products.impact.com;
+            get /Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz -o public/vividseats-feed.csv.gz;
+            bye
+          "
+          echo "Downloaded: $(du -h public/vividseats-feed.csv.gz | cut -f1)"
+
+      - name: Verify file downloaded correctly
+        run: |
+          if [ ! -f public/vividseats-feed.csv.gz ]; then
+            echo "ERROR: Feed file not found"
+            exit 1
+          fi
+          SIZE=$(stat -c%s public/vividseats-feed.csv.gz)
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "ERROR: File too small ($SIZE bytes) — download may have failed"
+            exit 1
+          fi
+          echo "Feed file OK: $SIZE bytes"
+
+      - name: Commit and push feed file
+        run: |
+          git config user.name  "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add public/vividseats-feed.csv.gz
+          git diff --staged --quiet && echo "No changes to commit" || \
+            git commit -m "chore: refresh Vivid Seats feed [$(date -u '+%Y-%m-%d')]" && \
+            git push
+
+      - name: Trigger Cloudflare KV cache rebuild
+        env:
+          CACHE_URL: ${{ secrets.CLOUDFLARE_CACHE_URL }}
+        run: |
+          echo "Triggering cache rebuild..."
+          RESPONSE=$(curl -s -m 60 "$CACHE_URL")
+          echo "Response: $RESPONSE"
+          if echo "$RESPONSE" | grep -q '"success":true'; then
+            echo "Cache rebuilt successfully"
+          else
+            echo "WARNING: Cache rebuild may have failed — check response above"
+          fi

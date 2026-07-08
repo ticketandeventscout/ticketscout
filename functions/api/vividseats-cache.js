@@ -2,125 +2,93 @@
 // TicketScout — Vivid Seats catalog cache builder
 // Runs as a Cloudflare Pages Function at /api/vividseats-cache
 //
-// Downloads the full Vivid Seats feed from Impact's product server via HTTPS,
-// decompresses the gzip, parses CSV, and stores a compact KV index.
+// Fetches the Vivid Seats feed CSV from GitHub (where it is committed weekly
+// by a GitHub Action that downloads it from Impact FTP automatically).
 //
-// Feed URL:  https://products.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz
-// Auth:      HTTP Basic — IMPACT_FTP_USER : IMPACT_FTP_PASS
-//
-// Because the full 131k CSV is large, we stream it in chunks and write to KV
-// progressively. If the worker hits its time limit, partial results are still
-// stored and the next run appends more.
+// Feed source: public/vividseats-feed.csv.gz in the GitHub repo
+// GitHub raw URL: https://raw.githubusercontent.com/[owner]/[repo]/main/public/vividseats-feed.csv.gz
 //
 // Usage:
-//   ?trigger=1        — run cache build
-//   ?trigger=1&test=1 — test connectivity only (HEAD request, no KV write)
+//   ?trigger=1        — parse feed and build KV index
+//   ?trigger=1&test=1 — test GitHub URL connectivity only
 //
-// Required env vars:
-//   IMPACT_FTP_USER  — ps-ftp_7443544
-//   IMPACT_FTP_PASS  — (password from Impact FTP email)
-//   GIGSBERG_KV      — KV namespace binding
+// Required env vars (Cloudflare Pages → Settings → Variables):
+//   GITHUB_OWNER   — GitHub username/org (already set for discover-pages.js)
+//   GITHUB_REPO    — repo name (already set)
+//   GIGSBERG_KV    — KV namespace binding (already set)
 // ===========================
 
-const FEED_URLS = [
-  'https://products.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz',
-  'https://products.impact.com/Vivid-Seats/Ticket-Feed_IR.txt.gz',
-];
-
+const FEED_PATH  = 'public/vividseats-feed.csv.gz';
 const KV_INDEX   = 'vs:catalog:index';
 const KV_UPDATED = 'vs:catalog:updated';
 const KV_STATS   = 'vs:catalog:stats';
 const KV_TTL     = 8 * 24 * 60 * 60; // 8 days
 
 export async function onRequestGet({ request, env }) {
-  const url     = new URL(request.url);
-  const ftpUser = env.IMPACT_FTP_USER;
-  const ftpPass = env.IMPACT_FTP_PASS;
-  const kv      = env.GIGSBERG_KV;
+  const url   = new URL(request.url);
+  const kv    = env.GIGSBERG_KV;
+  const owner = env.GITHUB_OWNER;
+  const repo  = env.GITHUB_REPO;
 
   if (url.searchParams.get('trigger') !== '1') {
     const updated = await kv?.get(KV_UPDATED).catch(() => null);
     const stats   = await kv?.get(KV_STATS).catch(() => null);
     return text([
       'Vivid Seats catalog cache',
-      '  ?trigger=1        — build full KV index from feed',
+      '  ?trigger=1        — parse feed from GitHub, build KV index',
       '  ?trigger=1&test=1 — connectivity test only',
       '',
+      `Feed URL: https://raw.githubusercontent.com/${owner}/${repo}/main/${FEED_PATH}`,
       `Last updated: ${updated || 'never'}`,
       stats ? `Stats: ${stats}` : 'No stats yet'
     ].join('\n'));
   }
 
-  if (!ftpUser || !ftpPass) return json({ error: 'Missing IMPACT_FTP_USER or IMPACT_FTP_PASS' }, 500);
-  if (!kv)                   return json({ error: 'Missing GIGSBERG_KV binding' }, 500);
+  if (!owner || !repo) return json({ error: 'Missing GITHUB_OWNER or GITHUB_REPO env vars' }, 500);
+  if (!kv)             return json({ error: 'Missing GIGSBERG_KV binding' }, 500);
 
-  const basicAuth = btoa(`${ftpUser}:${ftpPass}`);
+  const feedUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${FEED_PATH}`;
 
   // ── Connectivity test ──────────────────────────────────────────────────────
   if (url.searchParams.get('test') === '1') {
-    const results = [];
-    for (const feedUrl of FEED_URLS) {
-      try {
-        const r = await fetch(feedUrl, {
-          method: 'HEAD',
-          headers: { 'Authorization': `Basic ${basicAuth}` }
-        });
-        results.push({
-          url:    feedUrl,
-          status: r.status,
-          ok:     r.ok,
-          size:   r.headers.get('content-length'),
-          type:   r.headers.get('content-type')
-        });
-      } catch (e) {
-        results.push({ url: feedUrl, error: String(e) });
-      }
-    }
-    return json({ results }, 200);
-  }
-
-  // ── Full cache build ───────────────────────────────────────────────────────
-  // Try each feed URL until one works
-  let feedResp = null;
-  let sourceUrl = '';
-  for (const feedUrl of FEED_URLS) {
     try {
-      const r = await fetch(feedUrl, {
-        headers: { 'Authorization': `Basic ${basicAuth}` }
-      });
-      if (r.ok) { feedResp = r; sourceUrl = feedUrl; break; }
-    } catch (e) { continue; }
+      const r = await fetch(feedUrl, { method: 'HEAD' });
+      return json({
+        url:    feedUrl,
+        status: r.status,
+        ok:     r.ok,
+        size:   r.headers.get('content-length'),
+        type:   r.headers.get('content-type')
+      }, 200);
+    } catch (e) {
+      return json({ url: feedUrl, error: String(e) }, 200);
+    }
   }
 
-  if (!feedResp) {
-    return json({
-      error: 'All feed URLs failed — check IMPACT_FTP_USER/IMPACT_FTP_PASS env vars',
-      triedUrls: FEED_URLS
-    }, 500);
-  }
-
+  // ── Download and parse ─────────────────────────────────────────────────────
   try {
-    // Stream and decompress
-    const isGzip = sourceUrl.endsWith('.gz');
-    let body = feedResp.body;
-    if (isGzip) {
-      const ds = new DecompressionStream('gzip');
-      body = body.pipeThrough(ds);
+    const feedResp = await fetch(feedUrl);
+    if (!feedResp.ok) {
+      return json({
+        error: `Feed download failed: HTTP ${feedResp.status}`,
+        url:   feedUrl,
+        hint:  'Make sure public/vividseats-feed.csv.gz exists in the repo'
+      }, 500);
     }
 
+    // Decompress gzip stream
+    const ds      = new DecompressionStream('gzip');
+    const body    = feedResp.body.pipeThrough(ds);
     const reader  = body.getReader();
     const decoder = new TextDecoder('utf-8');
     let   rawText = '';
-    let   done    = false;
 
-    // Read up to 40MB to stay within memory limits
-    while (!done && rawText.length < 40 * 1024 * 1024) {
+    while (rawText.length < 50 * 1024 * 1024) { // 50MB cap
       const chunk = await reader.read();
-      if (chunk.done) { done = true; break; }
+      if (chunk.done) break;
       rawText += decoder.decode(chunk.value, { stream: true });
     }
-    // Cancel the reader if we hit the cap
-    if (!done) await reader.cancel();
+    await reader.cancel().catch(() => {});
 
     // Parse CSV
     const lines  = rawText.split('\n');
@@ -146,8 +114,8 @@ export async function onRequestGet({ request, env }) {
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
       const cols   = parseCSVLine(lines[i]);
-      const name   = iName !== -1 ? (cols[iName] || '').trim()  : '';
-      const url    = iUrl  !== -1 ? (cols[iUrl]  || '').trim()  : '';
+      const name   = iName !== -1 ? (cols[iName] || '').trim() : '';
+      const url    = iUrl  !== -1 ? (cols[iUrl]  || '').trim() : '';
       const expiry = iExpiry !== -1 ? (cols[iExpiry] || '').trim() : '';
 
       if (!name || !url) continue;
@@ -167,7 +135,7 @@ export async function onRequestGet({ request, env }) {
     }
 
     const indexJson = JSON.stringify(index);
-    const stats     = { total: index.length, sourceUrl, updated: new Date().toISOString() };
+    const stats     = { total: index.length, feedUrl, updated: new Date().toISOString() };
 
     await Promise.all([
       kv.put(KV_INDEX,   indexJson,               { expirationTtl: KV_TTL }),
@@ -178,16 +146,14 @@ export async function onRequestGet({ request, env }) {
     return json({
       success:   true,
       total:     index.length,
-      lines:     lines.length,
       sizeMB:    (indexJson.length / 1024 / 1024).toFixed(2),
-      sourceUrl,
-      columns:   header,
+      columns:   header.slice(0, 10),
       sample:    index.slice(0, 2),
       updatedAt: new Date().toISOString()
     }, 200);
 
   } catch (err) {
-    return json({ error: String(err), sourceUrl }, 500);
+    return json({ error: String(err) }, 500);
   }
 }
 
