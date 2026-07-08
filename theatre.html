@@ -785,8 +785,7 @@
             _embedded: { venues: vs.venue ? [{ name: vs.venue, city: { name: vs.city || '' } }] : [] }
           });
         }
-        // VS card pinned first so it's always visible on page 1
-        const allEvents = [...vsEvents, ...tmEvents, ...awinOnly];
+        const allEvents = [...tmEvents, ...awinOnly];
 
         updateMeta(show, tmEvents, tmImage);
 

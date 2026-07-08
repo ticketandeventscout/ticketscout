@@ -242,13 +242,26 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
   //   3. Other sellers found prices AND TM has no price → hide TM (no commission + no value)
   container.innerHTML = `
     <div class="compare-block">
-      <div class="compare-title">Compare prices</div>
+      <div class="compare-title">Compare prices from verified sellers</div>
+      <style>
+        .compare-row { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #f0f0f0; }
+        .compare-row:last-child { border-bottom:none; }
+        .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+        .compare-source-name { flex:1; font-size:14px; font-weight:600; color:#1a1a1a; }
+        .compare-right { display:flex; align-items:center; gap:12px; }
+        .compare-from { font-size:11px; color:#888; }
+        .price-label { font-size:18px; font-weight:700; color:#1a1a1a; min-width:60px; text-align:right; }
+        .compare-buy { background:#1a6fc4; color:#fff; padding:8px 16px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; }
+        .compare-buy:hover { background:#155da0; }
+        .best-price-badge { background:#22c55e; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; margin-left:8px; }
+        .compare-loading { padding:20px; text-align:center; color:#888; font-size:14px; }
+      </style>
       <div id="compare-rows">
         <div id="adapter-prices">
-          <div class="compare-loading">Checking prices…</div>
+          <div class="compare-loading">Checking prices across sellers…</div>
         </div>
       </div>
-      <div class="compare-footnote">Prices shown are the lowest available from each seller and may exclude booking fees. Resale platform prices may differ from the original ticket price. Always confirm on the seller's site before purchasing.</div>
+      <div class="compare-footnote">Prices shown are the lowest available and may exclude booking fees. Resale prices may differ from face value. Always confirm on the seller's site before purchasing.</div>
     </div>
   `;
 
@@ -256,7 +269,8 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     const slot = document.getElementById('adapter-prices');
     if (!slot) return;
 
-    const withPrices = results.filter(r => r.available && r.price);
+    // Include VS and other sources even without price — affiliate click still earns commission
+    const withPrices = results.filter(r => r.available && (r.price || r.source === 'Vivid Seats'));
 
     if (withPrices.length === 0) {
       // No other sellers — show TM as the only source (even if no price)
@@ -278,16 +292,35 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
 
 // Builds a single comparison row as an HTML string.
 // price is a number (GBP) or null/undefined for "See site".
+// Source logo map — maps seller name to a logo URL or abbreviation colour
+const SOURCE_STYLES = {
+  'Ticketmaster':  { bg: '#026cdf', color: '#fff', abbr: 'TM' },
+  'Gigsberg':      { bg: '#e84545', color: '#fff', abbr: 'GS' },
+  'Vivid Seats':   { bg: '#00a0e9', color: '#fff', abbr: 'VS' },
+  'SportsEvents365': { bg: '#ff6600', color: '#fff', abbr: 'SE' },
+  'Skiddle':       { bg: '#00b4b4', color: '#fff', abbr: 'SK' },
+  'SeatGeek':      { bg: '#de5448', color: '#fff', abbr: 'SG' },
+  'Awin':          { bg: '#555',    color: '#fff', abbr: 'AW' },
+};
+
 function buildRow(source, price, url, currency) {
-  const symbol = (currency && currency !== 'GBP') ? '$' : '£';
-  const priceDisplay = price ? `${symbol}${Math.round(price)}` : 'See site';
-  const dataPrice = price ? Math.round(price) : 0;
+  const symbol      = (currency && currency !== 'GBP') ? '$' : '£';
+  const priceText   = price ? `${symbol}${Math.round(price)}` : null;
+  const dataPrice   = price ? Math.round(price) : 0;
+  const style       = SOURCE_STYLES[source] || { bg: '#1a6fc4', color: '#fff', abbr: source.slice(0,2).toUpperCase() };
+
   return `
     <div class="compare-row" data-price="${dataPrice}">
-      <span class="compare-source">${source}</span>
+      <div class="compare-source-logo" style="background:${style.bg};color:${style.color};">
+        ${style.abbr}
+      </div>
+      <div class="compare-source-name">${source}</div>
       <div class="compare-right">
-        <div class="price-label">${priceDisplay}</div>
-        <a href="${url}" target="_blank" rel="noopener noreferrer" class="compare-buy">Buy now →</a>
+        ${priceText
+          ? `<div class="compare-from">From</div><div class="price-label">${priceText}</div>`
+          : `<div class="price-label" style="font-size:13px;color:#888;">Check site</div>`
+        }
+        <a href="${url}" target="_blank" rel="noopener noreferrer" class="compare-buy">Get tickets →</a>
       </div>
     </div>
   `;
@@ -326,4 +359,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
+}         
