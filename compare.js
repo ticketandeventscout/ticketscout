@@ -267,17 +267,26 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     <div class="compare-block">
       <div class="compare-title">Compare prices from verified sellers</div>
       <style>
-        .compare-row { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #f0f0f0; }
+        .compare-block { font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
+        .compare-row { display:flex; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid #f0f0f0; }
         .compare-row:last-child { border-bottom:none; }
-        .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
-        .compare-source-name { flex:1; font-size:14px; font-weight:600; color:#1a1a1a; }
-        .compare-right { display:flex; align-items:center; gap:12px; }
-        .compare-from { font-size:11px; color:#888; }
-        .price-label { font-size:18px; font-weight:700; color:#1a1a1a; min-width:60px; text-align:right; }
-        .compare-buy { background:#1a6fc4; color:#fff; padding:8px 16px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; }
+        .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; letter-spacing:0; }
+        .compare-source-name { flex:1; font-size:14px; font-weight:600; color:#1a1a1a; min-width:100px; }
+        .compare-right { display:flex; align-items:center; gap:8px; margin-left:auto; flex-shrink:0; }
+        .compare-from { font-size:11px; color:#888; white-space:nowrap; }
+        .price-label { font-size:18px; font-weight:700; color:#1a1a1a; white-space:nowrap; min-width:64px; text-align:right; }
+        .compare-buy { background:#1a6fc4; color:#fff; padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; flex-shrink:0; }
         .compare-buy:hover { background:#155da0; }
-        .best-price-badge { background:#22c55e; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; margin-left:8px; }
+        .best-price-badge { display:block; background:#22c55e; color:#fff; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; text-align:center; margin-top:3px; white-space:nowrap; }
+        .compare-price-wrap { display:flex; flex-direction:column; align-items:flex-end; }
         .compare-loading { padding:20px; text-align:center; color:#888; font-size:14px; }
+        .compare-footnote { font-size:11px; color:#999; text-align:center; padding:12px 16px 4px; line-height:1.5; }
+        .compare-title { font-size:14px; font-weight:600; color:#1a1a1a; padding:14px 16px 8px; border-bottom:1px solid #f0f0f0; }
+        @media(max-width:480px) {
+          .compare-source-name { font-size:13px; min-width:80px; }
+          .price-label { font-size:16px; }
+          .compare-buy { padding:8px 12px; font-size:12px; }
+        }
       </style>
       <div id="compare-rows">
         <div id="adapter-prices">
@@ -347,14 +356,14 @@ function buildRow(source, price, url, currency) {
 
   return `
     <div class="compare-row" data-price="${dataPrice}">
-      <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;">
+      <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
         ${buildLogoEl(style)}
       </div>
       <div class="compare-source-name">${source}</div>
       <div class="compare-right">
         ${priceText
-          ? `<div class="compare-from">From</div><div class="price-label">${priceText}</div>`
-          : `<div class="price-label" style="font-size:13px;color:#888;">Check site</div>`
+          ? `<div class="compare-from">From</div><div class="compare-price-wrap"><div class="price-label">${priceText}</div></div>`
+          : `<div class="compare-price-wrap"><div class="price-label" style="font-size:13px;color:#888;">Check site</div></div>`
         }
         <a href="${url}" target="_blank" rel="noopener noreferrer" class="compare-buy">Get tickets →</a>
       </div>
@@ -383,7 +392,10 @@ function highlightBestPrice() {
       const badge = document.createElement('span');
       badge.textContent = 'Best price';
       badge.className = 'best-price-badge';
-      row.querySelector('.price-label')?.appendChild(badge);
+      // Append to price-wrap so badge sits below the price, not inside it
+      const wrap = row.querySelector('.compare-price-wrap');
+      if (wrap) wrap.appendChild(badge);
+      else row.querySelector('.price-label')?.insertAdjacentElement('afterend', badge);
     }
   });
 }
@@ -395,4 +407,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}         
+}
