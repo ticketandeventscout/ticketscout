@@ -905,7 +905,23 @@
             _embedded: { venues: vs.venue ? [{ name: vs.venue, city: { name: vs.city || '' } }] : [] }
           });
         }
-        const allEvents = [...tmEvents, ...awinOnly];
+        // VS fallback: only show in event list if TM+Awin have no events
+        const vsEventCards = [];
+        if (vsData?.match?.url && tmEvents.length === 0 && (awinNormalised||[]).length === 0) {
+          const vs = vsData.match;
+          vsEventCards.push({
+            id:          `vs-${encodeURIComponent(artist.name||'')}`,
+            name:        vs.name || `${artist.name} - Tickets`,
+            _vs:         true,
+            _url:        vs.url,
+            _price:      vs.price,
+            _merchant:   'Vivid Seats',
+            dates:       { start: { localDate: vs.date || '', localTime: '' } },
+            priceRanges: vs.price ? [{ min: vs.price, currency: vs.currency || 'USD' }] : [],
+            _embedded:   { venues: vs.venue ? [{ name: vs.venue, city: { name: vs.city || '' } }] : [] }
+          });
+        }
+        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards];
 
         updateMeta(artist, tmEvents, tmImage); // use TM events for schema
         if (allEvents.length > 0) {

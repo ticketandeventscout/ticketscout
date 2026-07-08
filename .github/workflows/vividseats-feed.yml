@@ -5,63 +5,65 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   refresh-feed:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Install lftp
-        run: sudo apt-get install -y lftp
+        run: sudo apt-get update -q && sudo apt-get install -y lftp
 
-      - name: Download Vivid Seats feed via FTP
+      - name: Download Vivid Seats feed
         env:
           FTP_USER: ${{ secrets.IMPACT_FTP_USER }}
           FTP_PASS: ${{ secrets.IMPACT_FTP_PASS }}
         run: |
           mkdir -p public
-          # Write credentials to .netrc for safer handling of special characters
-          echo "machine products.impact.com login ${FTP_USER} password ${FTP_PASS}" > ~/.netrc
-          chmod 600 ~/.netrc
-          lftp -c "
-            set ftp:ssl-allow no;
-            set ftp:passive-mode yes;
-            set net:timeout 120;
-            set net:max-retries 3;
-            open products.impact.com;
-            get /Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz -o public/vividseats-feed.csv.gz;
-            bye
-          "
-          rm -f ~/.netrc
-          echo "Result: $(du -h public/vividseats-feed.csv.gz 2>/dev/null || echo 'FILE NOT FOUND')"
+          # Write lftp script to file to avoid shell interpolation issues with special chars
+          cat > /tmp/lftp_script.txt << 'SCRIPT'
+          set ftp:ssl-allow no
+          set ftp:passive-mode yes
+          set net:timeout 120
+          set net:max-retries 3
+          SCRIPT
+          echo "open -u \"$FTP_USER\",\"$FTP_PASS\" products.impact.com" >> /tmp/lftp_script.txt
+          echo "get /Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz -o public/vividseats-feed.csv.gz" >> /tmp/lftp_script.txt
+          echo "bye" >> /tmp/lftp_script.txt
+          
+          lftp -f /tmp/lftp_script.txt
+          rm /tmp/lftp_script.txt
+          
+          ls -lh public/vividseats-feed.csv.gz
 
       - name: Verify download
         run: |
           if [ ! -f public/vividseats-feed.csv.gz ]; then
-            echo "ERROR: Feed file missing after download attempt"
-            exit 1
+            echo "ERROR: File missing"; exit 1
           fi
           SIZE=$(stat -c%s public/vividseats-feed.csv.gz)
-          echo "File size: ${SIZE} bytes"
           if [ "$SIZE" -lt 1000000 ]; then
-            echo "ERROR: File too small — download likely failed"
-            cat public/vividseats-feed.csv.gz  # show error message if any
-            exit 1
+            echo "ERROR: File too small (${SIZE} bytes)"; exit 1
           fi
-          echo "Feed file OK: $(du -h public/vividseats-feed.csv.gz | cut -f1)"
+          echo "OK: $(du -h public/vividseats-feed.csv.gz | cut -f1)"
 
-      - name: Commit updated feed
+      - name: Commit and push
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/vividseats-feed.csv.gz
           if git diff --staged --quiet; then
-            echo "Feed unchanged — no commit needed"
+            echo "No changes to commit"
           else
-            git commit -m "chore: refresh Vivid Seats feed [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            git commit -m "chore: refresh VS feed [$(date -u '+%Y-%m-%d %H:%M UTC')]"
             git push
           fi
 
@@ -69,10 +71,6 @@ jobs:
         env:
           CACHE_URL: ${{ secrets.CLOUDFLARE_CACHE_URL }}
         run: |
-          RESPONSE=$(curl -s --max-time 60 "$CACHE_URL")
-          echo "Cache response: $RESPONSE"
-          if echo "$RESPONSE" | grep -q '"success":true'; then
-            echo "Cache rebuilt successfully"
-          else
-            echo "WARNING: Unexpected cache response"
-          fi
+          RESP=$(curl -sf --max-time 60 "$CACHE_URL" || echo '{"error":"curl failed"}')
+          echo "$RESP" | head -c 300
+          echo "$RESP" | grep -q '"success":true' && echo "Cache OK" || echo "Cache rebuild check response above"
