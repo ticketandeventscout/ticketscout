@@ -99,32 +99,46 @@ const ADAPTERS = [
   },
 
   {
-    // Awin category adapter — covers ALL approved Awin ticket merchants
-    // in one call (currently: Gigsberg UK + Theatre Tickets Direct).
-    // New approved Awin merchants appear automatically with no code changes.
-    source: 'Awin',
+    // Gigsberg adapter via Awin events feed
+    // Uses the same /api/awin-events endpoint as the event list pages
+    source: 'Gigsberg',
 
     buildUrl(eventName, venueCity, eventDate, venueName) {
-      const params = new URLSearchParams({ q: eventName });
+      const params = new URLSearchParams({ name: eventName });
       if (eventDate) params.set('date', eventDate);
-      if (venueName) params.set('venue', venueName);
-      return `/api/awin-category?${params.toString()}`;
+      return `/api/awin-events?${params.toString()}`;
     },
 
     normalise(data, eventName) {
-      if (data.error || !data.matches?.length) return null;
+      // awin-events returns { events: [...] }
+      const events = data?.events || [];
+      console.log('[Gigsberg] total events returned:', events.length, '| first 3 names:', events.slice(0,3).map(e=>e.name+'|'+e.date));
+      if (!events.length) return null;
 
-      // awin-category returns the best match already — use it directly
-      const match = data.matches[0];
-      if (!match.price || !match.url) return null;
+      // Pick the best matching event — prefer exact date match then lowest price
+      const normQ = eventName.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+      const scored = events
+        .filter(e => e.url && e.price)
+        .map(e => {
+          const n = (e.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+          let score = 0;
+          if (n === normQ)                  score = 100;
+          else if (n.startsWith(normQ))     score = 70;
+          else if (n.includes(normQ))       score = 50;
+          else if (normQ.includes(n) && n.length > 4) score = 30;
+          return { e, score };
+        })
+        .filter(s => s.score > 0)
+        .sort((a, b) => b.score - a.score || a.e.price - b.e.price);
 
-      // Use merchant_name as the display source so users see "Gigsberg" or
-      // "Theatre Tickets Direct" rather than the generic "Awin" label
+      if (!scored.length) return null;
+      const best = scored[0].e;
+
       return {
-        source:    match.merchant_name || 'Awin',
-        price:     Math.round(match.price),
-        currency:  match.currency || 'GBP',
-        url:       match.url,
+        source:    best.merchantName || 'Gigsberg',
+        price:     Math.round(best.price),
+        currency:  best.currency || 'GBP',
+        url:       best.url,
         available: true
       };
     }
@@ -232,7 +246,7 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
     ADAPTERS.map(async adapter => {
       // Pass performerName for search queries, but keep full eventName for normalise matching
       const url = adapter.buildUrl(performerName, venueCity, eventDate, venueName);
-      console.log('[compare] Fetching:', adapter.source, 'performer:', performerName, 'date:', eventDate, '->', url);
+
       const response = await fetch(url);
       const ct = response.headers.get('content-type') || '';
       if (!ct.includes('application/json')) {
@@ -242,8 +256,7 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
       const data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
       if (!data) return null;
       const result = await adapter.normalise(data, performerName);
-      if (!result) console.log('[compare]', adapter.source, 'raw response keys:', Object.keys(data||{}), JSON.stringify(data).slice(0,200));
-      else console.log('[compare]', adapter.source, '->', `price:${result.price} currency:${result.currency}`);
+      // result is null if adapter found no match
       return result;
     })
   );
