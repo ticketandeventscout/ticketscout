@@ -32,6 +32,7 @@ jobs:
           cat > /tmp/lftp_script.txt << 'SCRIPT'
           set ftp:ssl-allow no
           set ftp:passive-mode yes
+          set xfer:clobber yes
           set net:timeout 120
           set net:max-retries 3
           SCRIPT

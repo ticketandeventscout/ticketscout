@@ -866,6 +866,7 @@
         // VS never appears in the event list (it belongs in the compare table).
         // Exception: if TM+Awin return zero events, show VS as a fallback card.
 
+        console.log('Events loaded — TM:', tmEvents.length, '| Awin:', (awinEvents||[]).length, '| VS:', vsData?.match?.name || 'null');
         const tmDates = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
 
         // Awin events not covered by TM — shown as separate dated cards
