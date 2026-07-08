@@ -116,25 +116,14 @@ async function findSpecificEvent(q, date, camref, env) {
   if (!apiKey || !userKey || !publisherId) return null;
 
   try {
-    // Use Partnerize Partner API to search product feeds for Ticombo events
-    // Auth: Basic base64(userKey:apiKey)
+    // Confirmed working base: api.performancehorizon.com
     const basicAuth = btoa(`${userKey}:${apiKey}`);
+    const BASE = `https://api.performancehorizon.com/user/publisher/${publisherId}`;
 
-    // Search Ticombo's product feed via Partnerize feeds endpoint
-    // Campaign IDs for Ticombo (UK campaign as primary search)
-    const feedUrl = `https://api.partnerize.com/user/${publisherId}/campaigns.json?limit=100`;
-    const resp = await fetch(feedUrl, {
-      headers: {
-        'Authorization': `Basic ${basicAuth}`,
-        'Accept': 'application/json'
-      }
-    });
-
-    if (!resp.ok) return null;
-
-    const data = await resp.json();
-    // For now return null — we'll add product feed search once we confirm API access
-    // The fallback search link is sufficient for launch
+    // Check creatives for Ticombo UK campaign — look for product feed URLs
+    // Campaign IDs confirmed: US=1011l6397, more via /campaign.json
+    // For now return null — product feed search to be added once creative endpoints confirmed
+    // The search deep-link fallback earns commission on any purchase
     return null;
 
   } catch (e) {

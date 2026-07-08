@@ -30,65 +30,64 @@ export async function onRequestGet({ request, env }) {
   const basicAuth = btoa(`${userKey}:${apiKey}`);
   const headers   = { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' };
 
-  // Partnerize uses performancehorizon.com domain for the publisher API
-  // URL format: /user/publisher/{publisherId}/
-  const BASE = `https://api.partnerize.com/user/publisher/${publisherId}`;
+  // Confirmed working base: api.performancehorizon.com
+  const BASE = `https://api.performancehorizon.com/user/publisher/${publisherId}`;
 
-  // Test 1: List all campaigns for this publisher
+  // Test 1: Full campaign list with all fields
   try {
     const url = `${BASE}/campaign.json`;
     const r = await fetch(url, { headers });
-    const text = await r.text();
-    results.tests.push({
-      test:     'List campaigns (/user/publisher/{id}/campaign.json)',
-      url,
-      status:   r.status,
-      ok:       r.ok,
-      response: tryJson(text.slice(0, 1000))
-    });
-  } catch(e) { results.tests.push({ test: 'List campaigns', error: String(e) }); }
+    const data = tryJson(await r.text());
+    // Extract just the key fields we need
+    const campaigns = (data?.campaigns || []).map(c => ({
+      id:    c.campaign?.campaign_id,
+      title: c.campaign?.title,
+      url:   c.campaign?.destination_url,
+      status: c.campaign?.status
+    }));
+    results.tests.push({ test: 'All campaigns', status: r.status, ok: r.ok, count: data?.count, campaigns });
+  } catch(e) { results.tests.push({ test: 'All campaigns', error: String(e) }); }
 
-  // Test 2: List creatives (includes product feeds/deep-links)
+  // Test 2: Creatives for each campaign — check for product feed links
+  // Use Ticombo US campaign ID 1011l6397 as first test
+  const testCampaignId = '1011l6397';
   try {
-    const url = `${BASE}/creative.json`;
+    const url = `${BASE}/campaign/${testCampaignId}/creative.json`;
     const r = await fetch(url, { headers });
     const text = await r.text();
     results.tests.push({
-      test:     'List creatives (/user/publisher/{id}/creative.json)',
+      test:     `Creatives for campaign ${testCampaignId} (Ticombo US)`,
       url,
       status:   r.status,
       ok:       r.ok,
-      response: tryJson(text.slice(0, 1000))
+      response: tryJson(text.slice(0, 1500))
     });
-  } catch(e) { results.tests.push({ test: 'List creatives', error: String(e) }); }
+  } catch(e) { results.tests.push({ test: 'Creatives', error: String(e) }); }
 
-  // Test 3: Get publisher profile
+  // Test 3: Commission rates for Ticombo US
   try {
-    const url = `https://api.partnerize.com/user/publisher/${publisherId}.json`;
+    const url = `${BASE}/campaign/${testCampaignId}/commission.json`;
     const r = await fetch(url, { headers });
     const text = await r.text();
     results.tests.push({
-      test:     'Publisher profile',
+      test:     `Commission rates for ${testCampaignId}`,
       url,
       status:   r.status,
       ok:       r.ok,
-      response: tryJson(text.slice(0, 500))
+      response: tryJson(text.slice(0, 800))
     });
-  } catch(e) { results.tests.push({ test: 'Publisher profile', error: String(e) }); }
+  } catch(e) { results.tests.push({ test: 'Commission', error: String(e) }); }
 
-  // Test 4: Try performancehorizon.com base (legacy domain)
-  try {
-    const url = `https://api.performancehorizon.com/user/publisher/${publisherId}/campaign.json`;
-    const r = await fetch(url, { headers });
-    const text = await r.text();
-    results.tests.push({
-      test:     'Campaigns via performancehorizon.com (legacy domain)',
-      url,
-      status:   r.status,
-      ok:       r.ok,
-      response: tryJson(text.slice(0, 500))
-    });
-  } catch(e) { results.tests.push({ test: 'Legacy domain', error: String(e) }); }
+  // Test 4: Deep-link generation
+  const sampleDestination = 'https://www.ticombo.com/en/search?q=Metallica';
+  results.sampleLinks = {
+    UK:    `https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:${encodeURIComponent(sampleDestination)}`,
+    US:    `https://ticombo.prf.hn/click/camref:1100l5P9x3/destination:${encodeURIComponent(sampleDestination)}`,
+    DE:    `https://ticombo.prf.hn/click/camref:1100l5P9wR/destination:${encodeURIComponent(sampleDestination)}`,
+    detected: `https://ticombo.prf.hn/click/camref:${
+      {'GB':'1100l5P9x2','US':'1100l5P9x3','DE':'1100l5P9wR'}[country] || '1100l5P9x2'
+    }/destination:${encodeURIComponent(sampleDestination)}`
+  };
 
   // Test 3: Sample tracking link verification
   const sampleUrl = `https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:${encodeURIComponent('https://www.ticombo.com/en/search?q=Metallica')}`;
