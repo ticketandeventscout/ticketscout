@@ -765,28 +765,25 @@
         const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
         const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
 
-        // Vivid Seats: convert match result to event card format
+        // Vivid Seats: always add a VS card so it's always visible alongside TM/Awin
         const vsEvents = [];
         if (vsData?.match?.url) {
           const vs = vsData.match;
-          const vsDate = vs.date ? vs.date.split('T')[0] : '';
-          const allDates = new Set([...tmDates, ...(awinNormalised||[]).map(e=>e.dates?.start?.localDate).filter(Boolean)]);
-          // Only add if not a fallback search link OR no TM/Awin coverage at all
-          if (!vs.isFallback || (tmEvents.length === 0 && (awinNormalised||[]).length === 0)) {
-            if (!vsDate || !allDates.has(vsDate)) {
-              vsEvents.push({
-                id:        `vs-${encodeURIComponent(vs.name||'')}`,
-                name:      vs.isFallback ? `Search ${show.name} on Vivid Seats` : (vs.name || `${show.name} - Tickets`),
-                _vs:       true,
-                _url:      vs.url,
-                _price:    vs.price,
-                _merchant: 'Vivid Seats',
-                dates:     { start: { localDate: vsDate, localTime: '' } },
-                priceRanges: vs.price ? [{ min: vs.price, currency: 'GBP' }] : [],
-                _embedded: { venues: vs.venue ? [{ name: vs.venue, city: { name: '' } }] : [] }
-              });
-            }
-          }
+          const vsDate = vs.date || '';
+          const hasOtherCoverage = tmEvents.length > 0 || (awinNormalised||[]).length > 0;
+          const vsSearchUrl = `https://vivid-seats.pxf.io/c/7443544/952533/12730?u=${encodeURIComponent('https://www.vividseats.com/search?searchTerm=' + encodeURIComponent(show.search || show.name))}`;
+          vsEvents.push({
+            id:        `vs-${encodeURIComponent(show.name||'')}`,
+            name:      hasOtherCoverage ? `show.name tickets on Vivid Seats` : (vs.name || `show.name - Tickets`),
+            _vs:       true,
+            _url:      hasOtherCoverage ? vsSearchUrl : vs.url,
+            _price:    hasOtherCoverage ? null : vs.price,
+            _merchant: 'Vivid Seats',
+            _isSearch: hasOtherCoverage,
+            dates:     { start: { localDate: hasOtherCoverage ? '' : vsDate, localTime: '' } },
+            priceRanges: (!hasOtherCoverage && vs.price) ? [{ min: vs.price, currency: vs.currency || 'USD' }] : [],
+            _embedded: { venues: vs.venue ? [{ name: vs.venue, city: { name: vs.city || '' } }] : [] }
+          });
         }
         const allEvents = [...tmEvents, ...awinOnly, ...vsEvents];
 
