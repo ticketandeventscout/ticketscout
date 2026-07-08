@@ -112,7 +112,8 @@ const ADAPTERS = [
     normalise(data, eventName) {
       // awin-events returns { events: [...] }
       const events = data?.events || [];
-      console.log('[Gigsberg] total events returned:', events.length, '| first 3 names:', events.slice(0,3).map(e=>e.name+'|'+e.date));
+      console.log('[Gigsberg] response keys:', Object.keys(data||{}), '| events:', events.length, '| error:', data?.error, '| note:', data?.note);
+      if (events.length > 0) console.log('[Gigsberg] first event:', events[0]?.name, '|', events[0]?.date);
       if (!events.length) return null;
 
       // Pick the best matching event — prefer exact date match then lowest price
