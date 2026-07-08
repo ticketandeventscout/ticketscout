@@ -442,6 +442,31 @@ async function showEventDetail(eventId) {
   grid.className = 'detail-grid';
   grid.innerHTML = '<div class="loading">Loading event…</div>';
 
+  // Handle Awin-sourced events (no TM ID) — extract name+date from synthetic ID
+  if (eventId.startsWith('awin-')) {
+    const decoded    = decodeURIComponent(eventId.slice(5)); // strip 'awin-'
+    const dateMatch  = decoded.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
+    const eventDate  = dateMatch ? dateMatch[1] : '';
+    const eventName  = dateMatch ? dateMatch[2] : decoded;
+    const dateStr    = eventDate ? new Date(eventDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '';
+
+    document.getElementById('results-title').textContent = eventName;
+    grid.innerHTML = `
+      <div class="detail-card">
+        <div class="detail-body">
+          <h3 class="detail-name">${eventName}</h3>
+          <div class="detail-meta">${dateStr}</div>
+        </div>
+      </div>
+      <div id="detail-compare"></div>
+    `;
+    renderComparePrices(
+      document.getElementById('detail-compare'),
+      eventName, null, '#', '', eventDate, ''
+    );
+    return;
+  }
+
   try {
     const response = await fetch(`/api/ticketmaster?id=${encodeURIComponent(eventId)}`);
     const event = await response.json();

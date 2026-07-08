@@ -750,7 +750,9 @@
         const awinNormalised = awinEvents.map(e => ({
           id:     e.id,
           name:   e.name,
-          _awin:  true,
+          _awin:      true,
+          _eventName: e.name,
+          _eventDate: e.date || '',
           _url:   e.url,
           _price: e.price,
           _image: e.image,
@@ -1003,24 +1005,29 @@
       const minPrice  = e.priceRanges?.[0]?.min;
       const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
 
-      if (e._awin || e._vs) {
-        const merchantBadge = e._merchant
-          ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>`
-          : '';
-        const metaParts = [location, date].filter(Boolean);
-        const metaHtml  = metaParts.length > 0
-          ? `<div class="event-list-meta">${metaParts.join(' · ')}</div>`
-          : '';
-        return `
-          <a class="event-list-item" href="${e._url}" target="_blank" rel="noopener noreferrer">
+      // VS fallback: link directly
+      if (e._vs) {
+        const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
+        const meta  = [location, date].filter(Boolean).join(' · ');
+        return `<a class="event-list-item" href="${e._url}" target="_blank" rel="noopener noreferrer">
             <div class="event-list-left">
-              <div class="event-list-name">${e.name}${merchantBadge}</div>
-              ${metaHtml}
+              <div class="event-list-name">${e.name}${badge}</div>
+              ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
-            <div class="event-list-right">
-              ${priceHtml}
-              <span class="event-list-cta">Buy tickets →</span>
+            <div class="event-list-right">${priceHtml}<span class="event-list-cta">Buy tickets →</span></div>
+          </a>`;
+      }
+      // Awin events: route through compare page
+      if (e._awin) {
+        const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name))}`;
+        const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
+        const meta  = [location, date].filter(Boolean).join(' · ');
+        return `<a class="event-list-item" href="${compareUrl}">
+            <div class="event-list-left">
+              <div class="event-list-name">${e.name}${badge}</div>
+              ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
+            <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>
           </a>`;
       }
 
