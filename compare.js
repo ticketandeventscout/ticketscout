@@ -267,15 +267,15 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     <div class="compare-block">
       <div class="compare-title">Compare prices from verified sellers</div>
       <style>
-        .compare-block { font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
+        .compare-block { font-family:'Inter','Helvetica Neue',Arial,sans-serif; overflow:hidden; }
         .compare-row { display:flex; align-items:center; gap:12px; padding:14px 16px; border-bottom:1px solid #f0f0f0; }
         .compare-row:last-child { border-bottom:none; }
         .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; letter-spacing:0; }
         .compare-source-name { flex:1; font-size:14px; font-weight:600; color:#1a1a1a; min-width:100px; }
-        .compare-right { display:flex; align-items:center; gap:8px; margin-left:auto; flex-shrink:0; }
+        .compare-right { display:flex; align-items:center; gap:8px; margin-left:auto; flex-shrink:0; flex-wrap:nowrap; min-width:0; }
         .compare-from { font-size:11px; color:#888; white-space:nowrap; }
-        .price-label { font-size:18px; font-weight:700; color:#1a1a1a; white-space:nowrap; min-width:64px; text-align:right; }
-        .compare-buy { background:#1a6fc4; color:#fff; padding:9px 18px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; flex-shrink:0; }
+        .price-label { font-size:18px; font-weight:700; color:#1a1a1a; white-space:nowrap; min-width:56px; max-width:90px; text-align:right; }
+        .compare-buy { background:#1a6fc4; color:#fff; padding:9px 14px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; flex-shrink:0; max-width:140px; }
         .compare-buy:hover { background:#155da0; }
         .best-price-badge { display:block; background:#22c55e; color:#fff; font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; text-align:center; margin-top:3px; white-space:nowrap; }
         .compare-price-wrap { display:flex; flex-direction:column; align-items:flex-end; }
@@ -329,7 +329,7 @@ const SOURCE_STYLES = {
   'Ticketmaster':    { logo: 'https://www.ticketmaster.co.uk/favicon.ico',           bg: '#026cdf', color: '#fff', abbr: 'TM' },
   'Gigsberg':        { logo: 'https://www.gigsberg.com/favicon.ico',                 bg: '#e84545', color: '#fff', abbr: 'GS' },
   'Gigsberg UK':     { logo: 'https://www.gigsberg.com/favicon.ico',                 bg: '#e84545', color: '#fff', abbr: 'GS' },
-  'Vivid Seats':     { logo: 'https://www.vividseats.com/favicon.ico',               bg: '#00a0e9', color: '#fff', abbr: 'VS' },
+  'Vivid Seats':     { logo: null,                                                    bg: '#00a0e9', color: '#fff', abbr: 'VS' },
   'SportsEvents365': { logo: 'https://www.sportsevents365.com/favicon.ico',          bg: '#ff6600', color: '#fff', abbr: 'SE' },
   'Skiddle':         { logo: 'https://www.skiddle.com/favicon.ico',                  bg: '#00b4b4', color: '#fff', abbr: 'SK' },
   'SeatGeek':        { logo: 'https://seatgeek.com/favicon.ico',                     bg: '#de5448', color: '#fff', abbr: 'SG' },
