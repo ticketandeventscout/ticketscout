@@ -2,176 +2,157 @@
 // TicketScout — Vivid Seats catalog cache
 // Runs as a Cloudflare Pages Function at /api/vividseats-cache
 //
-// Downloads the Vivid Seats bulk feed CSV from Impact FTP,
-// parses it, and stores a name→item lookup in KV for fast searching.
+// Builds a searchable KV index from the Vivid Seats catalog via Impact API.
+// The bulk CSV feed requires FTP credentials (separate from API credentials).
+// Instead we paginate through the catalog Items API using AfterId cursor pagination,
+// filtering to UK/IE events and upcoming events to keep the index manageable.
 //
-// Impact FTP feed location (from catalog metadata):
-//   /Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz
-// Accessed via: https://api.impact.com/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz
-// Auth: Basic (AccountSID:AuthToken)
+// Strategy:
+//   - Fetch up to MAX_PAGES pages of 100 items each (capped at 60s worker limit)
+//   - Filter to: ExpirationDate in future AND (UK/IE city OR Concert/Sport category)
+//   - Store as KV index for fast in-memory search by vividseats.js
 //
 // Cron: run weekly via cron-job.org
 //   https://ticketscout.co.uk/api/vividseats-cache?trigger=1
 //
 // KV keys:
-//   vs:catalog:index   — JSON array of { name, url, price, currency, date, venue, city }
+//   vs:catalog:index   — JSON array of compact event objects
 //   vs:catalog:updated — ISO timestamp of last update
+//   vs:catalog:stats   — { total_fetched, total_kept, pages, updated }
 //
 // Required env vars:
 //   IMPACT_ACCOUNT_SID, IMPACT_AUTH_TOKEN, GIGSBERG_KV
 // ===========================
 
-const KV_INDEX_KEY   = 'vs:catalog:index';
-const KV_UPDATED_KEY = 'vs:catalog:updated';
-const KV_TTL         = 7 * 24 * 60 * 60; // 7 days
-// Feed URL — Impact hosts catalog feeds at a specific authenticated endpoint.
-// The catalog metadata returns relative paths like /Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz
-// The full authenticated URL uses the mediapartners base with the account SID.
-// We build this dynamically using the account SID from env.
-const FEED_PATH = '/Vivid-Seats/Ticket-Feed_CUSTOM.csv.gz';
+const CATALOG_ID  = '7904';
+const KV_INDEX    = 'vs:catalog:index';
+const KV_UPDATED  = 'vs:catalog:updated';
+const KV_STATS    = 'vs:catalog:stats';
+const KV_TTL      = 8 * 24 * 60 * 60; // 8 days
+const PAGE_SIZE   = 100;
+const MAX_PAGES   = 200; // 20,000 items max per run — stays well within 30s worker limit
+
+// UK/IE cities to prioritise (lowercase)
+const UK_CITIES = new Set([
+  'london','manchester','birmingham','glasgow','edinburgh','liverpool',
+  'leeds','newcastle','sheffield','bristol','nottingham','cardiff',
+  'belfast','dublin','leicester','southampton','brighton','reading',
+  'coventry','hull','stoke','wolverhampton','derby','sunderland',
+  'portsmouth','oxford','cambridge','bath','york','exeter'
+]);
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
+
   if (url.searchParams.get('trigger') !== '1') {
-    const updated = await env.GIGSBERG_KV?.get(KV_UPDATED_KEY);
+    const updated = await env.GIGSBERG_KV?.get(KV_UPDATED).catch(() => null);
+    const stats   = await env.GIGSBERG_KV?.get(KV_STATS).catch(() => null);
     return text([
       'Vivid Seats catalog cache — usage:',
-      '  ?trigger=1  — download feed, parse, store in KV',
+      '  ?trigger=1        — build KV index from Impact catalog API',
+      '  ?trigger=1&all=1  — include all regions (not just UK/IE)',
       '',
       `Last updated: ${updated || 'never'}`,
-      'Run ?trigger=1 to refresh.'
+      stats ? `Last stats: ${stats}` : ''
     ].join('\n'));
   }
 
   const accountSid = env.IMPACT_ACCOUNT_SID;
   const authToken  = env.IMPACT_AUTH_TOKEN;
   const kv         = env.GIGSBERG_KV;
+  const allRegions = url.searchParams.get('all') === '1';
 
-  if (!accountSid || !authToken) return json({ error: 'Missing Impact credentials' }, 500);
-  if (!kv)                        return json({ error: 'Missing GIGSBERG_KV'        }, 500);
+  if (!accountSid || !authToken) return json({ error: 'Missing IMPACT_ACCOUNT_SID or IMPACT_AUTH_TOKEN' }, 500);
+  if (!kv)                        return json({ error: 'Missing GIGSBERG_KV binding'                     }, 500);
 
   const basicAuth = btoa(`${accountSid}:${authToken}`);
+  const headers   = { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' };
+  const base      = `https://api.impact.com/Mediapartners/${accountSid}/Catalogs/${CATALOG_ID}/Items`;
+  const today     = new Date();
 
-  try {
-    // Download the gzipped CSV feed
-    // Impact feed URLs use the account SID in the path
-    const FEED_URL = `https://api.impact.com/Mediapartners/${accountSid}${FEED_PATH}`;
-    const FEED_URL_ALT = `https://api.impact.com${FEED_PATH}`;
-    let feedResp = await fetch(FEED_URL, {
-      headers: { 'Authorization': `Basic ${basicAuth}` }
-    });
-    // Fallback to path without accountSid if first attempt fails
-    if (!feedResp.ok) {
-      feedResp = await fetch(FEED_URL_ALT, {
-        headers: { 'Authorization': `Basic ${basicAuth}` }
-      });
+  const index    = [];
+  let   afterId  = null;
+  let   pages    = 0;
+  let   fetched  = 0;
+  let   kept     = 0;
+
+  while (pages < MAX_PAGES) {
+    const reqUrl = new URL(base);
+    reqUrl.searchParams.set('PageSize', String(PAGE_SIZE));
+    if (afterId) reqUrl.searchParams.set('AfterId', afterId);
+
+    const resp = await fetch(reqUrl.toString(), { headers });
+    if (!resp.ok) {
+      return json({ error: `Catalog fetch failed: HTTP ${resp.status} on page ${pages + 1}`, kept, fetched }, 500);
     }
 
-    if (!feedResp.ok) {
-      return json({
-        error: `Feed download failed: HTTP ${feedResp.status}`,
-        triedUrls: [FEED_URL, FEED_URL_ALT]
-      }, 500);
-    }
+    const data  = await resp.json();
+    const items = data?.Items || [];
+    pages++;
+    fetched += items.length;
 
-    // Decompress and parse CSV
-    const ds         = new DecompressionStream('gzip');
-    const stream     = feedResp.body.pipeThrough(ds);
-    const reader     = stream.getReader();
-    const decoder    = new TextDecoder('utf-8');
-    let   csvText    = '';
-    let   chunk;
+    if (items.length === 0) break;
 
-    while (!(chunk = await reader.read()).done) {
-      csvText += decoder.decode(chunk.value, { stream: true });
-      // Stop if we have enough data (prevent OOM on 131k rows)
-      if (csvText.length > 50 * 1024 * 1024) break; // 50MB cap
-    }
-
-    const lines  = csvText.split('\n');
-    const header = parseCSVLine(lines[0]);
-
-    // Find column indexes
-    const col = (name) => header.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-    const iName    = col('name');
-    const iUrl     = col('url');
-    const iPrice   = col('currentprice') !== -1 ? col('currentprice') : col('price');
-    const iCurr    = col('currency');
-    const iExpiry  = col('expirationdate');
-    const iVenue   = col('text1');
-    const iCity    = col('text2');
-    const iCat     = col('category');
-    const iSubCat  = col('subcategory');
-
-    const today = new Date();
-    const index = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      if (!lines[i].trim()) continue;
-      const cols = parseCSVLine(lines[i]);
-      if (cols.length < 3) continue;
-
-      const name   = (cols[iName]   || '').trim();
-      const url    = (cols[iUrl]    || '').trim();
-      const expiry = (cols[iExpiry] || '').trim();
-
-      if (!name || !url) continue;
-
+    for (const item of items) {
       // Skip expired events
-      if (expiry && new Date(expiry) < today) continue;
+      if (item.ExpirationDate && new Date(item.ExpirationDate) < today) continue;
+
+      const city    = (item.Text2 || '').toLowerCase().trim();
+      const addr    = (item.Text3 || '').toLowerCase();
+      const cat     = (item.Category || '').toLowerCase();
+
+      // Filter to UK/IE events unless allRegions flag set
+      if (!allRegions) {
+        const isUK = UK_CITIES.has(city) ||
+                     addr.includes('united kingdom') || addr.includes(', uk') ||
+                     addr.includes('england') || addr.includes('scotland') ||
+                     addr.includes('wales') || addr.includes('ireland');
+        if (!isUK) continue;
+      }
+
+      const price = item.CurrentPrice ? parseFloat(item.CurrentPrice) : null;
+      const date  = item.ExpirationDate ? item.ExpirationDate.split('T')[0] : '';
 
       index.push({
-        n: name,                           // name
-        u: url,                            // affiliate url (pre-built)
-        p: cols[iPrice]  ? parseFloat(cols[iPrice])  : null,  // price
-        c: cols[iCurr]   || 'USD',        // currency
-        d: expiry ? expiry.split('T')[0] : '',  // date
-        v: cols[iVenue]  || '',            // venue
-        t: cols[iCity]   || '',            // city
-        g: cols[iCat]    || '',            // category
-        s: cols[iSubCat] || '',            // subcategory
+        n: item.Name          || '',   // event name
+        u: item.Url           || '',   // pre-built affiliate URL
+        p: price,                      // price (USD)
+        c: item.Currency      || 'USD',
+        d: date,                       // event date
+        v: item.Text1         || '',   // venue name
+        t: item.Text2         || '',   // city
+        g: item.Category      || '',   // category
+        s: item.SubCategory   || '',   // subcategory
       });
+      kept++;
     }
 
-    // Store in KV — split into chunks if needed (KV limit 25MB per value)
-    // For now store full index as single value; if > 25MB split later
-    const indexJson = JSON.stringify(index);
-    await kv.put(KV_INDEX_KEY,   indexJson,               { expirationTtl: KV_TTL });
-    await kv.put(KV_UPDATED_KEY, new Date().toISOString(), { expirationTtl: KV_TTL });
-
-    return json({
-      success:  true,
-      total:    index.length,
-      sizeMB:   (indexJson.length / 1024 / 1024).toFixed(2),
-      sample:   index.slice(0, 3),
-      cachedAt: new Date().toISOString()
-    }, 200);
-
-  } catch (err) {
-    console.error('VS cache error:', err);
-    return json({ error: String(err) }, 500);
+    // Get next page cursor from nextpageuri
+    const nextUri = data['@nextpageuri'] || '';
+    const afterMatch = nextUri.match(/AfterId=([^&]+)/);
+    if (!afterMatch || items.length < PAGE_SIZE) break;
+    afterId = afterMatch[1];
   }
-}
 
-// Minimal CSV line parser (handles quoted fields)
-function parseCSVLine(line) {
-  const result = [];
-  let current  = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-      else inQuotes = !inQuotes;
-    } else if (ch === ',' && !inQuotes) {
-      result.push(current);
-      current = '';
-    } else {
-      current += ch;
-    }
-  }
-  result.push(current);
-  return result;
+  // Store in KV
+  const indexJson = JSON.stringify(index);
+  const statsObj  = { total_fetched: fetched, total_kept: kept, pages, updated: new Date().toISOString() };
+
+  await Promise.all([
+    kv.put(KV_INDEX,   indexJson,                   { expirationTtl: KV_TTL }),
+    kv.put(KV_UPDATED, new Date().toISOString(),     { expirationTtl: KV_TTL }),
+    kv.put(KV_STATS,   JSON.stringify(statsObj),     { expirationTtl: KV_TTL })
+  ]);
+
+  return json({
+    success:  true,
+    kept,
+    fetched,
+    pages,
+    sizeMB:   (indexJson.length / 1024 / 1024).toFixed(2),
+    sample:   index.slice(0, 3),
+    updatedAt: new Date().toISOString()
+  }, 200);
 }
 
 function json(body, status) {
