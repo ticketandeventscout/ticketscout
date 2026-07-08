@@ -51,10 +51,14 @@ export async function onRequestGet({ request, env }) {
 
     // Setting this guarantees results belong to exactly one artist/attraction
     const attractionId = incoming.searchParams.get('attractionId');
-    if (attractionId) tmUrl.searchParams.set('attractionId', attractionId);
+    if (attractionId) {
+      tmUrl.searchParams.set('attractionId', attractionId);
+      // Remove GB filter for artist searches — fans want ALL global dates
+      // (e.g. Metallica at Sphere Las Vegas would be excluded by countryCode=GB)
+      tmUrl.searchParams.delete('countryCode');
+    }
 
     // venueId — used by venue pages to load all events at a specific venue
-    // When venueId is set, omit countryCode so non-GB venues aren't filtered out
     const venueId = incoming.searchParams.get('venueId');
     if (venueId) {
       tmUrl.searchParams.set('venueId', venueId);
