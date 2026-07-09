@@ -1,0 +1,74 @@
+name: Refresh TicketNetwork Feed
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'   # Every Monday 02:00 UTC (after VS feed at 01:00)
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  refresh-feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install lftp
+        run: sudo apt-get update -q && sudo apt-get install -y lftp
+
+      - name: Download TicketNetwork feed via FTP
+        env:
+          FTP_USER: ${{ secrets.IMPACT_FTP_USER }}
+          FTP_PASS: ${{ secrets.IMPACT_FTP_PASS }}
+        run: |
+          mkdir -p public
+          cat > /tmp/lftp_script.txt << 'SCRIPT'
+          set ftp:ssl-allow no
+          set ftp:passive-mode yes
+          set xfer:clobber yes
+          set net:timeout 120
+          set net:max-retries 3
+          SCRIPT
+          echo "open -u \"$FTP_USER\",\"$FTP_PASS\" products.impact.com" >> /tmp/lftp_script.txt
+          echo "get /TicketNetwork-Affiliate-Program/Ticketnetwork-Product-Catalog-API_CUSTOM.csv.gz -o public/ticketnetwork-feed.csv.gz" >> /tmp/lftp_script.txt
+          echo "bye" >> /tmp/lftp_script.txt
+          lftp -f /tmp/lftp_script.txt
+          rm /tmp/lftp_script.txt
+          ls -lh public/ticketnetwork-feed.csv.gz
+
+      - name: Verify download
+        run: |
+          if [ ! -f public/ticketnetwork-feed.csv.gz ]; then
+            echo "ERROR: File missing"; exit 1
+          fi
+          SIZE=$(stat -c%s public/ticketnetwork-feed.csv.gz)
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "ERROR: File too small (${SIZE} bytes)"; exit 1
+          fi
+          echo "OK: $(du -h public/ticketnetwork-feed.csv.gz | cut -f1)"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/ticketnetwork-feed.csv.gz
+          if git diff --staged --quiet; then
+            echo "No changes"
+          else
+            git commit -m "chore: refresh TicketNetwork feed [$(date -u '+%Y-%m-%d')]"
+            git push
+          fi
+
+      - name: Rebuild KV cache
+        env:
+          CACHE_URL: ${{ secrets.CLOUDFLARE_CACHE_URL_TN }}
+        run: |
+          RESP=$(curl -sf --max-time 60 "$CACHE_URL" || echo '{"error":"failed"}')
+          echo "$RESP" | head -c 300
+          echo "$RESP" | grep -q '"success":true' && echo "Cache OK" || echo "Check response above"

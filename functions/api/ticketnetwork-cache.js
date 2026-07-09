@@ -2,246 +2,204 @@
 // TicketScout — TicketNetwork catalog cache
 // Runs as a Cloudflare Pages Function at /api/ticketnetwork-cache
 //
-// Uses Impact catalog API — catalog 1872 (193,637 events, API type)
-// Returns XML not JSON — parsed with regex extraction
+// Downloads TicketNetwork feed CSV from GitHub (committed from Impact FTP)
+// FTP: products.impact.com / ps-ftp_7443544 / [IMPACT_FTP_PASS]
+// Feed: /TicketNetwork-Affiliate-Program/Ticketnetwork-Product-Catalog-API_CUSTOM.csv.gz
+// GitHub path: public/ticketnetwork-feed.csv.gz
 //
-// Field mapping for catalog 1872:
-//   Name        → event name
-//   Url         → pre-built affiliate tracking link (ad ID 267961)
-//   LaunchDate  → event date (ExpirationDate is empty)
-//   Labels/Label[0] → venue name
-//   Gtin        → city
-//   Asin        → country
-//   Category    → SPORTS/THEATRE/CONCERTS etc
-//   Text1       → price range e.g. "$82.50- $82.50" (extract min)
-//   AfterId pagination via @nextpageuri
+// Field mapping (catalog 1872 API format):
+//   NAME         → event name
+//   URL          → affiliate tracking link (already contains ad ID 267961)
+//   LAUNCH_DATE  → event date
+//   VENUE        → venue name (in Labels column)
+//   CITY         → city (in Gtin column in API, or CITY in CSV)
+//   CATEGORY     → SPORTS/THEATRE/CONCERTS
+//   PRICE        → from Text1 "$82.50- $82.50" or dedicated PRICE column
 //
-// Runs in chunks — each cron trigger fetches MAX_PAGES pages and appends to KV
-// First run: ?trigger=1&reset=1 (clears existing index)
-// Subsequent runs: ?trigger=1 (appends to existing)
+// Usage:
+//   ?trigger=1        — download from GitHub, parse, store KV
+//   ?trigger=1&test=1 — connectivity test only
 //
-// KV keys:
-//   tn:catalog:chunk:N  — JSON arrays of event objects
-//   tn:catalog:chunks   — total chunk count
-//   tn:catalog:cursor   — AfterId cursor for next run
-//   tn:catalog:updated  — ISO timestamp
-//   tn:catalog:stats    — { total, pages, updated }
-//
-// Required env vars: IMPACT_ACCOUNT_SID, IMPACT_AUTH_TOKEN, GIGSBERG_KV
+// Required env vars: GITHUB_OWNER, GITHUB_REPO, GIGSBERG_KV
 // ===========================
 
-const CATALOG_ID = '1872';
-const MAX_PAGES  = 50;   // ~5,000 items per run — avoids Impact rate limiting
-const PAGE_DELAY = 200;  // 200ms between pages to avoid rate limiting
-const CHUNK_MB   = 20;
-const KV_TTL     = 8 * 24 * 60 * 60;
-const TRACKING   = 'https://ticketnetwork.lusg.net/c/7443544/120057/2322';
+const FEED_PATH = 'public/ticketnetwork-feed.csv.gz';
+const KV_INDEX  = 'tn:catalog:index';
+const KV_CHUNKS = 'tn:catalog:chunks';
+const KV_UPDATED = 'tn:catalog:updated';
+const KV_STATS  = 'tn:catalog:stats';
+const KV_TTL    = 8 * 24 * 60 * 60; // 8 days
+const TRACKING  = 'https://ticketnetwork.lusg.net/c/7443544/120057/2322';
 
 export async function onRequestGet({ request, env }) {
-  const url        = new URL(request.url);
-  const kv         = env.GIGSBERG_KV;
-  const accountSid = env.IMPACT_ACCOUNT_SID;
-  const authToken  = env.IMPACT_AUTH_TOKEN;
+  const url   = new URL(request.url);
+  const kv    = env.GIGSBERG_KV;
+  const owner = env.GITHUB_OWNER;
+  const repo  = env.GITHUB_REPO;
 
   if (url.searchParams.get('trigger') !== '1') {
-    const updated = await kv?.get('tn:catalog:updated').catch(() => null);
-    const stats   = await kv?.get('tn:catalog:stats').catch(() => null);
-    const cursor  = await kv?.get('tn:catalog:cursor').catch(() => null);
+    const updated = await kv?.get(KV_UPDATED).catch(() => null);
+    const stats   = await kv?.get(KV_STATS).catch(() => null);
     return text([
-      'TicketNetwork catalog cache (XML API, catalog 1872)',
-      '  ?trigger=1          — fetch next batch and append to KV',
-      '  ?trigger=1&reset=1  — clear index and start fresh',
-      '  ?trigger=1&test=1   — fetch 2 items and show parsed result',
+      'TicketNetwork catalog cache',
+      `  Feed: https://raw.githubusercontent.com/${owner}/${repo}/main/${FEED_PATH}`,
+      '  ?trigger=1        — download feed, parse, store KV',
+      '  ?trigger=1&test=1 — connectivity test only',
       '',
       `Last updated: ${updated || 'never'}`,
-      `Next cursor:  ${cursor || 'start (no cursor)'}`,
       stats ? `Stats: ${stats}` : 'No stats yet'
     ].join('\n'));
   }
 
-  if (!accountSid || !authToken) return json({ error: 'Missing IMPACT_ACCOUNT_SID or IMPACT_AUTH_TOKEN' }, 500);
-  if (!kv)                        return json({ error: 'Missing GIGSBERG_KV binding' }, 500);
+  if (!owner || !repo) return json({ error: 'Missing GITHUB_OWNER or GITHUB_REPO' }, 500);
+  if (!kv)             return json({ error: 'Missing GIGSBERG_KV binding' }, 500);
 
-  const basicAuth = btoa(`${accountSid}:${authToken}`);
-  const headers   = { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/xml' };
-  const base      = `https://api.impact.com/Mediapartners/${accountSid}/Catalogs/${CATALOG_ID}/Items`;
+  const feedUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${FEED_PATH}`;
 
-  // Test mode — fetch 2 items and show parsed result
+  // Connectivity test
   if (url.searchParams.get('test') === '1') {
-    const r    = await fetch(`${base}?PageSize=2`, { headers });
-    const xml  = await r.text();
-    const items = parseXmlItems(xml);
-    return json({ status: r.status, parsed: items, rawSnippet: xml.slice(0, 300) }, 200);
-  }
-
-  // Reset mode — clear all existing chunks
-  if (url.searchParams.get('reset') === '1') {
-    const chunkCountRaw = await kv.get('tn:catalog:chunks').catch(() => null);
-    if (chunkCountRaw) {
-      const n = parseInt(chunkCountRaw, 10);
-      await Promise.all(Array.from({ length: n }, (_, i) => kv.delete(`tn:catalog:chunk:${i}`)));
+    try {
+      const r = await fetch(feedUrl, { method: 'HEAD' });
+      return json({ url: feedUrl, status: r.status, ok: r.ok, size: r.headers.get('content-length'), type: r.headers.get('content-type') }, 200);
+    } catch(e) {
+      return json({ url: feedUrl, error: String(e) }, 200);
     }
-    await Promise.all([
-      kv.delete('tn:catalog:chunks'),
-      kv.delete('tn:catalog:cursor'),
-      kv.delete('tn:catalog:stats'),
-      kv.delete('tn:catalog:updated'),
-    ]);
-    return json({ reset: true, message: 'Index cleared. Run ?trigger=1 to start fresh build.' }, 200);
   }
 
-  // Load existing state
-  const today         = new Date();
-  let   afterId       = await kv.get('tn:catalog:cursor').catch(() => null);
-  let   chunkCountRaw = await kv.get('tn:catalog:chunks').catch(() => null);
-  let   existingChunks = chunkCountRaw ? parseInt(chunkCountRaw, 10) : 0;
-  let   existingStats  = null;
-  try { existingStats = JSON.parse(await kv.get('tn:catalog:stats') || '{}'); } catch {}
+  try {
+    const feedResp = await fetch(feedUrl);
+    if (!feedResp.ok) {
+      return json({ error: `Feed download failed: HTTP ${feedResp.status}`, url: feedUrl, hint: 'Commit public/ticketnetwork-feed.csv.gz to the repo first' }, 500);
+    }
 
-  const newItems = [];
-  let pages      = 0;
-  let done       = false;
+    // Decompress gzip
+    const ds      = new DecompressionStream('gzip');
+    const body    = feedResp.body.pipeThrough(ds);
+    const reader  = body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let   rawText = '';
 
-  while (pages < MAX_PAGES) {
-    const reqUrl = new URL(base);
-    reqUrl.searchParams.set('PageSize', '100');
-    if (afterId) reqUrl.searchParams.set('AfterId', afterId);
+    while (rawText.length < 60 * 1024 * 1024) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      rawText += decoder.decode(chunk.value, { stream: true });
+    }
+    await reader.cancel().catch(() => {});
 
-    const resp = await fetch(reqUrl.toString(), { headers });
-    if (!resp.ok) {
-      // 401 mid-run = rate limiting (Impact returns 401 not 429)
-      // Save cursor so next run picks up where we left off
-      if (resp.status === 401 && pages > 0) {
-        await kv.put('tn:catalog:cursor', afterId || '', { expirationTtl: KV_TTL });
-        return json({ warning: `Rate limited after ${pages} pages. ${newItems.length} items collected. Run again in 60 seconds to continue.`, itemsSoFar: newItems.length, pages }, 200);
+    const lines  = rawText.split('\n');
+    const header = parseCSVLine(lines[0] || '');
+
+    // Flexible column finder
+    const col = name => header.findIndex(
+      h => h.toLowerCase().replace(/[\s_"]/g, '') === name.toLowerCase().replace(/[\s_]/g, '')
+    );
+
+    // Try multiple column name formats for the API CSV
+    const iName  = col('name')        !== -1 ? col('name')        : col('eventname');
+    const iUrl   = col('url')         !== -1 ? col('url')         : col('deeplink');
+    const iDate  = col('launchdate')  !== -1 ? col('launchdate')  :
+                   col('eventdate')   !== -1 ? col('eventdate')   : col('date');
+    const iPrice = col('text1')       !== -1 ? col('text1')       :
+                   col('price')       !== -1 ? col('price')       : col('currentprice');
+    const iVenue = col('labels')      !== -1 ? col('labels')      :
+                   col('venue')       !== -1 ? col('venue')       : col('venuename');
+    const iCity  = col('gtin')        !== -1 ? col('gtin')        :
+                   col('city')        !== -1 ? col('city')        : col('location');
+    const iCat   = col('category');
+
+    console.log('Columns found:', { iName, iUrl, iDate, iPrice, iVenue, iCity, iCat, header: header.slice(0, 15) });
+
+    const today = new Date();
+    const index = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const cols  = parseCSVLine(lines[i]);
+      const name  = iName !== -1 ? (cols[iName] || '').trim() : '';
+      const rawUrl = iUrl !== -1 ? (cols[iUrl]  || '').trim() : '';
+      const date  = iDate !== -1 ? (cols[iDate] || '').trim().split('T')[0] : '';
+
+      if (!name || !rawUrl) continue;
+      if (date && new Date(date) < today) continue;
+
+      // URL may already have affiliate tracking, or may need wrapping
+      const url = rawUrl.includes('ticketnetwork.lusg.net') || rawUrl.includes('lusg.net')
+        ? rawUrl.replace(/&amp;/g, '&')
+        : `${TRACKING}?u=${encodeURIComponent(rawUrl)}`;
+
+      // Extract price from Text1 "$82.50- $82.50" or plain price field
+      let price = null;
+      if (iPrice !== -1 && cols[iPrice]) {
+        const m = cols[iPrice].replace(/&amp;/g, '').match(/[\d.]+/);
+        if (m) { const p = parseFloat(m[0]); if (p > 0) price = p; }
       }
-      return json({ error: `HTTP ${resp.status} on page ${pages + 1}`, itemsSoFar: newItems.length }, 500);
+
+      index.push({
+        n: name,
+        u: url,
+        p: price,
+        c: 'USD',
+        d: date,
+        v: iVenue !== -1 ? (cols[iVenue] || '').replace(/&amp;/g, '&') : '',
+        t: iCity  !== -1 ? (cols[iCity]  || '') : '',
+        g: iCat   !== -1 ? (cols[iCat]   || '') : '',
+      });
     }
 
-    // Small delay to avoid Impact rate limiting
-    await new Promise(r => setTimeout(r, PAGE_DELAY));
+    // Split into 20MB KV chunks
+    const CHUNK_BYTES = 20 * 1024 * 1024;
+    const chunks = [];
+    let chunk = [], chunkBytes = 0;
 
-    const xml   = await resp.text();
-    const items = parseXmlItems(xml);
-    pages++;
-
-    for (const item of items) {
-      if (!item.n || !item.u) continue;
-      // Skip events with no launch date or already past
-      if (item.d && new Date(item.d) < today) continue;
-      newItems.push(item);
+    for (const item of index) {
+      const s = JSON.stringify(item);
+      if (chunkBytes + s.length > CHUNK_BYTES && chunk.length > 0) {
+        chunks.push(chunk); chunk = []; chunkBytes = 0;
+      }
+      chunk.push(item); chunkBytes += s.length;
     }
+    if (chunk.length > 0) chunks.push(chunk);
 
-    // Get next cursor from nextpageuri
-    const nextMatch = xml.match(/nextpageuri="[^"]*AfterId=([^"&]+)"/);
-    if (!nextMatch || items.length === 0) {
-      done = true;
-      afterId = null;
-      break;
-    }
-    afterId = decodeURIComponent(nextMatch[1]);
+    const puts = chunks.map((ch, i) =>
+      kv.put(`tn:catalog:chunk:${i}`, JSON.stringify(ch), { expirationTtl: KV_TTL })
+    );
+    const stats = { total: index.length, chunks: chunks.length, lines: lines.length, updated: new Date().toISOString() };
+    puts.push(kv.put(KV_CHUNKS,  String(chunks.length),   { expirationTtl: KV_TTL }));
+    puts.push(kv.put(KV_STATS,   JSON.stringify(stats),   { expirationTtl: KV_TTL }));
+    puts.push(kv.put(KV_UPDATED, new Date().toISOString(), { expirationTtl: KV_TTL }));
+    // Clear old cursor if any
+    puts.push(kv.delete('tn:catalog:cursor').catch(() => {}));
+    await Promise.all(puts);
+
+    return json({
+      success: true,
+      total:   index.length,
+      chunks:  chunks.length,
+      sizeMB:  (rawText.length / 1024 / 1024).toFixed(2),
+      sample:  index.slice(0, 2),
+      columns: header.slice(0, 12),
+      updatedAt: new Date().toISOString()
+    }, 200);
+
+  } catch(err) {
+    return json({ error: String(err) }, 500);
   }
-
-  // Split new items into chunks and append to existing
-  const CHUNK_BYTES = CHUNK_MB * 1024 * 1024;
-  let   chunk       = [];
-  let   chunkBytes  = 0;
-  let   chunkIdx    = existingChunks;
-  const puts        = [];
-
-  for (const item of newItems) {
-    const s = JSON.stringify(item);
-    if (chunkBytes + s.length > CHUNK_BYTES && chunk.length > 0) {
-      puts.push(kv.put(`tn:catalog:chunk:${chunkIdx}`, JSON.stringify(chunk), { expirationTtl: KV_TTL }));
-      chunkIdx++; chunk = []; chunkBytes = 0;
-    }
-    chunk.push(item); chunkBytes += s.length;
-  }
-  if (chunk.length > 0) {
-    puts.push(kv.put(`tn:catalog:chunk:${chunkIdx}`, JSON.stringify(chunk), { expirationTtl: KV_TTL }));
-    chunkIdx++;
-  }
-
-  const totalItems = (existingStats?.total || 0) + newItems.length;
-  const stats = {
-    total: totalItems,
-    chunks: chunkIdx,
-    pages: (existingStats?.pages || 0) + pages,
-    done,
-    updated: new Date().toISOString()
-  };
-
-  puts.push(kv.put('tn:catalog:chunks', String(chunkIdx),      { expirationTtl: KV_TTL }));
-  puts.push(kv.put('tn:catalog:stats',  JSON.stringify(stats), { expirationTtl: KV_TTL }));
-  puts.push(kv.put('tn:catalog:updated', new Date().toISOString(), { expirationTtl: KV_TTL }));
-
-  if (!done && afterId) {
-    puts.push(kv.put('tn:catalog:cursor', afterId, { expirationTtl: KV_TTL }));
-  } else {
-    puts.push(kv.delete('tn:catalog:cursor'));
-  }
-
-  await Promise.all(puts);
-
-  return json({
-    success:    true,
-    newItems:   newItems.length,
-    totalItems,
-    chunks:     chunkIdx,
-    pages,
-    done,
-    nextCursor: done ? null : afterId,
-    message:    done ? 'Index complete!' : `Run ?trigger=1 again to fetch next batch`
-  }, 200);
 }
 
-// Parse XML items from Impact API response
-function parseXmlItems(xml) {
-  const items = [];
-  const itemBlocks = xml.match(/<Item>([\s\S]*?)<\/Item>/g) || [];
-
-  for (const block of itemBlocks) {
-    const get = tag => {
-      const m = block.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
-      return m ? m[1].trim() : '';
-    };
-    const getFirst = tag => {
-      const m = block.match(new RegExp(`<${tag}>[\\s\\S]*?<Label>([^<]*)<\\/Label>`));
-      return m ? m[1].trim() : '';
-    };
-
-    const name      = get('Name');
-    const url       = get('Url');
-    const launchDate = get('LaunchDate');
-    const priceText  = get('Text1'); // e.g. "$82.50- $82.50"
-    const venue      = getFirst('Labels') || get('Description');
-    const city       = get('Gtin');
-    const category   = get('Category');
-
-    // Extract min price from Text1 "$82.50- $82.50"
-    const priceMatch = priceText.match(/\$?([\d.]+)/);
-    const price      = priceMatch ? parseFloat(priceMatch[1]) : null;
-
-    // Format date from LaunchDate ISO string
-    const date = launchDate ? launchDate.split('T')[0] : '';
-
-    if (!name || !url) continue;
-
-    // Decode XML entities in URL (&amp; → &)
-    const cleanUrl = url.replace(/&amp;/g, '&');
-
-    items.push({
-      n: name,
-      u: cleanUrl,  // already contains affiliate tracking (ad ID 267961)
-      p: price && price > 0 ? price : null,
-      c: 'USD',
-      d: date,
-      v: venue,
-      t: city,
-      g: category,
-    });
+function parseCSVLine(line) {
+  const result = [];
+  let current = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current); current = '';
+    } else { current += ch; }
   }
-  return items;
+  result.push(current);
+  return result;
 }
 
 function json(body, status) {
