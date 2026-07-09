@@ -13,7 +13,7 @@
 //   ?trigger=1&test=1 — connectivity test only
 // ===========================
 
-const CATALOG_ID  = '1872'; // API catalog — larger inventory
+const CATALOG_ID  = '896'; // Standard retail catalog — 184,619 products
 const KV_INDEX    = 'tn:catalog:index';
 const KV_UPDATED  = 'tn:catalog:updated';
 const KV_STATS    = 'tn:catalog:stats';
