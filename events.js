@@ -493,7 +493,7 @@ async function showEventDetail(rawEventId) {
     const dateMatch = rawPart.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
     const eventDate = dateMatch ? dateMatch[1] : '';
     const encodedName = dateMatch ? dateMatch[2] : rawPart;
-    const eventName = decodeURIComponent(encodedName).replace(/-/g, ' ');
+    const eventName = toTitleCase(decodeURIComponent(encodedName).replace(/-/g, ' '));
 
     const dateStr = eventDate
       ? new Date(eventDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
@@ -556,7 +556,7 @@ async function showEventDetail(rawEventId) {
     const decoded   = decodeURIComponent(eventId.slice(5));
     const dateMatch = decoded.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
     const eventDate = dateMatch ? dateMatch[1] : '';
-    const eventName = dateMatch ? dateMatch[2] : decoded;
+    const eventName = toTitleCase(dateMatch ? dateMatch[2] : decoded);
     const dateStr   = eventDate
       ? new Date(eventDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
       : '';
@@ -683,4 +683,16 @@ function formatDate(dateStr) {
     month: 'short',
     year: 'numeric'
   });
+}
+// Title-case a string — capitalises each word, keeping small connectors lowercase
+// e.g. "as monaco vs paris saint germain fc" → "As Monaco vs Paris Saint Germain FC"
+function toTitleCase(str) {
+  const connectors = ['vs', 'v', 'at', 'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on'];
+  const alwaysUpper = ['fc', 'cf', 'ac', 'sc', 'rc', 'asc', 'sco', 'ud', 'rcd', 'afc', 'utd'];
+  return (str || '').split(' ').map((word, i) => {
+    const w = word.toLowerCase();
+    if (alwaysUpper.includes(w)) return w.toUpperCase();
+    if (i > 0 && connectors.includes(w)) return w;
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }).join(' ');
 }
