@@ -210,14 +210,25 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
-  // Deduplicate by name+date
-  const seen   = new Set();
-  const unique = allItems.filter(item => {
-    const key = `${item.n}|${item.d}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // Deduplicate by event_id (from URL path) + region.
+  // Cannot use name+date because the feed has no date column (d is always '').
+  // Deduping purely by name would collapse the same event across regions,
+  // losing regional pricing. Keep one entry per (name, region) pair instead.
+  // If the same event appears multiple times in a region, keep lowest price.
+  const bestByKey = new Map();
+  for (const item of allItems) {
+    const key = item.n.toLowerCase().trim() + '|' + item.r;
+    const existing = bestByKey.get(key);
+    if (!existing) {
+      bestByKey.set(key, item);
+    } else {
+      // Keep whichever has a lower price (or keep existing if new has no price)
+      if (item.p !== null && (existing.p === null || item.p < existing.p)) {
+        bestByKey.set(key, item);
+      }
+    }
+  }
+  const unique = Array.from(bestByKey.values());
 
   const indexJson = JSON.stringify(unique);
   const stats     = { total: unique.length, feeds: feedStats, updated: new Date().toISOString() };
