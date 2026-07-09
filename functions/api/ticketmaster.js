@@ -16,6 +16,7 @@ export async function onRequestGet({ request, env }) {
 
   const incoming = new URL(request.url);
   const eventId = incoming.searchParams.get('id');
+  const attractionSearch = incoming.searchParams.get('attractionSearch');
 
   let tmUrl;
 
@@ -23,6 +24,12 @@ export async function onRequestGet({ request, env }) {
     // Single event lookup — used by event detail pages
     tmUrl = new URL(`https://app.ticketmaster.com/discovery/v2/events/${encodeURIComponent(eventId)}.json`);
     tmUrl.searchParams.set('apikey', apiKey);
+  } else if (attractionSearch) {
+    // Attraction search — used to get team/artist images for football/SE365 detail pages
+    tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/attractions.json');
+    tmUrl.searchParams.set('apikey', apiKey);
+    tmUrl.searchParams.set('keyword', attractionSearch);
+    tmUrl.searchParams.set('size', incoming.searchParams.get('size') || '3');
   } else {
     // Event search — used for trending/category browsing and per-artist event lists
     tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');

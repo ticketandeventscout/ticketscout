@@ -471,34 +471,14 @@ function renderEventCards(grid, events) {
 // ===========================
 
 async function showEventDetail(rawEventId) {
-  // ── DEBUG v20260709c ──────────────────────────────────────────────────────
-  const _dbg = (msg) => {
-    let el = document.getElementById('ts-debug');
-    if (!el) {
-      el = document.createElement('pre');
-      el.id = 'ts-debug';
-      el.style.cssText = 'background:#1a1a1a;color:#0f0;font-size:11px;padding:12px;margin:12px;border-radius:6px;white-space:pre-wrap;word-break:break-all;z-index:9999;position:relative;';
-      document.body.prepend(el);
-    }
-    el.textContent += msg + '\n';
-  };
-  _dbg('events.js version: 20260709c');
-  _dbg('rawEventId: ' + rawEventId);
-
   // Split off any ?key=val params that were appended to the event id in the hash
+  // e.g. "se365-2026-09-20-celtic-fc-vs-rangers-fc?date=2026-09-20&venue=Celtic%20Park"
   const qIdx = rawEventId.indexOf('?');
-  const rawId    = qIdx !== -1 ? rawEventId.slice(0, qIdx) : rawEventId;
+  const rawId     = qIdx !== -1 ? rawEventId.slice(0, qIdx) : rawEventId;
   const rawParams = qIdx !== -1 ? rawEventId.slice(qIdx + 1) : '';
   const hashParams = new URLSearchParams(rawParams);
-  _dbg('qIdx: ' + qIdx);
-  _dbg('rawId: ' + rawId);
-  _dbg('rawParams: ' + rawParams);
-  _dbg('venue from params: ' + hashParams.get('venue'));
-  _dbg('city from params: ' + hashParams.get('city'));
-
   // Decode URL encoding that may be present in the hash fragment
   const eventId = decodeURIComponent(rawId);
-  _dbg('eventId (decoded): ' + eventId);
 
   document.getElementById('results-title').textContent = 'Event details';
   setBreadcrumb(`<a href="javascript:history.back()">← Back to results</a>`);
@@ -547,7 +527,8 @@ async function showEventDetail(rawEventId) {
         }
       } catch(e) {}
     } else {
-      // Still fetch image from Awin quietly
+      // Venue/city came from hash params — still try to get an image
+      // Try Awin first, then TM attraction search as fallback (good for football/sports)
       try {
         const awinResp = await fetch(`/api/awin-events?name=${encodeURIComponent(eventName)}&size=5`).catch(() => null);
         if (awinResp?.ok) {
@@ -556,6 +537,19 @@ async function showEventDetail(rawEventId) {
           if (match?.image) image = match.image;
         }
       } catch(e) {}
+
+      // If no Awin image, try TM attractions search for a team/performer image
+      if (!image) {
+        try {
+          const tmAttrResp = await fetch(`/api/ticketmaster?attractionSearch=${encodeURIComponent(eventName.split(' vs ')[0].trim())}&size=1`).catch(() => null);
+          if (tmAttrResp?.ok) {
+            const tmAttrData = await tmAttrResp.json().catch(() => ({}));
+            const imgs = tmAttrData?._embedded?.attractions?.[0]?.images || [];
+            const best = imgs.find(i => i.ratio === '16_9' && i.width > 300) || imgs[0];
+            if (best?.url) image = best.url;
+          }
+        } catch(e) {}
+      }
     }
 
     const metaParts = [dateStr, [venue, city].filter(Boolean).join(', ')].filter(Boolean);

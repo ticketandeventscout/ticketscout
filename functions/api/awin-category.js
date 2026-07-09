@@ -24,6 +24,7 @@ export async function onRequestGet({ request, env }) {
   const q     = incoming.searchParams.get('q');
   const debug = incoming.searchParams.get('debug') === '1';
   const date  = incoming.searchParams.get('date') || '';  // YYYY-MM-DD from Ticketmaster
+  const city  = (incoming.searchParams.get('city') || '').toLowerCase().trim();
   const venue = incoming.searchParams.get('venue') || '';
 
   if (!q) return jsonResponse({ error: 'q (event name) is required.' }, 400);
@@ -73,7 +74,7 @@ export async function onRequestGet({ request, env }) {
       }, 200);
     }
 
-    const matches = findBestMatches(allRows, q, date, venue);
+    const matches = findBestMatches(allRows, q, date, venue, city);
     if (matches.length === 0) return jsonResponse({ matches: [] }, 200);
 
     return jsonResponse({ matches: matches.map(toResult) }, 200);
@@ -165,6 +166,14 @@ function findBestMatches(rows, query, targetDate, venueName) {
 
   // Use date-matched group if we have results; otherwise fall back to all matches
   const pool = dateMatched.length > 0 ? dateMatched : scored;
+
+  // City boost — prefer results matching the target city
+  if (targetCity) {
+    pool.forEach(r => {
+      const rowCity = (r.row.event_city || '').toLowerCase();
+      if (rowCity && rowCity.includes(targetCity)) r.score += 20;
+    });
+  }
 
   // Sort by score desc, then price asc
   pool.sort((a, b) => {

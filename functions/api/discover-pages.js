@@ -585,7 +585,7 @@ async function fetchTicketmasterEvents(apiKey) {
     for (const sort of ['relevance,desc', 'onSaleStartDate,desc']) {
       const u = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
       u.searchParams.set('apikey', apiKey);
-      u.searchParams.set('countryCode', 'GB');
+      // No countryCode filter — discover events globally across all markets
       u.searchParams.set('size', '50');
       u.searchParams.set('sort', sort);
       u.searchParams.set('segmentId', segmentId);

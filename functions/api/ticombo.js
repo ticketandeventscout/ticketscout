@@ -41,6 +41,7 @@ export async function onRequestGet({ request, env }) {
   const url     = new URL(request.url);
   const q       = (url.searchParams.get('q') || '').trim();
   const date    = url.searchParams.get('date') || '';
+  const city    = (url.searchParams.get('city') || '').toLowerCase().trim();
   const country = request.headers.get('CF-IPCountry') || url.searchParams.get('country') || 'GB';
 
   if (!q || q.length < 2) return jsonResponse({ error: 'q is required' }, 400);
@@ -90,12 +91,17 @@ export async function onRequestGet({ request, env }) {
       // Boost by region match
       if (item.r === regionKey) score += 15;
 
-      // Date proximity boost
+      // Hard date filter — reject items more than 14 days from target
       if (targetMs && item.d) {
         const diffDays = Math.abs(new Date(item.d).getTime() - targetMs) / 86400000;
-        if (diffDays <= 1)  score += 20;
-        else if (diffDays <= 7) score += 10;
+        if (diffDays > 14) continue;
+        if (diffDays <= 1)  score += 30;
+        else if (diffDays <= 3) score += 15;
+        else if (diffDays <= 7) score += 5;
       }
+
+      // City boost — strongly prefer events in the right city
+      if (city && item.t && item.t.toLowerCase().includes(city)) score += 25;
 
       scored.push({ item, score });
     }

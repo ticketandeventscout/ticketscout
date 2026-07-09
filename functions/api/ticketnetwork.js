@@ -26,13 +26,14 @@ export async function onRequestGet({ request, env }) {
   const url  = new URL(request.url);
   const q    = (url.searchParams.get('q') || '').trim();
   const date = url.searchParams.get('date') || '';
+  const city = (url.searchParams.get('city') || '').toLowerCase().trim();
   const mode = url.searchParams.get('mode') || 'single'; // 'list' returns all matches
 
   if (!q || q.length < 2) return jsonResponse({ error: 'q is required' }, 400);
 
-  // Build fallback search deep-link
+  // Build fallback search deep-link — use clean Impact tracking URL
   const searchUrl   = `https://www.ticketnetwork.com/tickets/search?q=${encodeURIComponent(q)}`;
-  const fallbackUrl = `${TRACKING_BASE}?u=${encodeURIComponent(searchUrl)}`;
+  const fallbackUrl = `https://ticketnetwork.lusg.net/c/7443544/132208/2322?u=${encodeURIComponent(searchUrl)}`;
   const fallback    = {
     name: `${q} tickets on TicketNetwork`,
     url:  fallbackUrl,
@@ -72,11 +73,18 @@ export async function onRequestGet({ request, env }) {
       if (score === 0) continue;
       if (item.d && new Date(item.d) < today) continue;
 
+      // Hard date filter — reject items more than 14 days from target
       if (targetMs && item.d) {
         const diffDays = Math.abs(new Date(item.d).getTime() - targetMs) / 86400000;
-        if (diffDays <= 1)  score += 20;
-        else if (diffDays <= 7) score += 10;
+        if (diffDays > 14) continue;
+        if (diffDays <= 1)  score += 30;
+        else if (diffDays <= 3) score += 15;
+        else if (diffDays <= 7) score += 5;
       }
+
+      // City boost
+      if (city && item.t && item.t.toLowerCase().includes(city)) score += 25;
+
       scored.push({ item, score });
     }
 

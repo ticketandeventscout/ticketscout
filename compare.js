@@ -106,6 +106,7 @@ const ADAPTERS = [
     buildUrl(eventName, venueCity, eventDate, venueName) {
       const params = new URLSearchParams({ q: eventName });
       if (eventDate) params.set('date', eventDate);
+      if (venueCity) params.set('city', venueCity);
       return `/api/awin-category?${params.toString()}`;
     },
 
@@ -164,6 +165,7 @@ const ADAPTERS = [
     buildUrl(eventName, venueCity, eventDate, venueName) {
       const params = new URLSearchParams({ q: eventName });
       if (eventDate) params.set('date', eventDate);
+      if (venueCity) params.set('city', venueCity);
       return `/api/vividseats?${params.toString()}`;
     },
 
@@ -191,6 +193,7 @@ const ADAPTERS = [
     buildUrl(eventName, venueCity, eventDate, venueName) {
       const params = new URLSearchParams({ q: eventName });
       if (eventDate) params.set('date', eventDate);
+      if (venueCity) params.set('city', venueCity);
       return `/api/ticombo?${params.toString()}`;
     },
 
@@ -217,6 +220,7 @@ const ADAPTERS = [
     buildUrl(eventName, venueCity, eventDate, venueName) {
       const params = new URLSearchParams({ q: eventName });
       if (eventDate) params.set('date', eventDate);
+      if (venueCity) params.set('city', venueCity);
       return `/api/ticketnetwork?${params.toString()}`;
     },
 
@@ -371,18 +375,17 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         return a.price - b.price;
       });
 
-    if (withPrices.length === 0) {
-      // No other sellers — show TM as the only source (even if no price)
+    // Always show TM if we have a URL — it's the primary seller
+    slot.innerHTML = '';
+    if (tmUrl && tmUrl !== '#') {
+      slot.insertAdjacentHTML('beforeend', buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP'));
+    }
+    withPrices.forEach(result => {
+      slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url, result.currency));
+    });
+    // If nothing at all rendered, show a placeholder
+    if (!slot.innerHTML.trim()) {
       slot.innerHTML = buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP');
-    } else {
-      // Other sellers have prices — only include TM if it also has a price
-      slot.innerHTML = '';
-      if (tmPrice) {
-        slot.insertAdjacentHTML('beforeend', buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP'));
-      }
-      withPrices.forEach(result => {
-        slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url, result.currency));
-      });
     }
 
     highlightBestPrice();
