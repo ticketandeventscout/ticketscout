@@ -76,13 +76,35 @@ export async function onRequestGet({ request, env }) {
 
   // Connectivity test
   if (url.searchParams.get('test') === '1') {
+    const apiKey  = env.PARTNERIZE_API_KEY;
+    const userKey = env.PARTNERIZE_USER_KEY;
+    const basicAuth = (apiKey && userKey) ? btoa(`${userKey}:${apiKey}`) : null;
+
     const results = [];
     for (const feed of FEEDS) {
-      try {
-        const r = await fetch(feed.url, { method: 'HEAD' });
-        results.push({ region: feed.region, status: r.status, ok: r.ok, size: r.headers.get('content-length') });
-      } catch(e) {
-        results.push({ region: feed.region, error: String(e) });
+      // Try 4 auth approaches for each feed
+      const attempts = [
+        { label: 'no auth',      headers: {} },
+        { label: 'basic auth',   headers: basicAuth ? { 'Authorization': `Basic ${basicAuth}` } : null },
+        { label: 'api key param', url: feed.url + '?api_key=' + (apiKey||'') },
+      ].filter(a => a.headers !== null);
+
+      for (const attempt of attempts) {
+        try {
+          const fetchUrl = attempt.url || feed.url;
+          const r = await fetch(fetchUrl, { method: 'HEAD', headers: attempt.headers || {} });
+          results.push({
+            region: feed.region,
+            attempt: attempt.label,
+            status: r.status,
+            ok: r.ok,
+            size: r.headers.get('content-length'),
+            type: r.headers.get('content-type')
+          });
+          if (r.ok) break; // stop trying if one works
+        } catch(e) {
+          results.push({ region: feed.region, attempt: attempt.label, error: String(e) });
+        }
       }
     }
     return json({ feedTests: results }, 200);
