@@ -123,22 +123,34 @@ export async function onRequestGet({ request, env }) {
         continue;
       }
 
-      // Try gzip decompression first, fall back to plain text
+      // Buffer the entire response body once as ArrayBuffer, then decode.
+      // Cannot use resp.body twice — buffer first, then decide how to decompress.
+      const buffer = await resp.arrayBuffer();
       let text = '';
+      const contentEncoding = resp.headers.get('content-encoding') || '';
+      const contentType     = resp.headers.get('content-type')     || '';
+      const looksGzipped    = contentEncoding.includes('gzip')
+                           || contentType.includes('octet-stream')
+                           || contentType.includes('gzip');
       try {
-        const ds     = new DecompressionStream('gzip');
-        const body   = resp.body.pipeThrough(ds);
-        const reader = body.getReader();
-        const dec    = new TextDecoder('utf-8');
-        let chunk;
-        while (!(chunk = await reader.read()).done) {
-          text += dec.decode(chunk.value, { stream: true });
-          if (text.length > 30 * 1024 * 1024) break; // 30MB cap per feed
+        if (looksGzipped) {
+          const ds     = new DecompressionStream('gzip');
+          const writer = ds.writable.getWriter();
+          const reader = ds.readable.getReader();
+          writer.write(new Uint8Array(buffer));
+          writer.close();
+          const dec = new TextDecoder('utf-8');
+          let chunk;
+          while (!(chunk = await reader.read()).done) {
+            text += dec.decode(chunk.value, { stream: true });
+            if (text.length > 30 * 1024 * 1024) break; // 30MB cap per feed
+          }
+        } else {
+          text = new TextDecoder('utf-8').decode(buffer);
         }
-        await reader.cancel().catch(() => {});
       } catch {
-        // Not gzipped — read as plain text
-        text = await resp.text();
+        // Decompression failed — try decoding as plain text
+        text = new TextDecoder('utf-8').decode(buffer);
       }
 
       const lines  = text.split('\n');
@@ -187,7 +199,7 @@ export async function onRequestGet({ request, env }) {
         kept++;
       }
 
-      feedStats.push({ region: feed.region, lines: lines.length - 1, kept, columns: header.slice(0, 8) });
+      feedStats.push({ region: feed.region, lines: lines.length - 1, kept, columns: header.slice(0, 12) });
 
     } catch(err) {
       feedStats.push({ region: feed.region, error: String(err) });
