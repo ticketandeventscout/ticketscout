@@ -89,25 +89,23 @@ export async function onRequestGet({ request, env }) {
     const lines  = rawText.split('\n');
     const header = parseCSVLine(lines[0] || '');
 
-    // Flexible column finder
+    // Column mapping confirmed from actual CSV headers:
+    // CatalogItemId, Name, Bullet, Description, Label, Color, Manufacturer,
+    // Condition, Gender, Category, SizeUnit, AgeGroup, Material, IsParent,
+    // Gtin, Mpn, ShippingLabel, Asin, GtinType, Size, StockAvailability,
+    // Pattern, ImageUrl, Url, Event_Date, Event_Time
     const col = name => header.findIndex(
       h => h.toLowerCase().replace(/[\s_"]/g, '') === name.toLowerCase().replace(/[\s_]/g, '')
     );
 
-    // Try multiple column name formats for the API CSV
-    const iName  = col('name')        !== -1 ? col('name')        : col('eventname');
-    const iUrl   = col('url')         !== -1 ? col('url')         : col('deeplink');
-    const iDate  = col('launchdate')  !== -1 ? col('launchdate')  :
-                   col('eventdate')   !== -1 ? col('eventdate')   : col('date');
-    const iPrice = col('text1')       !== -1 ? col('text1')       :
-                   col('price')       !== -1 ? col('price')       : col('currentprice');
-    const iVenue = col('labels')      !== -1 ? col('labels')      :
-                   col('venue')       !== -1 ? col('venue')       : col('venuename');
-    const iCity  = col('gtin')        !== -1 ? col('gtin')        :
-                   col('city')        !== -1 ? col('city')        : col('location');
-    const iCat   = col('category');
-
-    console.log('Columns found:', { iName, iUrl, iDate, iPrice, iVenue, iCity, iCat, header: header.slice(0, 15) });
+    const iName  = col('name');        // Event name
+    const iUrl   = col('url');         // Affiliate tracking link
+    const iDate  = col('eventdate');   // Event_Date column
+    const iVenue = col('label');       // Venue name
+    const iCity  = col('gtin');        // City
+    const iCat   = col('category');    // SPORTS/THEATRE/CONCERTS
+    const iImage = col('imageurl');    // Seat map image
+    // Note: No price column in this CSV — prices shown as null
 
     const today = new Date();
     const index = [];
@@ -127,12 +125,9 @@ export async function onRequestGet({ request, env }) {
         ? rawUrl.replace(/&amp;/g, '&')
         : `${TRACKING}?u=${encodeURIComponent(rawUrl)}`;
 
-      // Extract price from Text1 "$82.50- $82.50" or plain price field
-      let price = null;
-      if (iPrice !== -1 && cols[iPrice]) {
-        const m = cols[iPrice].replace(/&amp;/g, '').match(/[\d.]+/);
-        if (m) { const p = parseFloat(m[0]); if (p > 0) price = p; }
-      }
+      // No price column in this CSV feed — price always null
+      // Users see "Check site" and click through to TicketNetwork for pricing
+      const price = null;
 
       index.push({
         n: name,
@@ -140,9 +135,10 @@ export async function onRequestGet({ request, env }) {
         p: price,
         c: 'USD',
         d: date,
-        v: iVenue !== -1 ? (cols[iVenue] || '').replace(/&amp;/g, '&') : '',
-        t: iCity  !== -1 ? (cols[iCity]  || '') : '',
-        g: iCat   !== -1 ? (cols[iCat]   || '') : '',
+        v: iVenue !== -1 ? (cols[iVenue] || '').replace(/&amp;/g, '&').trim() : '',
+        t: iCity  !== -1 ? (cols[iCity]  || '').trim() : '',
+        g: iCat   !== -1 ? (cols[iCat]   || '').trim() : '',
+        i: iImage !== -1 ? (cols[iImage] || '') : '',  // seat map image URL
       });
     }
 
@@ -177,7 +173,7 @@ export async function onRequestGet({ request, env }) {
       chunks:  chunks.length,
       sizeMB:  (rawText.length / 1024 / 1024).toFixed(2),
       sample:  index.slice(0, 2),
-      columns: header,
+      columns: header.slice(0, 12),
       updatedAt: new Date().toISOString()
     }, 200);
 
