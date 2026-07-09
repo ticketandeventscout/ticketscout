@@ -478,6 +478,76 @@ async function showEventDetail(eventId) {
   grid.className = 'detail-grid';
   grid.innerHTML = '<div class="loading">Loading event…</div>';
 
+  // Handle SE365 / VS / TN / Ticombo events — synthetic ID carries source, date, name
+  // Format: se365-{yyyy-mm-dd}-{encoded-name} or vs-{date}-{name} or tn-{date}-{name}
+  const nonTmSources = ['se365-', 'vs-', 'tn-', 'tc-'];
+  if (nonTmSources.some(prefix => eventId.startsWith(prefix))) {
+    // Strip the source prefix
+    const prefixMatch = eventId.match(/^(se365|vs|tn|tc)-(.+)$/);
+    const rawPart     = prefixMatch ? prefixMatch[2] : eventId;
+
+    // Try to extract date: yyyy-mm-dd at start
+    const dateMatch = rawPart.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
+    const eventDate = dateMatch ? dateMatch[1] : '';
+    const encodedName = dateMatch ? dateMatch[2] : rawPart;
+    const eventName = decodeURIComponent(encodedName).replace(/-/g, ' ');
+
+    const dateStr = eventDate
+      ? new Date(eventDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
+      : '';
+
+    // Try to enrich with SE365 / Awin data for venue/city/image
+    let venue = '', city = '', image = '';
+    try {
+      const [se365Resp, awinResp] = await Promise.all([
+        fetch(`/api/sportsevents365?q=${encodeURIComponent(eventName)}`).catch(() => null),
+        fetch(`/api/awin-events?name=${encodeURIComponent(eventName)}&size=5`).catch(() => null)
+      ]);
+      if (se365Resp?.ok) {
+        const se365Data = await se365Resp.json().catch(() => ({}));
+        if (se365Data?.match?.venue) venue = se365Data.match.venue;
+      }
+      if (awinResp?.ok) {
+        const awinData = await awinResp.json().catch(() => ({}));
+        const match = (awinData.events || []).find(e =>
+          !eventDate || !e.date || e.date === eventDate || e.date.startsWith(eventDate)
+        ) || (awinData.events || [])[0];
+        if (match) {
+          venue = venue || match.venue || '';
+          city  = match.city  || '';
+          image = match.image || '';
+        }
+      }
+    } catch(e) {}
+
+    const metaParts = [dateStr, [venue, city].filter(Boolean).join(', ')].filter(Boolean);
+    document.getElementById('results-title').textContent = eventName;
+    grid.innerHTML = `
+      <div class="detail-card">
+        ${image ? `<img class="detail-img" src="${image}" alt="${eventName}" />` : ''}
+        <div class="detail-body">
+          <h3 class="detail-name">${eventName}</h3>
+          <div class="detail-meta">${metaParts.join('<br/>')}</div>
+        </div>
+      </div>
+      <div id="detail-compare"></div>
+      <div id="detail-hotels"></div>
+    `;
+
+    renderComparePrices(
+      document.getElementById('detail-compare'),
+      eventName, null, '#', city, eventDate, venue
+    );
+
+    if (city && eventDate) {
+      renderHotelCard(
+        document.getElementById('detail-hotels'),
+        city, eventDate, venue
+      );
+    }
+    return;
+  }
+
   // Handle Awin-sourced events (no TM ID) — extract name+date from synthetic ID
   if (eventId.startsWith('awin-')) {
     const decoded   = decodeURIComponent(eventId.slice(5));

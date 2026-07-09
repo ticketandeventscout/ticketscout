@@ -1126,16 +1126,23 @@
       const minPrice  = e.priceRanges?.[0]?.min;
       const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
 
-      // VS/SE365 fallback: link directly (no TM ID available)
+      // SE365 / VS / TN / Ticombo — route through compare page using name+date slug
+      // This shows the full compare table so users see all sellers side by side
       if (e._vs || e._se365) {
+        const eventDate = e.dates?.start?.localDate || '';
+        const eventName = e.name || '';
+        // Build a compare slug: "date-event-name" normalised — same pattern as Awin
+        const compareSlug = (eventDate + '-' + eventName)
+          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const compareUrl = `${window.location.origin}/#/event/${e.id || compareSlug}`;
         const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
         const meta  = [location, date].filter(Boolean).join(' · ');
-        return `<a class="event-list-item" href="${e._url}" target="_blank" rel="noopener noreferrer">
+        return `<a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">
               <div class="event-list-name">${e.name}${badge}</div>
               ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
-            <div class="event-list-right">${priceHtml}<span class="event-list-cta">Buy tickets →</span></div>
+            <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>
           </a>`;
       }
       // Awin events: route through compare page
