@@ -253,8 +253,14 @@ Rt has emailed Nir. Re-trigger cache after credentials confirmed.
 **Commission:** 7% on all sales (confirmed via Partnerize API)
 **Publisher ID:** 1110l36128 (account: ticketandeventscoutpartnerize)
 **API base:** https://api.performancehorizon.com (legacy domain — api.partnerize.com returns 404)
-**Product feed:** None — Ticombo provides 34 image/banner creatives only, no event CSV/XML
-**Approach:** Search deep-link to ticombo.com/en/search?q={artist} — earns 7% on any purchase
+**Product feed:** 5 feeds available (Europe, Germany, Singapore, Spain, UK) — NOT yet processed
+  Feed URLs confirmed from Partnerize dashboard (all share hash a1f3f49c2e6d13ca6d33d24088acc238)
+  Partnerize shows "feed available within 4 hours" — new account, feeds not yet generated
+  ⚠️ ACTION REQUIRED: Check feeds again after 4-24 hours, then run /api/ticombo-cache?trigger=1&test=1
+  Once feeds are available: run /api/ticombo-cache?trigger=1 to build KV index
+  ticombo-cache.js is already built with all 5 feed URLs and ready to deploy
+**Current approach:** Search deep-link fallback (isFallback:true) — earns 7% on any purchase
+  Shows "Check site" in compare table until feed cache is built
 **Env vars required:** PARTNERIZE_API_KEY, PARTNERIZE_USER_KEY, PARTNERIZE_PUBLISHER_ID
 **Logo:** public/logos/ticombo.svg
 
