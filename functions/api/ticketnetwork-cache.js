@@ -31,7 +31,8 @@
 // ===========================
 
 const CATALOG_ID = '1872';
-const MAX_PAGES  = 150;  // ~15,000 items per run — stays under 30s limit
+const MAX_PAGES  = 50;   // ~5,000 items per run — avoids Impact rate limiting
+const PAGE_DELAY = 200;  // 200ms between pages to avoid rate limiting
 const CHUNK_MB   = 20;
 const KV_TTL     = 8 * 24 * 60 * 60;
 const TRACKING   = 'https://ticketnetwork.lusg.net/c/7443544/120057/2322';
@@ -108,8 +109,17 @@ export async function onRequestGet({ request, env }) {
 
     const resp = await fetch(reqUrl.toString(), { headers });
     if (!resp.ok) {
+      // 401 mid-run = rate limiting (Impact returns 401 not 429)
+      // Save cursor so next run picks up where we left off
+      if (resp.status === 401 && pages > 0) {
+        await kv.put('tn:catalog:cursor', afterId || '', { expirationTtl: KV_TTL });
+        return json({ warning: `Rate limited after ${pages} pages. ${newItems.length} items collected. Run again in 60 seconds to continue.`, itemsSoFar: newItems.length, pages }, 200);
+      }
       return json({ error: `HTTP ${resp.status} on page ${pages + 1}`, itemsSoFar: newItems.length }, 500);
     }
+
+    // Small delay to avoid Impact rate limiting
+    await new Promise(r => setTimeout(r, PAGE_DELAY));
 
     const xml   = await resp.text();
     const items = parseXmlItems(xml);
