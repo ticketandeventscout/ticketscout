@@ -262,15 +262,30 @@ const ADAPTERS = [
 // Extract the core performer/artist name from a full TM event title
 // "Metallica: Life Burns Faster" -> "Metallica"
 // "Arsenal vs Chelsea" -> "Arsenal"  (keep vs format for sports)
+// "Friday Day - Wireless 2026" -> "Wireless 2026" (don't strip generic day words)
 // "Phantom of the Opera" -> "Phantom of the Opera" (no colon = keep as-is)
+const GENERIC_PREFIXES = new Set([
+  'friday', 'saturday', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday',
+  'day', 'night', 'vip', 'general', 'ga', 'early', 'late', 'opening',
+  'friday day', 'saturday day', 'sunday day', 'friday night', 'saturday night',
+  'day 1', 'day 2', 'day 3', 'day 4', 'weekend', 'weekend pass'
+]);
+
 function extractPerformerName(fullName) {
   if (!fullName) return '';
   // Strip subtitle after colon (e.g. "Metallica: Life Burns Faster" -> "Metallica")
   const colonIdx = fullName.indexOf(':');
   if (colonIdx > 0) return fullName.slice(0, colonIdx).trim();
-  // Strip subtitle after " - " (e.g. "Metallica - Suite Reservation" -> "Metallica")
+  // Strip subtitle after " - " ONLY if the part before is not a generic day/type word
+  // e.g. "Metallica - Suite Reservation" -> "Metallica"
+  // but "Friday Day - Wireless 2026" -> "Wireless 2026" (Friday Day is generic)
   const dashIdx = fullName.indexOf(' - ');
-  if (dashIdx > 0) return fullName.slice(0, dashIdx).trim();
+  if (dashIdx > 0) {
+    const before = fullName.slice(0, dashIdx).trim().toLowerCase();
+    const after  = fullName.slice(dashIdx + 3).trim();
+    if (GENERIC_PREFIXES.has(before)) return after; // keep the meaningful part after dash
+    return fullName.slice(0, dashIdx).trim();        // normal case — keep before dash
+  }
   return fullName.trim();
 }
 
