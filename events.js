@@ -471,14 +471,34 @@ function renderEventCards(grid, events) {
 // ===========================
 
 async function showEventDetail(rawEventId) {
+  // ── DEBUG v20260709c ──────────────────────────────────────────────────────
+  const _dbg = (msg) => {
+    let el = document.getElementById('ts-debug');
+    if (!el) {
+      el = document.createElement('pre');
+      el.id = 'ts-debug';
+      el.style.cssText = 'background:#1a1a1a;color:#0f0;font-size:11px;padding:12px;margin:12px;border-radius:6px;white-space:pre-wrap;word-break:break-all;z-index:9999;position:relative;';
+      document.body.prepend(el);
+    }
+    el.textContent += msg + '\n';
+  };
+  _dbg('events.js version: 20260709c');
+  _dbg('rawEventId: ' + rawEventId);
+
   // Split off any ?key=val params that were appended to the event id in the hash
-  // e.g. "se365-2026-09-20-celtic-fc-vs-rangers-fc?date=2026-09-20&venue=Celtic%20Park"
   const qIdx = rawEventId.indexOf('?');
   const rawId    = qIdx !== -1 ? rawEventId.slice(0, qIdx) : rawEventId;
   const rawParams = qIdx !== -1 ? rawEventId.slice(qIdx + 1) : '';
   const hashParams = new URLSearchParams(rawParams);
+  _dbg('qIdx: ' + qIdx);
+  _dbg('rawId: ' + rawId);
+  _dbg('rawParams: ' + rawParams);
+  _dbg('venue from params: ' + hashParams.get('venue'));
+  _dbg('city from params: ' + hashParams.get('city'));
+
   // Decode URL encoding that may be present in the hash fragment
   const eventId = decodeURIComponent(rawId);
+  _dbg('eventId (decoded): ' + eventId);
 
   document.getElementById('results-title').textContent = 'Event details';
   setBreadcrumb(`<a href="javascript:history.back()">← Back to results</a>`);
