@@ -105,12 +105,12 @@ export async function onRequestGet({ request, env }) {
     scored.sort((a, b) => b.score - a.score);
     const best = scored[0].item;
 
-    // The cached URL already has the region camref embedded (set during cache build)
-    // but override with user's detected region camref for best attribution
-    const destUrl      = best.u.includes('destination:')
-      ? decodeURIComponent(best.u.split('destination:')[1])
-      : best.u;
-    const affiliateUrl = `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(destUrl)}`;
+    // The cached URL is already a complete Partnerize affiliate link (prf.hn) with
+    // the feed's regional camref baked in. Use it directly — do NOT re-wrap.
+    // If for any reason it is a bare ticombo.com URL, wrap it once.
+    const affiliateUrl = best.u.includes('prf.hn')
+      ? best.u
+      : `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(best.u)}`;
 
     return jsonResponse({
       match: {

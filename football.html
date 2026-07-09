@@ -817,7 +817,7 @@
                               ? se365Date.split('/').reverse().join('-')
                               : se365Date);
             return {
-              id:        `se365-${isoDate}-${encodeURIComponent(m.name || team.name)}`,
+              id:        `se365-${isoDate}-${(m.name || team.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`,
               name:      m.name || `${team.name} - Tickets`,
               _se365:    true,
               _url:      m.url,
@@ -835,7 +835,7 @@
         const vsEventCards = (vsData?.matches || (vsData?.match ? [vsData.match] : []))
           .filter(vs => vs && vs.url)
           .map(vs => ({
-            id:          `vs-${vs.date || ''}-${encodeURIComponent(vs.name || team.name)}`,
+            id:          `vs-${vs.date || ''}-${(vs.name || team.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`,
             name:        vs.name || `${team.name} - Tickets`,
             _vs:         true,
             _url:        vs.url,
@@ -856,7 +856,7 @@
         const tnEventCards = (tnData?.matches || (tnData?.match ? [tnData.match] : []))
           .filter(tn => tn && tn.url && !tn.isFallback)
           .map(tn => ({
-            id:          `tn-${tn.date || ''}-${encodeURIComponent(tn.name || team.name)}`,
+            id:          `tn-${tn.date || ''}-${(tn.name || team.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`,
             name:        tn.name || `${team.name} - Tickets`,
             _vs:         true,
             _url:        tn.url,
@@ -877,7 +877,7 @@
         if (tcData?.match?.url && !tcData.match.isFallback) {
           const tc = tcData.match;
           tcEvents.push({
-            id:          `tc-${encodeURIComponent(tc.name || team.name)}`,
+            id:          `tc-${(tc.name || team.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`,
             name:        tc.name || `${team.name} tickets on Ticombo`,
             _vs:         true,
             _url:        tc.url,
@@ -892,7 +892,7 @@
           const tcSearchUrl = 'https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:' +
             encodeURIComponent('https://www.ticombo.com/en/search?q=' + encodeURIComponent(team.search || team.name));
           tcEvents.push({
-            id:          'tc-search-' + encodeURIComponent(team.name),
+            id:          'tc-search-' + team.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
             name:        team.name + ' tickets on Ticombo',
             _vs:         true,
             _url:        tcSearchUrl,
@@ -1135,11 +1135,10 @@
         const compareSlug = (eventDate + '-' + eventName)
           .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
         const compareUrl = `${window.location.origin}/#/event/${e.id || compareSlug}`;
-        const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
         const meta  = [location, date].filter(Boolean).join(' · ');
         return `<a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">
-              <div class="event-list-name">${e.name}${badge}</div>
+              <div class="event-list-name">${e.name}</div>
               ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
             <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>
@@ -1148,11 +1147,10 @@
       // Awin events: route through compare page
       if (e._awin) {
         const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name))}`;
-        const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
         const meta  = [location, date].filter(Boolean).join(' · ');
         return `<a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">
-              <div class="event-list-name">${e.name}${badge}</div>
+              <div class="event-list-name">${e.name}</div>
               ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
             <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>

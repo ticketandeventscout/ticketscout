@@ -470,7 +470,10 @@ function renderEventCards(grid, events) {
 // Event detail page — single event, full info + inline price comparison
 // ===========================
 
-async function showEventDetail(eventId) {
+async function showEventDetail(rawEventId) {
+  // Decode URL encoding that may be present in the hash fragment
+  const eventId = decodeURIComponent(rawEventId);
+
   document.getElementById('results-title').textContent = 'Event details';
   setBreadcrumb(`<a href="javascript:history.back()">← Back to results</a>`);
 
