@@ -177,7 +177,7 @@ export async function onRequestGet({ request, env }) {
       chunks:  chunks.length,
       sizeMB:  (rawText.length / 1024 / 1024).toFixed(2),
       sample:  index.slice(0, 2),
-      columns: header.slice(0, 12),
+      columns: header,
       updatedAt: new Date().toISOString()
     }, 200);
 
