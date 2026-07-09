@@ -217,9 +217,12 @@ function parseXmlItems(xml) {
 
     if (!name || !url) continue;
 
+    // Decode XML entities in URL (&amp; → &)
+    const cleanUrl = url.replace(/&amp;/g, '&');
+
     items.push({
       n: name,
-      u: url,   // already contains affiliate tracking (ad ID 267961)
+      u: cleanUrl,  // already contains affiliate tracking (ad ID 267961)
       p: price && price > 0 ? price : null,
       c: 'USD',
       d: date,
