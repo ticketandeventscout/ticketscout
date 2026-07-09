@@ -2,7 +2,7 @@ name: Refresh TicketNetwork Feed
 
 on:
   schedule:
-    - cron: '0 2 * * 1'   # Every Monday 02:00 UTC (after VS feed at 01:00)
+    - cron: '0 */6 * * *'   # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
   workflow_dispatch:
 
 env:
