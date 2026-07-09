@@ -160,14 +160,18 @@ export async function onRequestGet({ request, env }) {
         h => h.toLowerCase().replace(/[\s_"]/g, '') === name.toLowerCase().replace(/[\s_]/g, '')
       );
 
-      // Try multiple column name formats
-      const iName   = col('name')   !== -1 ? col('name')   : col('eventname');
-      const iUrl    = col('url')    !== -1 ? col('url')     : col('deeplink');
-      const iPrice  = col('price')  !== -1 ? col('price')   : col('minprice');
-      const iCurr   = col('currency');
-      const iDate   = col('date')   !== -1 ? col('date')    : col('eventdate');
-      const iVenue  = col('venue')  !== -1 ? col('venue')   : col('venuename');
-      const iCity   = col('city')   !== -1 ? col('city')    : col('location');
+      // Column mapping — actual Ticombo feed columns:
+      // event_id, event_name, event_full_name, category, venue_name,
+      // venue_country, venue_city, deep_link, image_url, qty_tickets,
+      // min_sell_price, min_final_sell_price
+      // Note: no date or currency column in the feed.
+      const iName   = col('eventname')    !== -1 ? col('eventname')    : col('eventfullname');
+      const iUrl    = col('deeplink')     !== -1 ? col('deeplink')     : col('url');
+      const iPrice  = col('minsellprice') !== -1 ? col('minsellprice') : col('minfinalsellprice');
+      const iCurr   = -1; // no currency column — default EUR per region below
+      const iDate   = -1; // no date column in Ticombo feed
+      const iVenue  = col('venuename')    !== -1 ? col('venuename')    : col('venue');
+      const iCity   = col('venuecity')    !== -1 ? col('venuecity')    : col('city');
       const iCat    = col('category');
 
       let kept = 0;
@@ -189,7 +193,7 @@ export async function onRequestGet({ request, env }) {
           n: name,
           u: affiliateUrl,
           p: iPrice !== -1 && cols[iPrice] ? parseFloat(cols[iPrice]) : null,
-          c: iCurr  !== -1 && cols[iCurr]  ? cols[iCurr] : 'EUR',
+          c: iCurr !== -1 && cols[iCurr] ? cols[iCurr] : (feed.region === 'UK' ? 'GBP' : 'EUR'),
           d: date ? date.split('T')[0] : '',
           v: iVenue !== -1 ? (cols[iVenue] || '') : '',
           t: iCity  !== -1 ? (cols[iCity]  || '') : '',
