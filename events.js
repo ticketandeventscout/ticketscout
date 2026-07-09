@@ -471,10 +471,13 @@ function renderEventCards(grid, events) {
 // ===========================
 
 async function showEventDetail(rawEventId) {
+  // Split off any ?key=val params that were appended to the event id in the hash
+  // e.g. "se365-2026-09-20-celtic-fc-vs-rangers-fc?date=2026-09-20&venue=Celtic%20Park"
+  const qIdx = rawEventId.indexOf('?');
+  const rawId    = qIdx !== -1 ? rawEventId.slice(0, qIdx) : rawEventId;
+  const rawParams = qIdx !== -1 ? rawEventId.slice(qIdx + 1) : '';
+  const hashParams = new URLSearchParams(rawParams);
   // Decode URL encoding that may be present in the hash fragment
-  // Hash may contain ?date=&venue=&city= params — split them off first
-  const [rawId, rawParams] = rawEventId.split('?');
-  const hashParams = new URLSearchParams(rawParams || '');
   const eventId = decodeURIComponent(rawId);
 
   document.getElementById('results-title').textContent = 'Event details';
