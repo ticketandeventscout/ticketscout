@@ -1134,7 +1134,12 @@
         // Build a compare slug: "date-event-name" normalised — same pattern as Awin
         const compareSlug = (eventDate + '-' + eventName)
           .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        const compareUrl = `${window.location.origin}/#/event/${e.id || compareSlug}`;
+        // Encode venue+city into hash params so detail page uses them directly
+        const evVenue = e._embedded?.venues?.[0]?.name || '';
+        const evCity  = e._embedded?.venues?.[0]?.city?.name || '';
+        const venueParam = evVenue ? '&venue=' + encodeURIComponent(evVenue) : '';
+        const cityParam  = evCity  ? '&city='  + encodeURIComponent(evCity)  : '';
+        const compareUrl = `${window.location.origin}/#/event/${e.id || compareSlug}?date=${eventDate}${venueParam}${cityParam}`;
         const meta  = [location, date].filter(Boolean).join(' · ');
         return `<a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">

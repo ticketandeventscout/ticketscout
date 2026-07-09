@@ -472,7 +472,10 @@ function renderEventCards(grid, events) {
 
 async function showEventDetail(rawEventId) {
   // Decode URL encoding that may be present in the hash fragment
-  const eventId = decodeURIComponent(rawEventId);
+  // Hash may contain ?date=&venue=&city= params — split them off first
+  const [rawId, rawParams] = rawEventId.split('?');
+  const hashParams = new URLSearchParams(rawParams || '');
+  const eventId = decodeURIComponent(rawId);
 
   document.getElementById('results-title').textContent = 'Event details';
   setBreadcrumb(`<a href="javascript:history.back()">← Back to results</a>`);
@@ -499,29 +502,38 @@ async function showEventDetail(rawEventId) {
       ? new Date(eventDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
       : '';
 
-    // Try to enrich with SE365 / Awin data for venue/city/image
-    let venue = '', city = '', image = '';
-    try {
-      const [se365Resp, awinResp] = await Promise.all([
-        fetch(`/api/sportsevents365?q=${encodeURIComponent(eventName)}`).catch(() => null),
-        fetch(`/api/awin-events?name=${encodeURIComponent(eventName)}&size=5`).catch(() => null)
-      ]);
-      if (se365Resp?.ok) {
-        const se365Data = await se365Resp.json().catch(() => ({}));
-        if (se365Data?.match?.venue) venue = se365Data.match.venue;
-      }
-      if (awinResp?.ok) {
-        const awinData = await awinResp.json().catch(() => ({}));
-        const match = (awinData.events || []).find(e =>
-          !eventDate || !e.date || e.date === eventDate || e.date.startsWith(eventDate)
-        ) || (awinData.events || [])[0];
-        if (match) {
-          venue = venue || match.venue || '';
-          city  = match.city  || '';
-          image = match.image || '';
+    // Use venue/city passed in hash params — avoids re-fetching which can match wrong event
+    let venue = decodeURIComponent(hashParams.get('venue') || '');
+    let city  = decodeURIComponent(hashParams.get('city')  || '');
+    let image = '';
+
+    // Only fetch for image enrichment (Awin) — don't use it for venue/city
+    if (!venue || !city) {
+      try {
+        const awinResp = await fetch(`/api/awin-events?name=${encodeURIComponent(eventName)}&size=5`).catch(() => null);
+        if (awinResp?.ok) {
+          const awinData = await awinResp.json().catch(() => ({}));
+          const match = (awinData.events || []).find(e =>
+            !eventDate || !e.date || e.date === eventDate || e.date.startsWith(eventDate)
+          ) || (awinData.events || [])[0];
+          if (match) {
+            venue = venue || match.venue || '';
+            city  = city  || match.city  || '';
+            image = match.image || '';
+          }
         }
-      }
-    } catch(e) {}
+      } catch(e) {}
+    } else {
+      // Still fetch image from Awin quietly
+      try {
+        const awinResp = await fetch(`/api/awin-events?name=${encodeURIComponent(eventName)}&size=5`).catch(() => null);
+        if (awinResp?.ok) {
+          const awinData = await awinResp.json().catch(() => ({}));
+          const match = (awinData.events || [])[0];
+          if (match?.image) image = match.image;
+        }
+      } catch(e) {}
+    }
 
     const metaParts = [dateStr, [venue, city].filter(Boolean).join(', ')].filter(Boolean);
     document.getElementById('results-title').textContent = eventName;
