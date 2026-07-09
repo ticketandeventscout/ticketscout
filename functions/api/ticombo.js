@@ -2,138 +2,138 @@
 // TicketScout — Ticombo affiliate adapter
 // Runs as a Cloudflare Pages Function at /api/ticombo
 //
-// Ticombo is a global ticket marketplace with campaigns in 9 regions via Partnerize.
-// Deep-link format: https://ticombo.prf.hn/click/camref:{CAMREF}/destination:{ENCODED_URL}
+// Searches the KV cache built by /api/ticombo-cache (event feeds from Partnerize).
+// Falls back to a Ticombo search deep-link if cache is empty.
 //
-// Region routing: detect user's country from CF-IPCountry header, map to correct camref.
-// Fallback: UK camref for unknown regions.
+// Region routing: CF-IPCountry header → correct regional camref
+// 9 campaigns: UK, US, Europe, Germany, Spain, Singapore, Mexico, APAC, LATAM
 //
-// Ticombo search URL format:
-//   https://www.ticombo.com/en/search?q={artist_name}
-//
-// Required env vars:
-//   PARTNERIZE_API_KEY  — Partnerize User API key
-//   PARTNERIZE_USER_KEY — Partnerize User Application key
-//   PARTNERIZE_PUBLISHER_ID — Partnerize Publisher ID
-//   (camrefs are hardcoded as they are public-facing values)
-//
-// Usage: GET /api/ticombo?q=Metallica&date=2026-10-01&country=GB
-// Returns: { match: { name, url, price, currency, date, venue, city } } or { match: null }
+// KV keys: ticombo:catalog:index (built by ticombo-cache.js)
 // ===========================
 
-// Ticombo Partnerize campaigns — confirmed from API
-// campaign_id → for API calls | camref → for tracking links
 const CAMPAIGNS = {
-  GB:    { camref: '1100l5P9x2', campaign_id: '1100l6335', title: 'Ticombo UK'        },
-  US:    { camref: '1100l5P9x3', campaign_id: '1011l6397', title: 'Ticombo US'        },
-  EU:    { camref: '1100l5P9wQ', campaign_id: '1011l6399', title: 'Ticombo Europe'    },
-  DE:    { camref: '1100l5P9wR', campaign_id: '1011l6400', title: 'Ticombo Germany'   },
-  ES:    { camref: '1100l5P9wT', campaign_id: '1100l6336', title: 'Ticombo Spain'     },
-  SG:    { camref: '1100l5P9wS', campaign_id: '1101l6348', title: 'Ticombo Singapore' },
-  MX:    { camref: '1100l5P9wN', campaign_id: '1110l49',   title: 'Ticombo Mexico'   },
-  APAC:  { camref: '1100l5P9wP', campaign_id: '1011l6398', title: 'Ticombo APAC'     },
-  LATAM: { camref: '1100l5P9wM', campaign_id: '1100l6567', title: 'Ticombo LATAM'    },
+  GB:    { camref: '1100l5P9x2', title: 'Ticombo UK'        },
+  US:    { camref: '1100l5P9x3', title: 'Ticombo US'        },
+  EU:    { camref: '1100l5P9wQ', title: 'Ticombo Europe'    },
+  DE:    { camref: '1100l5P9wR', title: 'Ticombo Germany'   },
+  ES:    { camref: '1100l5P9wT', title: 'Ticombo Spain'     },
+  SG:    { camref: '1100l5P9wS', title: 'Ticombo Singapore' },
+  MX:    { camref: '1100l5P9wN', title: 'Ticombo Mexico'    },
+  APAC:  { camref: '1100l5P9wP', title: 'Ticombo APAC'      },
+  LATAM: { camref: '1100l5P9wM', title: 'Ticombo LATAM'     },
 };
 
-// Convenience map: just camrefs for building tracking links
-const CAMREFS = Object.fromEntries(Object.entries(CAMPAIGNS).map(([k,v]) => [k, v.camref]));
-
-// Commission rate: 7% on all sales (confirmed from API)
-
-// Country → camref mapping
-const COUNTRY_TO_CAMREF = {
-  // UK
-  GB: CAMREFS.GB,
-  // US
-  US: CAMREFS.US,
-  // Germany
-  DE: CAMREFS.DE,
-  // Spain
-  ES: CAMREFS.ES,
-  // Singapore
-  SG: CAMREFS.SG,
-  // Mexico
-  MX: CAMREFS.MX,
-  // EU countries → Europe camref
-  FR: CAMREFS.EU, IT: CAMREFS.EU, NL: CAMREFS.EU, BE: CAMREFS.EU,
-  PT: CAMREFS.EU, AT: CAMREFS.EU, CH: CAMREFS.EU, SE: CAMREFS.EU,
-  NO: CAMREFS.EU, DK: CAMREFS.EU, FI: CAMREFS.EU, PL: CAMREFS.EU,
-  CZ: CAMREFS.EU, RO: CAMREFS.EU, HU: CAMREFS.EU, GR: CAMREFS.EU,
-  IE: CAMREFS.EU, HR: CAMREFS.EU, SK: CAMREFS.EU, BG: CAMREFS.EU,
-  // APAC countries
-  AU: CAMREFS.APAC, NZ: CAMREFS.APAC, JP: CAMREFS.APAC,
-  KR: CAMREFS.APAC, TH: CAMREFS.APAC, MY: CAMREFS.APAC,
-  PH: CAMREFS.APAC, ID: CAMREFS.APAC, IN: CAMREFS.APAC, CN: CAMREFS.APAC,
-  // LATAM countries
-  BR: CAMREFS.LATAM, AR: CAMREFS.LATAM, CO: CAMREFS.LATAM,
-  CL: CAMREFS.LATAM, PE: CAMREFS.LATAM, VE: CAMREFS.LATAM,
+// Country → campaign key mapping
+const COUNTRY_MAP = {
+  GB: 'GB', US: 'US', DE: 'DE', ES: 'ES', SG: 'SG', MX: 'MX',
+  FR: 'EU', IT: 'EU', NL: 'EU', BE: 'EU', PT: 'EU', AT: 'EU',
+  CH: 'EU', SE: 'EU', NO: 'EU', DK: 'EU', FI: 'EU', PL: 'EU',
+  CZ: 'EU', RO: 'EU', HU: 'EU', GR: 'EU', IE: 'EU', HR: 'EU',
+  AU: 'APAC', NZ: 'APAC', JP: 'APAC', KR: 'APAC', TH: 'APAC',
+  MY: 'APAC', PH: 'APAC', ID: 'APAC', IN: 'APAC', CN: 'APAC',
+  BR: 'LATAM', AR: 'LATAM', CO: 'LATAM', CL: 'LATAM', PE: 'LATAM',
 };
 
-const DEFAULT_CAMREF = CAMREFS.GB; // fallback for unknown regions
-const TICOMBO_BASE  = 'https://www.ticombo.com';
+const KV_INDEX = 'ticombo:catalog:index';
 
 export async function onRequestGet({ request, env }) {
+  const kv      = env.GIGSBERG_KV;
   const url     = new URL(request.url);
-  const q       = (url.searchParams.get('q')    || '').trim();
-  const date    = url.searchParams.get('date')  || '';
-
-  if (!q || q.length < 2) {
-    return jsonResponse({ error: 'q (search term) is required' }, 400);
-  }
-
-  // Detect user's country from Cloudflare header (automatic, no IP lookup needed)
+  const q       = (url.searchParams.get('q') || '').trim();
+  const date    = url.searchParams.get('date') || '';
   const country = request.headers.get('CF-IPCountry') || url.searchParams.get('country') || 'GB';
-  const camref  = COUNTRY_TO_CAMREF[country] || DEFAULT_CAMREF;
 
-  // Build Ticombo search URL for the artist/event
-  const searchUrl = `${TICOMBO_BASE}/en/search?q=${encodeURIComponent(q)}`;
-  const trackingUrl = buildDeepLink(camref, searchUrl);
+  if (!q || q.length < 2) return jsonResponse({ error: 'q is required' }, 400);
 
-  // Try to find a specific event match via Partnerize API (product feeds)
-  // If no specific match found, return the search deep-link as fallback
-  const specificMatch = await findSpecificEvent(q, date, camref, env);
+  const regionKey = COUNTRY_MAP[country] || 'GB';
+  const campaign  = CAMPAIGNS[regionKey] || CAMPAIGNS.GB;
+  const camref    = campaign.camref;
 
-  if (specificMatch) {
-    return jsonResponse({ match: specificMatch }, 200);
-  }
+  // Build fallback search deep-link (always works, earns commission)
+  const searchUrl     = `https://www.ticombo.com/en/search?q=${encodeURIComponent(q)}`;
+  const fallbackUrl   = `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(searchUrl)}`;
+  const fallbackMatch = {
+    name: `${q} tickets on Ticombo`,
+    url:  fallbackUrl,
+    price: null, currency: 'GBP',
+    date: null, venue: null, city: null,
+    isFallback: true
+  };
 
-  // Fallback: return search deep-link (still earns commission on purchase)
-  return jsonResponse({
-    match: {
-      name:       `${q} tickets on Ticombo`,
-      url:        trackingUrl,
-      price:      null,
-      currency:   'GBP',
-      date:       date || null,
-      venue:      null,
-      city:       null,
-      isFallback: true
-    }
-  }, 200);
-}
-
-async function findSpecificEvent(q, date, camref, env) {
-  const apiKey     = env.PARTNERIZE_API_KEY;
-  const userKey    = env.PARTNERIZE_USER_KEY;
-  const publisherId = env.PARTNERIZE_PUBLISHER_ID;
-
-  if (!apiKey || !userKey || !publisherId) return null;
+  if (!kv) return jsonResponse({ match: fallbackMatch }, 200);
 
   try {
-    // Ticombo does NOT provide a product feed via Partnerize (confirmed via creatives API)
-    // 34 creatives = image banners + tracking links only — no event CSV/XML feed
-    // Search deep-link is the correct permanent approach for Ticombo
-    // 7% commission tracked on any purchase made after clicking through
-    return null;
+    const raw = await kv.get(KV_INDEX);
+    if (!raw) return jsonResponse({ match: fallbackMatch }, 200);
 
-  } catch (e) {
-    console.error('Ticombo API error:', e);
-    return null;
+    const index    = JSON.parse(raw);
+    const normQ    = normaliseName(q);
+    const today    = new Date();
+    const targetMs = date ? new Date(date).getTime() : 0;
+
+    const scored = [];
+    for (const item of index) {
+      const normName = normaliseName(item.n);
+      let score = 0;
+
+      if (normName === normQ)                        score = 100;
+      else if (normName.startsWith(normQ + ' '))     score = 80;
+      else if (normName.includes(normQ))             score = 60;
+      else {
+        const words = normQ.split(/\s+/).filter(w => w.length > 2);
+        if (words.length > 0 && words.every(w => normName.includes(w))) score = 40;
+      }
+      if (score === 0) continue;
+
+      if (item.d && new Date(item.d) < today) continue;
+
+      // Boost by region match
+      if (item.r === regionKey) score += 15;
+
+      // Date proximity boost
+      if (targetMs && item.d) {
+        const diffDays = Math.abs(new Date(item.d).getTime() - targetMs) / 86400000;
+        if (diffDays <= 1)  score += 20;
+        else if (diffDays <= 7) score += 10;
+      }
+
+      scored.push({ item, score });
+    }
+
+    if (scored.length === 0) return jsonResponse({ match: fallbackMatch }, 200);
+
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0].item;
+
+    // The cached URL already has the region camref embedded (set during cache build)
+    // but override with user's detected region camref for best attribution
+    const destUrl      = best.u.includes('destination:')
+      ? decodeURIComponent(best.u.split('destination:')[1])
+      : best.u;
+    const affiliateUrl = `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(destUrl)}`;
+
+    return jsonResponse({
+      match: {
+        name:     best.n,
+        url:      affiliateUrl,
+        price:    best.p ? Math.round(best.p) : null,
+        currency: best.c || 'EUR',
+        date:     best.d || null,
+        venue:    best.v || null,
+        city:     best.t || null,
+        category: best.g || null,
+        region:   best.r || null
+      }
+    }, 200);
+
+  } catch (err) {
+    console.error('Ticombo adapter error:', err);
+    return jsonResponse({ match: fallbackMatch }, 200);
   }
 }
 
-function buildDeepLink(camref, destinationUrl) {
-  return `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(destinationUrl)}`;
+function normaliseName(str) {
+  return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
 }
 
 function jsonResponse(body, status) {
