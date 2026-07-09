@@ -36,7 +36,7 @@ jobs:
           set net:max-retries 3
           SCRIPT
           echo "open -u \"$FTP_USER\",\"$FTP_PASS\" products.impact.com" >> /tmp/lftp_script.txt
-          echo "get /TicketNetwork-Affiliate-Program/Ticketnetwork-Product-Catalog-API_CUSTOM.csv.gz -o public/ticketnetwork-feed.csv.gz" >> /tmp/lftp_script.txt
+          echo "get /TicketNetwork-Affiliate-Program/TicketNetwork-Product-Catalog_CUSTOM.csv.gz -o public/ticketnetwork-feed-896.csv.gz" >> /tmp/lftp_script.txt
           echo "bye" >> /tmp/lftp_script.txt
           lftp -f /tmp/lftp_script.txt
           rm /tmp/lftp_script.txt
@@ -44,20 +44,20 @@ jobs:
 
       - name: Verify download
         run: |
-          if [ ! -f public/ticketnetwork-feed.csv.gz ]; then
+          if [ ! -f public/ticketnetwork-feed-896.csv.gz ]; then
             echo "ERROR: File missing"; exit 1
           fi
           SIZE=$(stat -c%s public/ticketnetwork-feed.csv.gz)
           if [ "$SIZE" -lt 1000000 ]; then
             echo "ERROR: File too small (${SIZE} bytes)"; exit 1
           fi
-          echo "OK: $(du -h public/ticketnetwork-feed.csv.gz | cut -f1)"
+          echo "OK: $(du -h public/ticketnetwork-feed-896.csv.gz | cut -f1)"
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/ticketnetwork-feed.csv.gz
+          git add public/ticketnetwork-feed-896.csv.gz
           if git diff --staged --quiet; then
             echo "No changes"
           else

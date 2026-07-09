@@ -23,7 +23,7 @@
 // Required env vars: GITHUB_OWNER, GITHUB_REPO, GIGSBERG_KV
 // ===========================
 
-const FEED_PATH = 'public/ticketnetwork-feed.csv.gz';
+const FEED_PATH = 'public/ticketnetwork-feed-896.csv.gz'; // Catalog 896 — has prices, venue, city
 const KV_INDEX  = 'tn:catalog:index';
 const KV_CHUNKS = 'tn:catalog:chunks';
 const KV_UPDATED = 'tn:catalog:updated';
@@ -89,23 +89,25 @@ export async function onRequestGet({ request, env }) {
     const lines  = rawText.split('\n');
     const header = parseCSVLine(lines[0] || '');
 
-    // Column mapping confirmed from actual CSV headers:
-    // CatalogItemId, Name, Bullet, Description, Label, Color, Manufacturer,
-    // Condition, Gender, Category, SizeUnit, AgeGroup, Material, IsParent,
-    // Gtin, Mpn, ShippingLabel, Asin, GtinType, Size, StockAvailability,
-    // Pattern, ImageUrl, Url, Event_Date, Event_Time
+    // Column mapping for catalog 896 (Retail format — confirmed from test endpoint):
+    // EventID, Event, PerformerID, Performer, AwayTeamID, AwayTeam,
+    // Venue, VenueID, VenueStreetAddress, DateTime, PCatID, PCat,
+    // CCatID, CCat, GCatID, GCat, City, State, StateID, Country,
+    // CountryID, Zip, TicketsYN, PriceRange, IMAGEURL, URLLink,
+    // Lat, Long, DateTimeUTC, RemainingTicketQty
     const col = name => header.findIndex(
       h => h.toLowerCase().replace(/[\s_"]/g, '') === name.toLowerCase().replace(/[\s_]/g, '')
     );
 
-    const iName  = col('name');        // Event name
-    const iUrl   = col('url');         // Affiliate tracking link
-    const iDate  = col('eventdate');   // Event_Date column
-    const iVenue = col('label');       // Venue name
-    const iCity  = col('gtin');        // City
-    const iCat   = col('category');    // SPORTS/THEATRE/CONCERTS
-    const iImage = col('imageurl');    // Seat map image
-    // Note: No price column in this CSV — prices shown as null
+    const iName  = col('event');        // Event name
+    const iUrl   = col('urllink');      // Affiliate tracking link (ad ID 132208)
+    const iDate  = col('datetime');     // DateTime e.g. "2026-07-14T14:00"
+    const iVenue = col('venue');        // Venue name
+    const iCity  = col('city');         // City
+    const iCat   = col('pcat');         // SPORTS/CONCERTS/THEATRE
+    const iImage = col('imageurl');     // Seat map image URL
+    const iPrice = col('pricerange');   // Price e.g. "2475.00"
+    const iQty   = col('remainingticketqty'); // Stock
 
     const today = new Date();
     const index = [];
@@ -116,6 +118,7 @@ export async function onRequestGet({ request, env }) {
       const name  = iName !== -1 ? (cols[iName] || '').trim() : '';
       const rawUrl = iUrl !== -1 ? (cols[iUrl]  || '').trim() : '';
       const date  = iDate !== -1 ? (cols[iDate] || '').trim().split('T')[0] : '';
+      // Skip past events (DateTime is local time)
 
       if (!name || !rawUrl) continue;
       if (date && new Date(date) < today) continue;
@@ -125,9 +128,15 @@ export async function onRequestGet({ request, env }) {
         ? rawUrl.replace(/&amp;/g, '&')
         : `${TRACKING}?u=${encodeURIComponent(rawUrl)}`;
 
-      // No price column in this CSV feed — price always null
-      // Users see "Check site" and click through to TicketNetwork for pricing
-      const price = null;
+      // Catalog 896 has PriceRange column with actual prices
+      let price = null;
+      if (iPrice !== -1 && cols[iPrice]) {
+        const p = parseFloat(cols[iPrice].replace(/[^\d.]/g, ''));
+        if (p > 0) price = p;
+      }
+
+      // Skip events with no tickets available
+      if (iQty !== -1 && cols[iQty] === '0') continue;
 
       index.push({
         n: name,

@@ -17,8 +17,8 @@
 // Returns: { match: { name, url, price, currency, date, venue, city } } or { match: null }
 // ===========================
 
-const TRACKING_BASE  = 'https://ticketnetwork.lusg.net/c/7443544/120057/2322';
-const TRACKING_BASE2 = 'https://ticketnetwork.lusg.net/c/7443544/120057/2322';
+const TRACKING_BASE  = 'https://ticketnetwork.lusg.net/c/7443544/132208/2322';  // Catalog 896 ad ID
+const TRACKING_BASE2 = 'https://ticketnetwork.lusg.net/c/7443544/132208/2322';  // Catalog 896 ad ID
 const KV_INDEX       = 'tn:catalog:index';
 
 export async function onRequestGet({ request, env }) {
