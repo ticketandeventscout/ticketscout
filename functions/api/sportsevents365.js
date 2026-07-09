@@ -54,6 +54,7 @@ export async function onRequestGet({ request, env }) {
   const q        = incoming.searchParams.get('q');
   const date     = incoming.searchParams.get('date') || ''; // YYYY-MM-DD from Ticketmaster
   const debug    = incoming.searchParams.get('debug') === '1';
+  const mode     = incoming.searchParams.get('mode') || 'single'; // 'list' returns all matches
 
   if (!q) {
     return jsonResponse({ error: 'q (event name) is required.' }, 400);
@@ -111,30 +112,41 @@ export async function onRequestGet({ request, env }) {
       return jsonResponse({ match: null }, 200);
     }
 
-    // ── Step 3: Pick the best event ────────────────────────────────────────
-    // Prefer date match if we have a target date; otherwise return soonest
-    const event = findBestEvent(events, date);
-    if (!event) {
-      return jsonResponse({ match: null }, 200);
+    // ── Step 3: Filter to upcoming, sort by date ──────────────────────────
+    const parseEventDate = (e) => {
+      const raw = e.dateOfEvent || '';
+      if (!raw) return null;
+      const [d, m, y] = raw.split('/');
+      return (d && m && y) ? new Date(`${y}-${m}-${d}`) : null;
+    };
+    const now      = new Date();
+    const upcoming = events
+      .filter(e => { const d = parseEventDate(e); return d && d >= now; })
+      .sort((a, b) => (parseEventDate(a) || 0) - (parseEventDate(b) || 0));
+
+    const pool = upcoming.length > 0 ? upcoming : events;
+    if (pool.length === 0) return jsonResponse(mode === 'list' ? { matches: [] } : { match: null }, 200);
+
+    // ── Step 4: Build result ───────────────────────────────────────────────
+    const buildMatch = (event) => ({
+      name:     event.name || '',
+      url:      buildAffiliateUrl(event, affiliateId),
+      price:    event.minTicketPrice?.price ? Math.round(event.minTicketPrice.price) : null,
+      currency: event.minTicketPrice?.currency || 'GBP',
+      date:     event.dateOfEvent || '',
+      time:     event.timeOfEvent || '',
+      venue:    event.venue?.name || null
+    });
+
+    if (mode === 'list') {
+      // Return ALL upcoming events (capped at 50 to avoid oversized responses)
+      return jsonResponse({ matches: pool.slice(0, 50).map(buildMatch) }, 200);
     }
 
-    // ── Step 4: Build result — price and URL are in the event object ───────
-    // minTicketPrice.price is the lowest available price (already confirmed in docs)
-    // eventUrl is the direct SE365 event page
-    const price    = event.minTicketPrice?.price || null;
-    const currency = event.minTicketPrice?.currency || 'GBP';
-    const eventUrl = buildAffiliateUrl(event, affiliateId);
-
-    return jsonResponse({
-      match: {
-        name:     event.name || '',
-        url:      eventUrl,
-        price:    price ? Math.round(price) : null,
-        currency,
-        date:     event.dateOfEvent || '',
-        venue:    event.venue?.name || null
-      }
-    }, 200);
+    // Single mode — return best match (closest to target date, or soonest)
+    const event = findBestEvent(pool, date);
+    if (!event) return jsonResponse({ match: null }, 200);
+    return jsonResponse({ match: buildMatch(event) }, 200);
 
   } catch (err) {
     console.error('SE365 adapter error:', err);

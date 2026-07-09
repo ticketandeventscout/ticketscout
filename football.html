@@ -761,15 +761,16 @@
           if (!ct.includes('application/json')) return Promise.resolve(null);
           return r.json().catch(() => null);
         };
+        const searchName = encodeURIComponent(team.search || team.name);
         const [tmData, awinData, se365Data, vsData, tcData, tnData] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
             : Promise.resolve(null),
-          fetch(`/api/awin-events?name=${encodeURIComponent(team.search || team.name)}&size=50`).then(safeJson).catch(() => null),
-          fetch(`/api/sportsevents365?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
-          fetch(`/api/vividseats?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
-          fetch(`/api/ticombo?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
-          fetch(`/api/ticketnetwork?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null)
+          fetch(`/api/awin-events?name=${searchName}&size=50`).then(safeJson).catch(() => null),
+          fetch(`/api/sportsevents365?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
+          fetch(`/api/vividseats?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
+          fetch(`/api/ticombo?q=${searchName}`).then(safeJson).catch(() => null),
+          fetch(`/api/ticketnetwork?q=${searchName}&mode=list`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];
@@ -804,36 +805,37 @@
         const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
         const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
 
-        // SE365: convert single match result to event card format if available
-        const se365Events = [];
-        if (se365Data?.match?.url) {
-          const m = se365Data.match;
-          const se365Date = m.date ? m.date.split('T')[0] : '';
-          // Only add if not already covered by TM or Awin
-          if (!se365Date || !tmDates.has(se365Date)) {
-            se365Events.push({
-              id:     `se365-${encodeURIComponent(m.name || team.name)}`,
-              name:   m.name || `${team.name} - Tickets`,
-              _se365: true,
-              _url:   m.url,
-              _price: m.price,
+        // ── SE365: convert all matched events to event card format ──────────
+        const se365Events = (se365Data?.matches || (se365Data?.match ? [se365Data.match] : []))
+          .filter(m => m && m.url)
+          .map(m => {
+            const se365Date = m.date ? m.date.split('/').reverse().join('-') // dd/mm/yyyy → yyyy-mm-dd
+                                                                              // or passthrough if already ISO
+                              : '';
+            const isoDate = se365Date.match(/^\d{4}-\d{2}-\d{2}$/) ? se365Date
+                          : (se365Date.match(/^\d{2}\/\d{2}\/\d{4}$/)
+                              ? se365Date.split('/').reverse().join('-')
+                              : se365Date);
+            return {
+              id:        `se365-${isoDate}-${encodeURIComponent(m.name || team.name)}`,
+              name:      m.name || `${team.name} - Tickets`,
+              _se365:    true,
+              _url:      m.url,
+              _price:    m.price,
               _merchant: 'SportsEvents365',
-              dates:  { start: { localDate: se365Date, localTime: m.time || '' } },
+              dates:     { start: { localDate: isoDate, localTime: m.time || '' } },
               priceRanges: m.price ? [{ min: m.price, currency: m.currency || 'GBP' }] : [],
-              _embedded: {
-                venues: m.venue ? [{ name: m.venue, city: { name: '' } }] : []
-              }
-            });
-          }
-        }
+              _embedded: { venues: m.venue ? [{ name: m.venue, city: { name: '' } }] : [] }
+            };
+          })
+          // Deduplicate against TM dates — but allow SE365 events on dates TM doesn't have
+          .filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
 
-
-        // VS fallback: only show in event list if no TM/Awin/SE365 events
-        const vsEventCards = [];
-        if (vsData?.match?.url && tmEvents.length === 0 && (awinNormalised||[]).length === 0) {
-          const vs = vsData.match;
-          vsEventCards.push({
-            id:          `vs-${encodeURIComponent(team.name||'')}`,
+        // ── Vivid Seats: all matching events ─────────────────────────────────
+        const vsEventCards = (vsData?.matches || (vsData?.match ? [vsData.match] : []))
+          .filter(vs => vs && vs.url)
+          .map(vs => ({
+            id:          `vs-${vs.date || ''}-${encodeURIComponent(vs.name || team.name)}`,
             name:        vs.name || `${team.name} - Tickets`,
             _vs:         true,
             _url:        vs.url,
@@ -842,18 +844,57 @@
             dates:       { start: { localDate: vs.date || '', localTime: '' } },
             priceRanges: vs.price ? [{ min: vs.price, currency: vs.currency || 'USD' }] : [],
             _embedded:   { venues: vs.venue ? [{ name: vs.venue, city: { name: vs.city || '' } }] : [] }
+          }))
+          // Deduplicate — skip if TM or SE365 already shows this exact date
+          .filter(e => {
+            if (!e.dates.start.localDate) return true;
+            const d = e.dates.start.localDate;
+            return !tmDates.has(d) && !se365Events.some(s => s.dates.start.localDate === d);
           });
-        }
-        // Ticombo: add as a search deep-link card when VS/TM/Awin have coverage
-        // Always present — earns commission on click regardless of specific event match
+
+        // ── TicketNetwork: all matching events ────────────────────────────────
+        const tnEventCards = (tnData?.matches || (tnData?.match ? [tnData.match] : []))
+          .filter(tn => tn && tn.url && !tn.isFallback)
+          .map(tn => ({
+            id:          `tn-${tn.date || ''}-${encodeURIComponent(tn.name || team.name)}`,
+            name:        tn.name || `${team.name} - Tickets`,
+            _vs:         true,
+            _url:        tn.url,
+            _price:      tn.price,
+            _merchant:   'TicketNetwork',
+            dates:       { start: { localDate: tn.date || '', localTime: '' } },
+            priceRanges: tn.price ? [{ min: tn.price, currency: tn.currency || 'USD' }] : [],
+            _embedded:   { venues: tn.venue ? [{ name: tn.venue, city: { name: tn.city || '' } }] : [] }
+          }))
+          .filter(e => {
+            if (!e.dates.start.localDate) return true;
+            const d = e.dates.start.localDate;
+            return !tmDates.has(d) && !se365Events.some(s => s.dates.start.localDate === d);
+          });
+
+        // ── Ticombo: single best-match card (their feed is event-level already) ──
         const tcEvents = [];
-        if (tcData !== null) { // add Ticombo card whenever the API responded
+        if (tcData?.match?.url && !tcData.match.isFallback) {
+          const tc = tcData.match;
+          tcEvents.push({
+            id:          `tc-${encodeURIComponent(tc.name || team.name)}`,
+            name:        tc.name || `${team.name} tickets on Ticombo`,
+            _vs:         true,
+            _url:        tc.url,
+            _price:      tc.price,
+            _merchant:   'Ticombo',
+            dates:       { start: { localDate: tc.date || '', localTime: '' } },
+            priceRanges: tc.price ? [{ min: tc.price, currency: tc.currency || 'GBP' }] : [],
+            _embedded:   { venues: tc.venue ? [{ name: tc.venue, city: { name: tc.city || '' } }] : [] }
+          });
+        } else if (tcData !== null) {
+          // Fallback search card — always earns on click
           const tcSearchUrl = 'https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:' +
             encodeURIComponent('https://www.ticombo.com/en/search?q=' + encodeURIComponent(team.search || team.name));
           tcEvents.push({
-            id:          'tc-' + encodeURIComponent(team.name),
+            id:          'tc-search-' + encodeURIComponent(team.name),
             name:        team.name + ' tickets on Ticombo',
-            _vs:         true,  // reuse _vs rendering (direct link, "Buy tickets →")
+            _vs:         true,
             _url:        tcSearchUrl,
             _price:      null,
             _merchant:   'Ticombo',
@@ -862,7 +903,8 @@
             _embedded:   { venues: [] }
           });
         }
-        const allEvents = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tcEvents];
+
+        const allEvents = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tnEventCards, ...tcEvents];
 
         updateMeta(team, tmEvents, tmImage);
 

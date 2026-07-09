@@ -26,6 +26,7 @@ export async function onRequestGet({ request, env }) {
   const url  = new URL(request.url);
   const q    = (url.searchParams.get('q') || '').trim();
   const date = url.searchParams.get('date') || '';
+  const mode = url.searchParams.get('mode') || 'single'; // 'list' returns all matches
 
   if (!q || q.length < 2) return jsonResponse({ error: 'q is required' }, 400);
 
@@ -79,23 +80,31 @@ export async function onRequestGet({ request, env }) {
       scored.push({ item, score });
     }
 
-    if (scored.length === 0) return jsonResponse({ match: fallback }, 200);
+    if (scored.length === 0) return jsonResponse(mode === 'list' ? { matches: [] } : { match: fallback }, 200);
 
     scored.sort((a, b) => b.score - a.score);
-    const best = scored[0].item;
 
-    return jsonResponse({
-      match: {
-        name:     best.n,
-        url:      best.u || fallbackUrl,
-        price:    best.p ? Math.round(best.p) : null,
-        currency: best.c || 'USD',
-        date:     best.d || null,
-        venue:    best.v || null,
-        city:     best.t || null,
-        category: best.g || null
-      }
-    }, 200);
+    const buildMatch = (item) => ({
+      name:     item.n,
+      url:      item.u || fallbackUrl,
+      price:    item.p ? Math.round(item.p) : null,
+      currency: item.c || 'USD',
+      date:     item.d || null,
+      venue:    item.v || null,
+      city:     item.t || null,
+      category: item.g || null
+    });
+
+    if (mode === 'list') {
+      // Return all matches above score threshold 40, capped at 50
+      const matches = scored
+        .filter(s => s.score >= 40)
+        .slice(0, 50)
+        .map(s => buildMatch(s.item));
+      return jsonResponse({ matches }, 200);
+    }
+
+    return jsonResponse({ match: buildMatch(scored[0].item) }, 200);
 
   } catch(err) {
     console.error('TicketNetwork adapter error:', err);
