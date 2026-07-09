@@ -198,6 +198,43 @@ Format per entry:
 
 ---
 
+## 2026-07-09 — Session 5
+
+### Deployed
+- `functions/api/hotels.js` — New. Hotels.com UK + Trivago UK via CJ. Returns affiliate deep-links for city hotel search. CJ PID: 101816942.
+- `functions/api/ticketnetwork.js` — New. TicketNetwork via Impact (catalog 1872, 193k events). Searches KV cache, falls back to search deep-link. Commission 6-10%.
+- `functions/api/ticketnetwork-cache.js` — New. Paginated XML parser for Impact catalog 1872. Chunked KV storage. Handles &amp; entity decoding. Run ?trigger=1 x13 to build full index.
+- `compare.js` — TicketNetwork adapter added. Hotel card CSS. withPrices filter includes TN.
+- `events.js` — Hotel card added to event detail pages (both TM and Awin events). renderHotelCard() function. detail-hotels div injected.
+- `styles.css` — Hotel card styles added (.hotel-card, .hotel-btn etc).
+- `concert.html`, `football.html`, `theatre.html` — TicketNetwork fetch added to Promise.all (4-way → 5-way). Destructuring updated.
+- `public/logos/ticketnetwork.svg` — New red TN logo badge.
+- All 31 football stubs regenerated with correct absolute paths and style-copy step.
+
+### Key findings
+- Impact catalog 1872 returns XML not JSON — must use Accept: application/xml header
+- Field mapping: LaunchDate=date, Labels/Label[0]=venue, Gtin=city, Text1=price range
+- URLs contain &amp; XML entity encoding — must decode before storing
+- 193,654 total events across 96,827 pages — needs 13 runs of ?trigger=1 to build
+- Chunked pagination with cursor (AfterId) stored in KV between runs
+- Hotels.com/Expedia: most regional programmes rejected, only Hotels.com UK + Trivago UK approved
+- CJ Publisher ID: 101816942
+
+### Affiliate status updates
+- Hotels.com UK: ✅ Live (CJ 5275597, 7-day EPC £120.22)
+- Trivago UK: ✅ Live (CJ 7717732)
+- TicketNetwork: ✅ Live (Impact campaign 2322, ad 267961) — cache building
+- Expedia (all regions): ❌ Rejected
+- Hotels.com (non-UK regions): ❌ Rejected
+
+### Outstanding
+- TicketNetwork cache: run ?trigger=1 x13 until done:true
+- Ticombo feeds: check feeds.performancehorizon.com again (should be ready within 4hrs of account creation)
+- SE365 cron job: add Mon 00:15 to cron-job.org
+- TicketNetwork cron: add weekly run to cron-job.org once full index is built
+
+---
+
 ## Template for future sessions
 
 ## [YYYY-MM-DD] — Session [N]
