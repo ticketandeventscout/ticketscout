@@ -282,13 +282,16 @@ Rt has emailed Nir. Re-trigger cache after credentials confirmed.
 | TicketSmarter | 3% | ⏳ Pending | |
 | SOLDOUT.COM | TBC | ⏳ Pending | |
 | TicketLiquidator | TBC | ⏳ Pending | |
-| Trivago UK | TBC | ✅ Approved | Hotel comparison — needs site placement. See compliance notes |
-| Hotels.com | TBC | ✅ Approved | Hotel placement needed alongside Trivago |
+| Trivago UK | TBC | ✅ Live | CJ ID 7717732. Event detail hotel card |
+| Hotels.com UK | 1-4% | ✅ Live | CJ ID 5275597. 7-day EPC £120.22. Event detail hotel card |
+| Hotels.com (other regions) | TBC | ❌ Rejected | Most regional programmes rejected |
+| Expedia (all regions) | TBC | ❌ Rejected | All regional programmes rejected |
 
 ### Impact
 | Merchant | Commission | Status | Notes |
 |---|---|---|---|
 | StubHub International | 9% | ⏳ Pending | |
+| TicketNetwork | 12-14% | ✅ Live | Campaign 2322, Catalog IDs 896 & 1872 (192k events). KV cache approach |
 | Vivid Seats | 6% | ✅ Live (affiliate) | Campaign 12730, Catalog 7904, 131k events. KV cache approach — see FILE-DEPENDENCY-MAP.md |
 
 ### Direct / Other

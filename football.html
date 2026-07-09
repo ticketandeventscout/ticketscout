@@ -761,14 +761,15 @@
           if (!ct.includes('application/json')) return Promise.resolve(null);
           return r.json().catch(() => null);
         };
-        const [tmData, awinData, se365Data, vsData, tcData] = await Promise.all([
+        const [tmData, awinData, se365Data, vsData, tcData, tnData] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
             : Promise.resolve(null),
           fetch(`/api/awin-events?name=${encodeURIComponent(team.search || team.name)}&size=50`).then(safeJson).catch(() => null),
           fetch(`/api/sportsevents365?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
           fetch(`/api/vividseats?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
-          fetch(`/api/ticombo?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null)
+          fetch(`/api/ticombo?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
+          fetch(`/api/ticketnetwork?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];

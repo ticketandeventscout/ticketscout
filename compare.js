@@ -195,19 +195,40 @@ const ADAPTERS = [
     },
 
     normalise(data, eventName) {
-      console.log('[Ticombo] raw response:', JSON.stringify(data).slice(0, 200));
       if (data.error || !data.match || !data.match.url) {
-        console.log('[Ticombo] returning null — no match or error');
         return null;
       }
       const match = data.match;
-      console.log('[Ticombo] match found:', match.url.slice(0, 80), '| isFallback:', match.isFallback);
       return {
         source:     'Ticombo',
         price:      match.price ? Math.round(match.price) : null,
         currency:   match.currency || 'GBP',
         url:        match.url,
         available:  true
+      };
+    }
+  },
+
+  {
+    // TicketNetwork (via Impact) — 12-14% commission, 184k+ events
+    // Impact Publisher: 7443544, Campaign: 2322
+    source: 'TicketNetwork',
+
+    buildUrl(eventName, venueCity, eventDate, venueName) {
+      const params = new URLSearchParams({ q: eventName });
+      if (eventDate) params.set('date', eventDate);
+      return `/api/ticketnetwork?${params.toString()}`;
+    },
+
+    normalise(data, eventName) {
+      if (data.error || !data.match || !data.match.url) return null;
+      const match = data.match;
+      return {
+        source:    'TicketNetwork',
+        price:     match.price ? Math.round(match.price) : null,
+        currency:  match.currency || 'USD',
+        url:       match.url,
+        available: true
       };
     }
   },
@@ -252,7 +273,6 @@ function extractPerformerName(fullName) {
 async function comparePrices(eventName, venueCity, eventDate, venueName) {
   // Use performer name (stripped of subtitles) for adapter searches
   const performerName = extractPerformerName(eventName);
-  console.log('[compare] v2 running | eventName:', eventName, '| performerName:', performerName, '| adapters:', ADAPTERS.length);
   const settled = await Promise.allSettled(
     ADAPTERS.map(async adapter => {
       // Pass performerName for search queries, but keep full eventName for normalise matching
@@ -341,7 +361,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
 
     // Include VS and other sources even without price — affiliate click still earns commission
     const withPrices = results
-      .filter(r => r.available && (r.price || r.source === 'Vivid Seats' || r.source === 'Ticombo'))
+      .filter(r => r.available && (r.price || r.source === 'Vivid Seats' || r.source === 'Ticombo' || r.source === 'TicketNetwork'))
       .sort((a, b) => {
         // Sort by price ascending (best/lowest first)
         // Items without price go to the bottom
@@ -350,8 +370,6 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         if (!b.price) return -1;
         return a.price - b.price;
       });
-
-    console.log('[compare] withPrices count:', withPrices.length, '| sources:', withPrices.map(r => r.source + '(' + r.price + ')').join(', '));
 
     if (withPrices.length === 0) {
       // No other sellers — show TM as the only source (even if no price)
@@ -386,6 +404,7 @@ const SOURCE_STYLES = {
   'Theatre Tickets Direct':{ logo: 'https://www.theatreticketsdirect.co.uk/favicon.ico', bg: '#7c3aed', color: '#fff', abbr: 'TD' },
   'Football TicketNet UK': { logo: null,                                           bg: '#16a34a', color: '#fff', abbr: 'FT' },
   'Ticombo':               { logo: '/public/logos/ticombo.svg',                     bg: '#6366f1', color: '#fff', abbr: 'TC' },
+  'TicketNetwork':         { logo: 'https://www.ticketnetwork.com/favicon.ico',         bg: '#c0392b', color: '#fff', abbr: 'TN' },
 };
 
 function buildLogoEl(style) {
@@ -458,4 +477,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
+}         

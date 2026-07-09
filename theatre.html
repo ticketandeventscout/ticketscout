@@ -732,13 +732,14 @@
           return r.json().catch(() => null);
         };
         
-        const [tmData, awinData, vsData, tcData] = await Promise.all([
+        const [tmData, awinData, vsData, tcData, tnData] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
             : Promise.resolve(null),
           fetch(`/api/awin-events?name=${encodeURIComponent(show.search || show.name)}&size=50`).then(safeJson).catch(() => null),
           fetch(`/api/vividseats?q=${encodeURIComponent(show.search || show.name)}`).then(safeJson).catch(() => null),
-          fetch(`/api/ticombo?q=${encodeURIComponent(show.search || show.name)}`).then(safeJson).catch(() => null)
+          fetch(`/api/ticombo?q=${encodeURIComponent(show.search || show.name)}`).then(safeJson).catch(() => null),
+          fetch(`/api/ticketnetwork?q=${encodeURIComponent(show.search || show.name)}`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];

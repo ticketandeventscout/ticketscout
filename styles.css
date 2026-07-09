@@ -667,3 +667,77 @@ a:hover {
 .suggestion-link:hover {
   text-decoration: underline;
 }
+
+
+/* ── Hotel card (event detail page) ────────────────────────────── */
+.hotel-card {
+  background: #ffffff;
+  border: 1px solid #c8dff5;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-top: 16px;
+}
+
+.hotel-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 12px;
+}
+
+.hotel-card-title svg {
+  color: #1a6fc4;
+  flex-shrink: 0;
+}
+
+.hotel-card-date {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 14px;
+}
+
+.hotel-card-links {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.hotel-btn {
+  display: inline-block;
+  padding: 9px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.hotel-btn--primary {
+  background: #1a6fc4;
+  color: #ffffff;
+}
+
+.hotel-btn--primary:hover {
+  background: #155da0;
+}
+
+.hotel-btn--secondary {
+  background: #f0f4ff;
+  color: #1a6fc4;
+  border: 1px solid #c8dff5;
+}
+
+.hotel-btn--secondary:hover {
+  background: #e0ecff;
+}
+
+.hotel-card-note {
+  font-size: 11px;
+  color: #999;
+  line-height: 1.5;
+}

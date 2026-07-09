@@ -138,6 +138,42 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+async function renderHotelCard(container, city, date, venue) {
+  if (!container) return;
+
+  try {
+    const params = new URLSearchParams({ city, date });
+    if (venue) params.set('venue', venue);
+    const resp = await fetch(`/api/hotels?${params.toString()}`);
+    const data = await resp.json().catch(() => null);
+    if (!data?.hotels) return;
+
+    const { hotels_url, trivago_url, checkin, checkout } = data.hotels;
+    const dateStr = checkin ? new Date(checkin).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+
+    container.innerHTML = `
+      <div class="hotel-card">
+        <div class="hotel-card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Where to stay near ${city}
+        </div>
+        ${dateStr ? `<div class="hotel-card-date">Check-in: ${dateStr}</div>` : ''}
+        <div class="hotel-card-links">
+          <a href="${hotels_url}" target="_blank" rel="noopener noreferrer" class="hotel-btn hotel-btn--primary">
+            Search Hotels.com →
+          </a>
+          <a href="${trivago_url}" target="_blank" rel="noopener noreferrer" class="hotel-btn hotel-btn--secondary">
+            Compare on Trivago →
+          </a>
+        </div>
+        <div class="hotel-card-note">Prices from verified hotel booking sites. No booking fees added by us.</div>
+      </div>
+    `;
+  } catch(e) {
+    // Silent fail — hotel card is supplementary
+  }
+}
+
 async function runSearch(keyword) {
   document.getElementById('results-title').textContent = `Results for "${keyword}"`;
   setBreadcrumb(`<a href="#/">← Back to trending</a>`);
@@ -478,11 +514,20 @@ async function showEventDetail(eventId) {
         </div>
       </div>
       <div id="detail-compare"></div>
+      <div id="detail-hotels"></div>
     `;
     renderComparePrices(
       document.getElementById('detail-compare'),
       eventName, null, '#', city, eventDate, venue
     );
+
+    // Hotel card for Awin events
+    if (city && eventDate) {
+      renderHotelCard(
+        document.getElementById('detail-hotels'),
+        city, eventDate, venue
+      );
+    }
     return;
   }
 
@@ -520,6 +565,7 @@ async function showEventDetail(eventId) {
         </div>
       </div>
       <div id="detail-compare"></div>
+      <div id="detail-hotels"></div>
     `;
 
     renderComparePrices(
@@ -531,6 +577,15 @@ async function showEventDetail(eventId) {
       eventDate,
       venueName
     );
+
+    // Hotel card — shown when event has a city and date
+    if (city && eventDate) {
+      renderHotelCard(
+        document.getElementById('detail-hotels'),
+        city, eventDate, venueName
+      );
+    }
+
   } catch (error) {
     grid.innerHTML = '<div class="error-msg">Unable to load this event right now.</div>';
     console.error('Event detail fetch error:', error);
