@@ -75,7 +75,7 @@ export async function onRequestGet({ request, env }) {
       // Show lookup result and raw events for debugging
       let eventsData = null;
       if (participant) {
-        const evUrl = buildEventsUrl(baseUrl, apiKey, participant.id, date);
+        const evUrl = buildEventsUrl(baseUrl, apiKey, participant.id, date, mode);
         const evResp = await fetch(evUrl, { headers });
         eventsData = await evResp.json();
       }
@@ -93,7 +93,7 @@ export async function onRequestGet({ request, env }) {
     }
 
     // ── Step 2: Fetch upcoming events for this participant ─────────────────
-    const eventsUrl  = buildEventsUrl(baseUrl, apiKey, participant.id, date);
+    const eventsUrl  = buildEventsUrl(baseUrl, apiKey, participant.id, date, mode);
     const eventsResp = await fetch(eventsUrl, { headers });
 
     if (!eventsResp.ok) {
@@ -205,31 +205,30 @@ function findParticipant(lookup, query) {
 // Adds a 30-day window from the event date
 // ===========================
 
-function buildEventsUrl(baseUrl, apiKey, participantId, targetDate) {
+function buildEventsUrl(baseUrl, apiKey, participantId, targetDate, mode) {
   const url = new URL(`${baseUrl}/events/participant/${participantId}`);
   url.searchParams.set('apiKey', apiKey);
   url.searchParams.set('currency', 'GBP');
-  url.searchParams.set('perPage', '20');
+  // In list mode fetch up to 50 events; single mode only needs a few
+  url.searchParams.set('perPage', mode === 'list' ? '50' : '20');
 
   if (targetDate) {
-    // Convert YYYY-MM-DD → dd/mm/yyyy for SE365
+    // Single mode with date — tight ±2 day window for exact event matching
     const [year, month, day] = targetDate.split('-');
     if (year && month && day) {
-      // Search ±2 days around the target date — tight window to avoid
-      // matching a different fixture on a nearby date (e.g. Sunday vs Friday)
       const from = new Date(targetDate);
       from.setDate(from.getDate() - 2);
       const to = new Date(targetDate);
       to.setDate(to.getDate() + 2);
-
       url.searchParams.set('dateFrom', formatDate(from));
       url.searchParams.set('dateTo',   formatDate(to));
     }
   } else {
-    // No target date — get upcoming events (next 90 days)
+    // No target date — get all upcoming events
+    // List mode: full season (365 days); single mode: 90 days
     const from = new Date();
     const to   = new Date();
-    to.setDate(to.getDate() + 90);
+    to.setDate(to.getDate() + (mode === 'list' ? 365 : 90));
     url.searchParams.set('dateFrom', formatDate(from));
     url.searchParams.set('dateTo',   formatDate(to));
   }
