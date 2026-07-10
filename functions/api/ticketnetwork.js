@@ -17,8 +17,11 @@
 // Returns: { match: { name, url, price, currency, date, venue, city } } or { match: null }
 // ===========================
 
-const TRACKING_BASE  = 'https://imp.pxf.io/c/7443544/132208/2322';  // Impact publisher 7443544, ad 132208, campaign 2322
-const TRACKING_BASE2 = 'https://imp.pxf.io/c/7443544/132208/2322';
+// TicketNetwork tracking: use their direct affiliate URL format
+// Publisher 7443544, tracked via aff_id param on ticketnetwork.com
+const TN_AFF_PARAMS = 'aff_id=1000&aff_sub=7443544&utm_source=impact&utm_medium=affiliate';
+const TRACKING_BASE  = 'https://www.ticketnetwork.com';  // base domain
+const TRACKING_BASE2 = 'https://www.ticketnetwork.com';
 const KV_INDEX       = 'tn:catalog:index';
 
 export async function onRequestGet({ request, env }) {
@@ -33,7 +36,7 @@ export async function onRequestGet({ request, env }) {
 
   // Build fallback search deep-link — use clean Impact tracking URL
   const searchUrl   = `https://www.ticketnetwork.com/tickets/search?q=${encodeURIComponent(q)}`;
-  const fallbackUrl = `https://imp.pxf.io/c/7443544/132208/2322?u=${encodeURIComponent(searchUrl)}`;
+  const fallbackUrl = `${searchUrl}&${TN_AFF_PARAMS}`;
   const fallback    = {
     name: `${q} tickets on TicketNetwork`,
     url:  fallbackUrl,
@@ -95,17 +98,18 @@ export async function onRequestGet({ request, env }) {
 
     scored.sort((a, b) => b.score - a.score);
 
-    // Clean the stored TN URL — strip broken clickId/afsrc tracking params
-    // and use a direct clean ticketnetwork.com URL instead
+    // Clean the stored TN URL — strip broken clickId/afsrc params, keep just the path
+    // and append our affiliate tracking params instead
     const cleanTnUrl = (rawUrl) => {
       try {
         const u = new URL(rawUrl);
-        // If it's a TN tickets page, keep just the clean path + q param
         if (u.hostname.includes('ticketnetwork.com')) {
+          // Keep just the path (e.g. /tickets/london-eye-tickets/...)
           const clean = new URL(u.pathname, 'https://www.ticketnetwork.com');
+          // If it's a search page, preserve the q param
           if (u.searchParams.get('q')) clean.searchParams.set('q', u.searchParams.get('q'));
-          // Wrap in Impact tracking
-          return `${TRACKING_BASE}?u=${encodeURIComponent(clean.toString())}`;
+          // Append affiliate tracking
+          return clean.toString() + (clean.search ? '&' : '?') + TN_AFF_PARAMS;
         }
       } catch(e) {}
       return rawUrl;

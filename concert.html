@@ -938,7 +938,12 @@
             _embedded:   { venues: [] }
           });
         }
-        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents];
+        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents]
+          .sort((a, b) => {
+            const da = a.dates?.start?.localDate || '9999-99-99';
+            const db = b.dates?.start?.localDate || '9999-99-99';
+            return da < db ? -1 : da > db ? 1 : 0;
+          });
 
         updateMeta(artist, tmEvents, tmImage); // use TM events for schema
         if (allEvents.length > 0) {
