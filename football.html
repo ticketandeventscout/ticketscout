@@ -864,18 +864,29 @@
           ...se365Events.map(e => e.dates.start.localDate).filter(Boolean)
         ]);
 
-        // Fuzzy duplicate check — same event name within ±2 days = duplicate
-        // Handles venue name differences (Estadio Metropolitano vs Riyadh Air Metropolitano)
-        // and 1-day date discrepancies between sources
+        // Fuzzy duplicate check — handles:
+        // 1. Exact name match within ±2 days (date discrepancies between sources)
+        // 2. Fuzzy name match — strips FC/CF/AFC/etc suffixes before comparing
+        //    e.g. "Villarreal FC" vs "Villarreal CF" → both normalise to "villarreal"
+        const stripClubSuffix = s => (s || '')
+          .toLowerCase()
+          .replace(/\b(fc|cf|afc|sc|rc|ac|bc|ud|rcd|ssc|ss|as|vfb|fsv|vfl|tsv|rb|bv|sv)\b/g, '')
+          .replace(/[^a-z0-9]/g, '')
+          .replace(/\s+/g, '');
+
         const se365Names = se365Events.map(e => ({
-          name: (e.name || '').toLowerCase().replace(/[^a-z0-9]/g, ''),
-          date: e.dates.start.localDate
+          name:  (e.name || '').toLowerCase().replace(/[^a-z0-9]/g, ''),
+          fuzzy: stripClubSuffix(e.name),
+          date:  e.dates.start.localDate
         }));
+
         const isFuzzyDupe = (eventName, eventDate) => {
-          const normName = (eventName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const normName  = (eventName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const fuzzyName = stripClubSuffix(eventName);
           return se365Names.some(s => {
-            if (s.name !== normName) return false;
-            if (!s.date || !eventDate) return s.name === normName;
+            const nameMatch = s.name === normName || s.fuzzy === fuzzyName;
+            if (!nameMatch) return false;
+            if (!s.date || !eventDate) return true;
             const diffDays = Math.abs(
               new Date(s.date).getTime() - new Date(eventDate).getTime()
             ) / 86400000;
