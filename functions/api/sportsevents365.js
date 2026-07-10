@@ -80,9 +80,13 @@ export async function onRequestGet({ request, env }) {
         const evResp = await fetch(evUrl, { headers });
         eventsData = await evResp.json();
       }
+      // Build the URL that would be used so we can verify date window
+      const debugUrl = participant ? buildEventsUrl(baseUrl, apiKey, participant.id, date, mode) : null;
       return jsonResponse({
         debug: true,
         version: '20260710-365days',
+        mode,
+        debugUrl,
         query: q,
         participantFound: participant || null,
         cacheEntries: Object.keys(lookup).length,
