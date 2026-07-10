@@ -836,20 +836,6 @@
         const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
 
         // ── SE365: all upcoming events ───────────────────────────────────────
-        // ── DEBUG PANEL — remove after diagnosis ─────────────────────────────
-        const _se365Debug = document.createElement('pre');
-        _se365Debug.id = 'se365-debug';
-        _se365Debug.style.cssText = 'background:#111;color:#0f0;font-size:10px;padding:10px;margin:10px 0;border-radius:6px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto;';
-        _se365Debug.textContent = 'SE365 raw response:\n' + JSON.stringify({
-          hasMatches: !!se365Data?.matches,
-          matchCount: se365Data?.matches?.length,
-          hasMatch: !!se365Data?.match,
-          keys: se365Data ? Object.keys(se365Data) : null,
-          firstMatch: se365Data?.matches?.[0] || se365Data?.match || null
-        }, null, 2);
-        document.getElementById('events-container').prepend(_se365Debug);
-        // ─────────────────────────────────────────────────────────────────────
-
         const se365Events = (se365Data?.matches || (se365Data?.match ? [se365Data.match] : []))
           .filter(m => m && m.url)
           .map(m => {
@@ -872,12 +858,30 @@
           })
           .filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
 
-        // Build a shared set of all dates already covered (TM + SE365)
-        // Used to deduplicate VS and TN so same fixture doesn't appear twice
+        // Build covered dates from TM + SE365
         const coveredDates = new Set([
           ...tmDates,
           ...se365Events.map(e => e.dates.start.localDate).filter(Boolean)
         ]);
+
+        // Fuzzy duplicate check — same event name within ±2 days = duplicate
+        // Handles venue name differences (Estadio Metropolitano vs Riyadh Air Metropolitano)
+        // and 1-day date discrepancies between sources
+        const se365Names = se365Events.map(e => ({
+          name: (e.name || '').toLowerCase().replace(/[^a-z0-9]/g, ''),
+          date: e.dates.start.localDate
+        }));
+        const isFuzzyDupe = (eventName, eventDate) => {
+          const normName = (eventName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          return se365Names.some(s => {
+            if (s.name !== normName) return false;
+            if (!s.date || !eventDate) return s.name === normName;
+            const diffDays = Math.abs(
+              new Date(s.date).getTime() - new Date(eventDate).getTime()
+            ) / 86400000;
+            return diffDays <= 2;
+          });
+        };
 
         // ── Vivid Seats: all matching events, filtered to correct team only ────
         // Team name validation: event name must contain the team's search name
@@ -906,7 +910,10 @@
             priceRanges: vs.price ? [{ min: vs.price, currency: vs.currency || 'USD' }] : [],
             _embedded:   { venues: vs.venue ? [{ name: vs.venue, city: { name: vs.city || '' } }] : [] }
           }))
-          .filter(e => !e.dates.start.localDate || !coveredDates.has(e.dates.start.localDate));
+          .filter(e => {
+            if (!e.dates.start.localDate) return !coveredDates.has('');
+            return !coveredDates.has(e.dates.start.localDate) && !isFuzzyDupe(e.name, e.dates.start.localDate);
+          });
 
         // ── TicketNetwork: all matching events, filtered to correct team only ──
         const tnEventCards = (tnData?.matches || (tnData?.match ? [tnData.match] : []))
@@ -930,7 +937,10 @@
             priceRanges: tn.price ? [{ min: tn.price, currency: tn.currency || 'USD' }] : [],
             _embedded:   { venues: tn.venue ? [{ name: tn.venue, city: { name: tn.city || '' } }] : [] }
           }))
-          .filter(e => !e.dates.start.localDate || !coveredDates.has(e.dates.start.localDate));
+          .filter(e => {
+            if (!e.dates.start.localDate) return !coveredDates.has('');
+            return !coveredDates.has(e.dates.start.localDate) && !isFuzzyDupe(e.name, e.dates.start.localDate);
+          });
 
         // ── Ticombo: best match or search fallback card ───────────────────────
         const tcEvents = [];

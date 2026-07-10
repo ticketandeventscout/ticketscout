@@ -82,17 +82,6 @@ export async function onRequestGet({ request, env }) {
       }
       // Build the URL that would be used so we can verify date window
       const debugUrl = participant ? buildEventsUrl(baseUrl, apiKey, participant.id, date, mode) : null;
-      // Also test with NO date filter to see if any events exist at all
-      let eventsDataNoFilter = null;
-      if (participant) {
-        const noFilterUrl = new URL(`${baseUrl}/events/participant/${participant.id}`);
-        noFilterUrl.searchParams.set('apiKey', apiKey);
-        noFilterUrl.searchParams.set('currency', 'GBP');
-        noFilterUrl.searchParams.set('perPage', '5');
-        const noFilterResp = await fetch(noFilterUrl.toString(), { headers });
-        eventsDataNoFilter = await noFilterResp.json();
-      }
-
       return jsonResponse({
         debug: true,
         version: '20260710-365days',
@@ -101,9 +90,7 @@ export async function onRequestGet({ request, env }) {
         query: q,
         participantFound: participant || null,
         cacheEntries: Object.keys(lookup).length,
-        eventsData,
-        eventsDataNoFilter,
-        note: 'eventsDataNoFilter = same participant with NO date filter'
+        eventsData
       }, 200);
     }
 
