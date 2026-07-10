@@ -95,9 +95,25 @@ export async function onRequestGet({ request, env }) {
 
     scored.sort((a, b) => b.score - a.score);
 
+    // Clean the stored TN URL — strip broken clickId/afsrc tracking params
+    // and use a direct clean ticketnetwork.com URL instead
+    const cleanTnUrl = (rawUrl) => {
+      try {
+        const u = new URL(rawUrl);
+        // If it's a TN tickets page, keep just the clean path + q param
+        if (u.hostname.includes('ticketnetwork.com')) {
+          const clean = new URL(u.pathname, 'https://www.ticketnetwork.com');
+          if (u.searchParams.get('q')) clean.searchParams.set('q', u.searchParams.get('q'));
+          // Wrap in Impact tracking
+          return `${TRACKING_BASE}?u=${encodeURIComponent(clean.toString())}`;
+        }
+      } catch(e) {}
+      return rawUrl;
+    };
+
     const buildMatch = (item) => ({
       name:     item.n,
-      url:      item.u || fallbackUrl,
+      url:      cleanTnUrl(item.u || fallbackUrl),
       price:    item.p ? Math.round(item.p) : null,
       currency: item.c || 'USD',
       date:     item.d || null,
