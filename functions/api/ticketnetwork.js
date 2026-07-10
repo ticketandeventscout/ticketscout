@@ -35,7 +35,8 @@ export async function onRequestGet({ request, env }) {
   if (!q || q.length < 2) return jsonResponse({ error: 'q is required' }, 400);
 
   // Build fallback search deep-link — use clean Impact tracking URL
-  const searchUrl   = `https://www.ticketnetwork.com/tickets/search?q=${encodeURIComponent(q)}`;
+  // TN search URL — use /search not /tickets/search
+  const searchUrl   = `https://www.ticketnetwork.com/search?q=${encodeURIComponent(q)}`;
   const fallbackUrl = `${searchUrl}&${TN_AFF_PARAMS}`;
   const fallback    = {
     name: `${q} tickets on TicketNetwork`,
@@ -109,7 +110,8 @@ export async function onRequestGet({ request, env }) {
           // If it's a search page, preserve the q param
           if (u.searchParams.get('q')) clean.searchParams.set('q', u.searchParams.get('q'));
           // Append affiliate tracking
-          return clean.toString() + (clean.search ? '&' : '?') + TN_AFF_PARAMS;
+          const sep = clean.search ? '&' : '?';
+          return clean.toString() + sep + TN_AFF_PARAMS;
         }
       } catch(e) {}
       return rawUrl;

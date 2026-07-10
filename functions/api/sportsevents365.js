@@ -166,16 +166,34 @@ function findParticipant(lookup, query) {
   // 1. Exact match
   if (lookup[normQuery]) return lookup[normQuery];
 
-  // 2. Starts-with match
+  // 2. Starts-with match (e.g. "real madrid" matches "real madrid cf")
   const startsWith = Object.entries(lookup).find(([k]) => k.startsWith(normQuery));
   if (startsWith) return startsWith[1];
 
-  // 3. Contains match (query found within participant name)
-  const contains = Object.entries(lookup).find(([k]) => k.includes(normQuery));
-  if (contains) return contains[1];
+  // 3. Query starts-with participant (e.g. participant "real madrid" within query "real madrid cf")
+  const queryStartsWith = Object.entries(lookup).find(([k]) => normQuery.startsWith(k) && k.length > 6);
+  if (queryStartsWith) return queryStartsWith[1];
 
-  // 4. Participant name found within query (e.g. query is "Chelsea vs Arsenal", name is "Chelsea")
-  const within = Object.entries(lookup).find(([k]) => normQuery.includes(k) && k.length > 4);
+  // 4. Word-boundary contains — ALL significant words in query must appear in participant name
+  // Prevents "Real Madrid" matching "Atletico de Madrid" via partial "madrid" match
+  // Also handles "Munich" vs "Munchen" via prefix matching (first 4 chars)
+  const queryWords = normQuery.split(/\s+/).filter(w => w.length > 2);
+  const wordMatch = Object.entries(lookup).find(([k]) => {
+    return queryWords.every(w => {
+      // Exact word match
+      if (k.includes(w)) return true;
+      // Prefix match for umlaut variants: "munich" matches "munchen" (muni == munc, no)
+      // Use first 5 chars: "munic" vs "munch" — still no
+      // Better: if words share first 4 chars they're likely the same city name
+      const wPrefix = w.slice(0, 4);
+      return k.split(/\s+/).some(kw => kw.startsWith(wPrefix) && wPrefix.length >= 3);
+    });
+  });
+  if (wordMatch) return wordMatch[1];
+
+  // 5. Participant name found within query (e.g. query is "Chelsea vs Arsenal", name is "Chelsea")
+  // Require participant name to be longer than 6 chars to avoid "ac" or "fc" false matches
+  const within = Object.entries(lookup).find(([k]) => normQuery.includes(k) && k.length > 6);
   if (within) return within[1];
 
   return null;
@@ -306,8 +324,22 @@ function buildAffiliateUrl(event, affiliateId) {
 // ===========================
 
 function normaliseName(str) {
-  return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+  return (str || '')
+    .toLowerCase()
+    // Transliterate umlauts so "München" and "Munchen" both normalise to "munchen"
+    .replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u')
+    .replace(/é|è|ê/g, 'e').replace(/à|â/g, 'a').replace(/ñ/g, 'n')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim();
 }
+
+// Synonym map for team name variations — maps our search term to SE365 participant name words
+const TEAM_SYNONYMS = {
+  'munich': 'munchen',
+  'munchen': 'munchen',
+  'munchen': 'munich',
+  'marseille': 'marseille',
+};
 
 function jsonResponse(body, status) {
   return new Response(JSON.stringify(body), {
