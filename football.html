@@ -797,10 +797,10 @@
             : Promise.resolve(null),
           fetch(`/api/awin-events?name=${searchName}&size=50`).then(safeJson).catch(() => null),
           fetch(`/api/sportsevents365?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
-          // VS and TN: single-match only on list page (no city context = wrong team matches in list mode)
-          fetch(`/api/vividseats?q=${searchName}`).then(safeJson).catch(() => null),
+          // VS in list mode — results filtered client-side to team name
+          fetch(`/api/vividseats?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
           fetch(`/api/ticombo?q=${searchName}`).then(safeJson).catch(() => null),
-          fetch(`/api/ticketnetwork?q=${searchName}`).then(safeJson).catch(() => null)
+          fetch(`/api/ticketnetwork?q=${searchName}&mode=list`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];
@@ -879,9 +879,22 @@
           ...se365Events.map(e => e.dates.start.localDate).filter(Boolean)
         ]);
 
-        // ── Vivid Seats: single best match (list mode disabled — no city context on list page)
-        const vsEventCards = (vsData?.match && !vsData.match.isFallback ? [vsData.match] : [])
-          .filter(vs => vs && vs.url)
+        // ── Vivid Seats: all matching events, filtered to correct team only ────
+        // Team name validation: event name must contain the team's search name
+        const teamSearchNorm = (team.search || team.name).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const vsEventCards = (vsData?.matches || (vsData?.match ? [vsData.match] : []))
+          .filter(vs => {
+            if (!vs || !vs.url) return false;
+            // Validate: event name must contain key words from team name
+            const evNorm = (vs.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const teamWords = (team.search || team.name).toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            // ALL significant team words must appear as whole words in the event name
+            // Uses word boundaries to prevent "villarreal" matching "real" from "Real Madrid"
+            const evWords = (vs.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/);
+            return teamWords.length === 0 || teamWords.every(tw =>
+              evWords.some(ew => ew === tw || ew.startsWith(tw) && tw.length >= 5)
+            );
+          })
           .map(vs => ({
             id:          `vs-${vs.date||''}-${(vs.name||team.name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}`,
             name:        vs.name || `${team.name} - Tickets`,
@@ -895,9 +908,17 @@
           }))
           .filter(e => !e.dates.start.localDate || !coveredDates.has(e.dates.start.localDate));
 
-        // ── TicketNetwork: single best match (list mode disabled on football page)
-        const tnEventCards = (tnData?.match && !tnData.match.isFallback ? [tnData.match] : [])
-          .filter(tn => tn && tn.url)
+        // ── TicketNetwork: all matching events, filtered to correct team only ──
+        const tnEventCards = (tnData?.matches || (tnData?.match ? [tnData.match] : []))
+          .filter(tn => {
+            if (!tn || !tn.url || tn.isFallback) return false;
+            const evNorm = (tn.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const teamWords = (team.search || team.name).toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            const tnEvWords = (tn.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/);
+            return teamWords.length === 0 || teamWords.every(tw =>
+              tnEvWords.some(ew => ew === tw || ew.startsWith(tw) && tw.length >= 5)
+            );
+          })
           .map(tn => ({
             id:          `tn-${tn.date||''}-${(tn.name||team.name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}`,
             name:        tn.name || `${team.name} - Tickets`,
