@@ -65,18 +65,20 @@ export async function onRequestGet({ request, env }) {
       // Skip past events
       if (item.d && new Date(item.d) < today) continue;
 
-      // Hard date filter — if we have a target date and item has a date,
-      // reject items more than 14 days away (prevents festival/wrong-event matches)
+      // Hard date filter — tighter when city context is available
       if (targetMs && item.d) {
         const diffDays = Math.abs(new Date(item.d).getTime() - targetMs) / 86400000;
-        if (diffDays > 14) continue; // too far from target date — skip
+        // With city: ±3 days only (same artist in different city = wrong event)
+        // Without city: ±14 days (less context to go on)
+        const maxDays = city ? 3 : 14;
+        if (diffDays > maxDays) continue;
         if (diffDays <= 1)  score += 30;
         else if (diffDays <= 3) score += 15;
         else if (diffDays <= 7) score += 5;
       }
 
-      // City boost — if city matches, strongly prefer this result
-      if (city && item.t && item.t.toLowerCase().includes(city)) score += 25;
+      // City boost — heavily weighted so wrong-city events never win
+      if (city && item.t && item.t.toLowerCase().includes(city)) score += 40;
 
       scored.push({ item, score });
     }

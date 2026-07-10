@@ -878,7 +878,7 @@
         const tcEvents = [];
         if (tcData !== null) { // add Ticombo card whenever the API responded
           const tcSearchUrl = 'https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:' +
-            encodeURIComponent('https://www.ticombo.com/en/search?q=' + encodeURIComponent(team.search || team.name));
+            encodeURIComponent('https://www.ticombo.com/en/discover/search?query=' + encodeURIComponent(team.search || team.name));
           tcEvents.push({
             id:          'tc-' + encodeURIComponent(team.name),
             name:        team.name + ' tickets on Ticombo',
@@ -1113,26 +1113,32 @@
       const minPrice  = e.priceRanges?.[0]?.min;
       const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
 
-      // VS/SE365 fallback: link directly (no TM ID available)
+      // SE365 / VS / TN / Ticombo — route through compare page
       if (e._vs || e._se365) {
-        const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
-        const meta  = [location, date].filter(Boolean).join(' · ');
-        return `<a class="event-list-item" href="${e._url}" target="_blank" rel="noopener noreferrer">
+        const eventDate = e.dates?.start?.localDate || '';
+        const evVenue = e._embedded?.venues?.[0]?.name || '';
+        const evCity  = e._embedded?.venues?.[0]?.city?.name || '';
+        const compareSlug = (eventDate + '-' + (e.name||''))
+          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const venueParam = evVenue ? '&venue=' + encodeURIComponent(evVenue) : '';
+        const cityParam  = evCity  ? '&city='  + encodeURIComponent(evCity)  : '';
+        const compareUrl = `${window.location.origin}/#/event/${e.id || compareSlug}?date=${eventDate}${venueParam}${cityParam}`;
+        const meta = [location, date].filter(Boolean).join(' · ');
+        return `<a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">
-              <div class="event-list-name">${e.name}${badge}</div>
+              <div class="event-list-name">${e.name}</div>
               ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
-            <div class="event-list-right">${priceHtml}<span class="event-list-cta">Buy tickets →</span></div>
+            <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>
           </a>`;
       }
       // Awin events: route through compare page
       if (e._awin) {
         const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name))}`;
-        const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
-        const meta  = [location, date].filter(Boolean).join(' · ');
+        const meta = [location, date].filter(Boolean).join(' · ');
         return `<a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">
-              <div class="event-list-name">${e.name}${badge}</div>
+              <div class="event-list-name">${e.name}</div>
               ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
             <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>

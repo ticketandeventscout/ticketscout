@@ -17,8 +17,8 @@
 // Returns: { match: { name, url, price, currency, date, venue, city } } or { match: null }
 // ===========================
 
-const TRACKING_BASE  = 'https://ticketnetwork.lusg.net/c/7443544/132208/2322';  // Catalog 896 ad ID
-const TRACKING_BASE2 = 'https://ticketnetwork.lusg.net/c/7443544/132208/2322';  // Catalog 896 ad ID
+const TRACKING_BASE  = 'https://imp.pxf.io/c/7443544/132208/2322';  // Impact publisher 7443544, ad 132208, campaign 2322
+const TRACKING_BASE2 = 'https://imp.pxf.io/c/7443544/132208/2322';
 const KV_INDEX       = 'tn:catalog:index';
 
 export async function onRequestGet({ request, env }) {
@@ -33,7 +33,7 @@ export async function onRequestGet({ request, env }) {
 
   // Build fallback search deep-link — use clean Impact tracking URL
   const searchUrl   = `https://www.ticketnetwork.com/tickets/search?q=${encodeURIComponent(q)}`;
-  const fallbackUrl = `https://ticketnetwork.lusg.net/c/7443544/132208/2322?u=${encodeURIComponent(searchUrl)}`;
+  const fallbackUrl = `https://imp.pxf.io/c/7443544/132208/2322?u=${encodeURIComponent(searchUrl)}`;
   const fallback    = {
     name: `${q} tickets on TicketNetwork`,
     url:  fallbackUrl,
@@ -73,17 +73,20 @@ export async function onRequestGet({ request, env }) {
       if (score === 0) continue;
       if (item.d && new Date(item.d) < today) continue;
 
-      // Hard date filter — reject items more than 14 days from target
+      // Hard date filter — tighter when city context is available
       if (targetMs && item.d) {
         const diffDays = Math.abs(new Date(item.d).getTime() - targetMs) / 86400000;
-        if (diffDays > 14) continue;
+        // With city: ±3 days only (same artist in different city = wrong event)
+        // Without city: ±14 days (less context to go on)
+        const maxDays = city ? 3 : 14;
+        if (diffDays > maxDays) continue;
         if (diffDays <= 1)  score += 30;
         else if (diffDays <= 3) score += 15;
         else if (diffDays <= 7) score += 5;
       }
 
-      // City boost
-      if (city && item.t && item.t.toLowerCase().includes(city)) score += 25;
+      // City boost — heavily weighted so wrong-city events never win
+      if (city && item.t && item.t.toLowerCase().includes(city)) score += 40;
 
       scored.push({ item, score });
     }

@@ -51,8 +51,9 @@ export async function onRequestGet({ request, env }) {
   const camref    = campaign.camref;
 
   // Build fallback search deep-link (always works, earns commission)
-  const searchUrl     = `https://www.ticombo.com/en/search?q=${encodeURIComponent(q)}`;
-  const fallbackUrl   = `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(searchUrl)}`;
+  // Ticombo search: /en/discover/search is the correct path (not /en/search)
+  const searchUrl   = `https://www.ticombo.com/en/discover/search?query=${encodeURIComponent(q)}`;
+  const fallbackUrl = `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(searchUrl)}`;
   const fallbackMatch = {
     name: `${q} tickets on Ticombo`,
     url:  fallbackUrl,
@@ -91,17 +92,20 @@ export async function onRequestGet({ request, env }) {
       // Boost by region match
       if (item.r === regionKey) score += 15;
 
-      // Hard date filter — reject items more than 14 days from target
+      // Hard date filter — tighter window when city is provided
       if (targetMs && item.d) {
         const diffDays = Math.abs(new Date(item.d).getTime() - targetMs) / 86400000;
-        if (diffDays > 14) continue;
+        // When city is known, only allow ±3 days (same performer in different city = wrong event)
+        // When no city, allow ±14 days (less context available)
+        const maxDays = city ? 3 : 14;
+        if (diffDays > maxDays) continue;
         if (diffDays <= 1)  score += 30;
         else if (diffDays <= 3) score += 15;
         else if (diffDays <= 7) score += 5;
       }
 
       // City boost — strongly prefer events in the right city
-      if (city && item.t && item.t.toLowerCase().includes(city)) score += 25;
+      if (city && item.t && item.t.toLowerCase().includes(city)) score += 40;
 
       scored.push({ item, score });
     }
