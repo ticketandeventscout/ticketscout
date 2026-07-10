@@ -390,16 +390,19 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         return a.price - b.price;
       });
 
-    // Always show TM if we have a URL — it's the primary seller
     slot.innerHTML = '';
-    if (tmUrl && tmUrl !== '#') {
-      slot.insertAdjacentHTML('beforeend', buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP'));
+    const otherHavePrices = withPrices.some(r => r.price);
+    // Show TM when: it has a price, OR no other seller has a real price (sole coverage)
+    if (tmPrice || !otherHavePrices) {
+      if (tmUrl && tmUrl !== '#') {
+        slot.insertAdjacentHTML('beforeend', buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP'));
+      }
     }
     withPrices.forEach(result => {
       slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url, result.currency));
     });
-    // If nothing at all rendered, show a placeholder
-    if (!slot.innerHTML.trim()) {
+    // Safety — if nothing rendered at all, show TM as fallback
+    if (!slot.innerHTML.trim() && tmUrl && tmUrl !== '#') {
       slot.innerHTML = buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP');
     }
 

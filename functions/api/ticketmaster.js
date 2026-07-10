@@ -52,7 +52,11 @@ export async function onRequestGet({ request, env }) {
     if (keyword) tmUrl.searchParams.set('keyword', keyword);
 
     const segmentName = incoming.searchParams.get('segmentName');
-    if (segmentName) tmUrl.searchParams.set('segmentName', segmentName);
+    if (segmentName) {
+      tmUrl.searchParams.set('segmentName', segmentName);
+      // Remove GB filter for segment browsing — show global events
+      tmUrl.searchParams.delete('countryCode');
+    }
 
 
 
