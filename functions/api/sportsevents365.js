@@ -1,6 +1,7 @@
 // ===========================
 // TicketScout — Server-side SportsEvents365 adapter
 // Runs as a Cloudflare Pages Function at /api/sportsevents365
+// VERSION: 20260710-365days — perPage=50, window=365 days for list mode
 //
 // SE365 API flow (confirmed from full API docs):
 //   1. Look up participant ID from KV cache (built by /api/sportsevents365-cache)
@@ -81,6 +82,7 @@ export async function onRequestGet({ request, env }) {
       }
       return jsonResponse({
         debug: true,
+        version: '20260710-365days',
         query: q,
         participantFound: participant || null,
         cacheEntries: Object.keys(lookup).length,
