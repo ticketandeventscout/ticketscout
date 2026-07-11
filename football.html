@@ -1,4 +1,4 @@
-<!DOCTYPE html><!-- TicketScout football v20260711b -->
+<!DOCTYPE html><!-- TicketScout football v20260711c -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -858,11 +858,6 @@
           })
           .filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
 
-        // Debug: log se365Events to see what SE365 returned
-        console.log('[SE365 EVENTS]', se365Events.length, 'events:',
-          se365Events.slice(0,5).map(e => e.name + ' | ' + e.dates?.start?.localDate));
-        console.log('[SE365 NAMES for dedup]', se365Names?.length, JSON.stringify(se365Names?.slice(0,3)));
-
         // Build covered dates from TM + SE365
         const coveredDates = new Set([
           ...tmDates,
@@ -897,9 +892,6 @@
             ) / 86400000;
             return diffDays <= 2;
           });
-          console.log('[DEDUP]', result ? 'DROP' : 'KEEP', eventName, eventDate,
-            '| norm:', normName, '| fuzzy:', fuzzyName,
-            '| se365Names:', JSON.stringify(se365Names.slice(0,3)));
           return result;
         };
 
@@ -994,11 +986,34 @@
         }
 
         // Sort all events by date ascending (soonest first), events with no date go last
-        const allEvents = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tnEventCards, ...tcEvents]
+        // Global dedup: merge all sources then remove duplicates by fuzzy name+date
+        // This handles VS vs SE365, VS vs VS, TN vs VS etc. regardless of which source has data
+        const allRaw = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tnEventCards, ...tcEvents];
+
+        // Source priority for dedup: TM > Awin > SE365 > VS > TN > Ticombo
+        // Keep first occurrence of each fuzzy name+date combination
+        const seenDedup = new Map();
+        const allEvents = allRaw
           .sort((a, b) => {
             const da = a.dates?.start?.localDate || '9999-99-99';
             const db = b.dates?.start?.localDate || '9999-99-99';
             return da < db ? -1 : da > db ? 1 : 0;
+          })
+          .filter(e => {
+            const eName  = (e.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const eFuzzy = stripClubSuffix(e.name);
+            const eDate  = e.dates?.start?.localDate || '';
+            // Check against all already-kept events within ±2 days
+            for (const [key, keptDate] of seenDedup) {
+              const diffDays = eDate && keptDate
+                ? Math.abs(new Date(eDate) - new Date(keptDate)) / 86400000
+                : 0;
+              if (diffDays <= 2 && (key === eName || key === eFuzzy)) return false;
+            }
+            // Keep this event — add both exact and fuzzy keys
+            seenDedup.set(eName,  eDate);
+            seenDedup.set(eFuzzy, eDate);
+            return true;
           });
 
         updateMeta(team, tmEvents, tmImage);
