@@ -1,4 +1,4 @@
-<!DOCTYPE html><!-- TicketScout football v20260711a -->
+<!DOCTYPE html><!-- TicketScout football v20260711b -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -858,6 +858,11 @@
           })
           .filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
 
+        // Debug: log se365Events to see what SE365 returned
+        console.log('[SE365 EVENTS]', se365Events.length, 'events:',
+          se365Events.slice(0,5).map(e => e.name + ' | ' + e.dates?.start?.localDate));
+        console.log('[SE365 NAMES for dedup]', se365Names?.length, JSON.stringify(se365Names?.slice(0,3)));
+
         // Build covered dates from TM + SE365
         const coveredDates = new Set([
           ...tmDates,
@@ -883,7 +888,7 @@
         const isFuzzyDupe = (eventName, eventDate) => {
           const normName  = (eventName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
           const fuzzyName = stripClubSuffix(eventName);
-          return se365Names.some(s => {
+          const result = se365Names.some(s => {
             const nameMatch = s.name === normName || s.fuzzy === fuzzyName;
             if (!nameMatch) return false;
             if (!s.date || !eventDate) return true;
@@ -892,6 +897,10 @@
             ) / 86400000;
             return diffDays <= 2;
           });
+          console.log('[DEDUP]', result ? 'DROP' : 'KEEP', eventName, eventDate,
+            '| norm:', normName, '| fuzzy:', fuzzyName,
+            '| se365Names:', JSON.stringify(se365Names.slice(0,3)));
+          return result;
         };
 
         // ── Vivid Seats: all matching events, filtered to correct team only ────
