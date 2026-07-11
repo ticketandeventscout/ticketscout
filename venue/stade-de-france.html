@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stade de France Tickets | Events &amp; Prices | TicketScout</title>
+  <meta name="description" content="Compare ticket prices for events at Stade de France, Paris, France. Find the best deals across verified sellers. Updated daily." />
+  <meta property="og:title" content="Stade de France Tickets | TicketScout" />
+  <meta property="og:description" content="Compare ticket prices for events at Stade de France, Paris, France across verified sellers." />
+  <meta property="og:type" content="website" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.ticketscout.co.uk/venue/stade-de-france" />
+  <script>window.__VENUE_SLUG__ = 'stade-de-france';</script>
+  <link rel="stylesheet" href="/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <noscript>
+    <h1>Stade de France Tickets</h1>
+    <p>Stade de France is France's national stadium in Saint-Denis with a capacity of 80,000, hosting international football, rugby and major concerts.</p>
+  </noscript>
+  <script>
+  (async function() {
+    try {
+      const r = await fetch('/venue.html');
+      const html = await r.text();
+      const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      if (!m) return;
+      document.body.innerHTML = m[1];
+      document.body.querySelectorAll('script').forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) s.src = o.src; else s.textContent = o.textContent;
+        document.body.appendChild(s); o.remove();
+      });
+    } catch(e) { console.error('Failed to load venue template:', e); }
+  })();
+  </script>
+</body>
+</html>

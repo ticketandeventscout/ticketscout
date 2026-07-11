@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Chemical Romance Tickets | Compare Prices | TicketScout</title>
+  <meta name="description" content="Compare My Chemical Romance ticket prices across verified sellers. Find the cheapest My Chemical Romance tickets and buy direct. Updated daily." />
+  <meta property="og:title" content="My Chemical Romance Tickets | TicketScout" />
+  <meta property="og:description" content="Compare My Chemical Romance ticket prices across verified sellers. Find the best deal." />
+  <meta property="og:type" content="website" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.ticketscout.co.uk/concert/my-chemical-romance" />
+  <script>window.__CONCERT_SLUG__ = 'my-chemical-romance';</script>
+  <link rel="stylesheet" href="/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body><script>
+  (async function() {
+    try {
+      const r = await fetch('/concert.html?v=20260707c');
+      const html = await r.text();
+      const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+      if (headStyleMatch) {
+        const st = document.createElement('style');
+        st.textContent = headStyleMatch[1];
+        document.head.appendChild(st);
+      }
+      const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      if (!m) return;
+      document.body.innerHTML = m[1];
+      document.body.querySelectorAll('script').forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) s.src = o.src; else s.textContent = o.textContent;
+        document.body.appendChild(s); o.remove();
+      });
+    } catch(e) { console.error('Failed to load concert template:', e); }
+  })();
+</script></body></html>

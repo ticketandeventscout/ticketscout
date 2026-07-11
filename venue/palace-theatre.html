@@ -1,16 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Loading…</title>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Palace Theatre Tickets | Events &amp; Prices | TicketScout</title>
+  <meta name="description" content="Compare ticket prices for events at Palace Theatre, London. Find the best deals across verified sellers. Updated daily." />
+  <meta property="og:title" content="Palace Theatre Tickets | TicketScout" />
+  <meta property="og:description" content="Compare ticket prices for events at Palace Theatre, London across verified sellers." />
+  <meta property="og:type" content="website" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.ticketscout.co.uk/venue/palace-theatre" />
   <script>window.__VENUE_SLUG__ = 'palace-theatre';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
 <body>
+  <noscript>
+    <h1>Palace Theatre Tickets</h1>
+    <p>Palace Theatre is one of London's premier West End venues on Cambridge Circus, currently home to Harry Potter and the Cursed Child. Compare ticket prices from verified sellers.</p>
+  </noscript>
   <script>
-    async function loadTemplate() {
+  (async function() {
+    try {
       const r = await fetch('/venue.html');
       const html = await r.text();
       const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -21,8 +31,8 @@
         if (o.src) s.src = o.src; else s.textContent = o.textContent;
         document.body.appendChild(s); o.remove();
       });
-    }
-    loadTemplate();
+    } catch(e) { console.error('Failed to load venue template:', e); }
+  })();
   </script>
 </body>
 </html>

@@ -2,22 +2,27 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Loading…</title>
+  <title>Wembley Stadium Tickets | Events &amp; Prices | TicketScout</title>
+  <meta name="description" content="Compare ticket prices for events at Wembley Stadium, London. Find the best deals across verified sellers. Updated daily." />
+  <meta property="og:title" content="Wembley Stadium Tickets | TicketScout" />
+  <meta property="og:description" content="Compare ticket prices for events at Wembley Stadium, London across verified sellers." />
+  <meta property="og:type" content="website" />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://www.ticketscout.co.uk/venue/wembley-stadium" />
   <script>window.__VENUE_SLUG__ = 'wembley-stadium';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
-<body><script>
+<body>
+  <noscript>
+    <h1>Wembley Stadium Tickets</h1>
+    <p>Wembley Stadium is the home of English football and one of the world's greatest sporting venues with a capacity of 90,000. It hosts FA Cup finals, England internationals, and major concerts.</p>
+  </noscript>
+  <script>
   (async function() {
     try {
-      const r = await fetch('/venue.html?v=20260707c');
+      const r = await fetch('/venue.html');
       const html = await r.text();
-      const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-      if (headStyleMatch) {
-        const st = document.createElement('style');
-        st.textContent = headStyleMatch[1];
-        document.head.appendChild(st);
-      }
       const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
       if (!m) return;
       document.body.innerHTML = m[1];
@@ -28,4 +33,6 @@
       });
     } catch(e) { console.error('Failed to load venue template:', e); }
   })();
-</script></body></html>
+  </script>
+</body>
+</html>
