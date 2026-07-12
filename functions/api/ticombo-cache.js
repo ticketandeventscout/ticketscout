@@ -74,36 +74,44 @@ export async function onRequestGet({ request, env }) {
     return json({ error: 'No feed URLs configured. Add feed URLs to the FEEDS array in ticombo-cache.js' }, 500);
   }
 
-  // Header inspection — shows actual CSV column names from feed
+  // Header inspection — shows actual CSV column names from ONE feed only
   if (url.searchParams.get('headers') === '1') {
-    const results = [];
-    for (const feed of FEEDS) {
-      try {
-        const resp = await fetch(feed.url);
-        const buffer = await resp.arrayBuffer();
-        let text = '';
-        try {
-          const ds = new DecompressionStream('gzip');
-          const writer = ds.writable.getWriter();
-          const reader = ds.readable.getReader();
-          writer.write(new Uint8Array(buffer));
-          writer.close();
-          const dec = new TextDecoder('utf-8');
-          let chunk;
-          while (!(chunk = await reader.read()).done) {
-            text += dec.decode(chunk.value, { stream: true });
-            if (text.length > 1000) break; // just need first line
-          }
-        } catch {
-          text = new TextDecoder('utf-8').decode(buffer).slice(0, 1000);
+    // Only fetch the UK feed (first one) to avoid Worker memory limits
+    const feed = FEEDS[0];
+    try {
+      const resp = await fetch(feed.url);
+      // Stream just enough to get the header row — don't buffer whole file
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder('utf-8');
+      let text = '';
+      let done = false;
+      while (!done && text.length < 2000) {
+        const chunk = await reader.read();
+        done = chunk.done;
+        if (chunk.value) {
+          // Try plain text first (some feeds aren't gzipped)
+          text += dec.decode(chunk.value, { stream: true });
         }
-        const firstLine = text.split('\n')[0];
-        results.push({ region: feed.region, columns: firstLine, sample: text.split('\n')[1] });
-      } catch(e) {
-        results.push({ region: feed.region, error: String(e) });
       }
+      reader.cancel();
+      // If gzipped, text will be garbled — try decompressing just the chunk
+      if (text.charCodeAt(0) === 31 && text.charCodeAt(1) === 139) {
+        return jsonResponse({ 
+          region: feed.region, 
+          note: 'Feed is gzip compressed — run ?trigger=1&debug=1 to see processed columns',
+          raw_bytes: Array.from(new Uint8Array(await (await fetch(feed.url)).arrayBuffer().then(b => b.slice(0,20)))),
+        }, 200);
+      }
+      const lines = text.split('\n');
+      return jsonResponse({ 
+        region: feed.region, 
+        columns: lines[0],
+        sample_row: lines[1] || '',
+        column_count: lines[0].split(',').length
+      }, 200);
+    } catch(e) {
+      return jsonResponse({ region: feed.region, error: String(e) }, 200);
     }
-    return jsonResponse({ headers: results }, 200);
   }
 
   // Connectivity test
