@@ -74,43 +74,34 @@ export async function onRequestGet({ request, env }) {
     return json({ error: 'No feed URLs configured. Add feed URLs to the FEEDS array in ticombo-cache.js' }, 500);
   }
 
-  // Header inspection — shows actual CSV column names from ONE feed only
-  if (url.searchParams.get('headers') === '1') {
-    // Only fetch the UK feed (first one) to avoid Worker memory limits
-    const feed = FEEDS[0];
+  // Sample mode — reads existing KV index and shows first 3 items with all fields
+  // Use this to check what data is actually stored (including whether dates exist)
+  if (url.searchParams.get('sample') === '1') {
     try {
-      const resp = await fetch(feed.url);
-      // Stream just enough to get the header row — don't buffer whole file
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder('utf-8');
-      let text = '';
-      let done = false;
-      while (!done && text.length < 2000) {
-        const chunk = await reader.read();
-        done = chunk.done;
-        if (chunk.value) {
-          // Try plain text first (some feeds aren't gzipped)
-          text += dec.decode(chunk.value, { stream: true });
-        }
-      }
-      reader.cancel();
-      // If gzipped, text will be garbled — try decompressing just the chunk
-      if (text.charCodeAt(0) === 31 && text.charCodeAt(1) === 139) {
-        return jsonResponse({ 
-          region: feed.region, 
-          note: 'Feed is gzip compressed — run ?trigger=1&debug=1 to see processed columns',
-          raw_bytes: Array.from(new Uint8Array(await (await fetch(feed.url)).arrayBuffer().then(b => b.slice(0,20)))),
-        }, 200);
-      }
-      const lines = text.split('\n');
+      const raw = await kv.get('ticombo:index');
+      if (!raw) return jsonResponse({ error: 'No KV data found — run ?trigger=1 first' }, 200);
+      const index = JSON.parse(raw);
+      const sample = index.slice(0, 5).map(item => ({
+        name: item.n,
+        url: item.u ? item.u.slice(0, 80) + '...' : null,
+        price: item.p,
+        currency: item.c,
+        date: item.d,
+        venue: item.v,
+        city: item.t,
+        category: item.g,
+        region: item.r
+      }));
+      // Also find items that DO have dates
+      const withDates = index.filter(i => i.d).slice(0, 3).map(i => ({ name: i.n, date: i.d }));
       return jsonResponse({ 
-        region: feed.region, 
-        columns: lines[0],
-        sample_row: lines[1] || '',
-        column_count: lines[0].split(',').length
+        total: index.length,
+        sample_items: sample,
+        items_with_dates: withDates.length,
+        sample_with_dates: withDates
       }, 200);
     } catch(e) {
-      return jsonResponse({ region: feed.region, error: String(e) }, 200);
+      return jsonResponse({ error: String(e) }, 200);
     }
   }
 
