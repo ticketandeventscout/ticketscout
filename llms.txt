@@ -7,21 +7,21 @@ TicketScout compares ticket prices across verified sellers including Gigsberg, S
 
 ## How to Use TicketScout
 
-- Search by artist, team or show on the homepage: [ticketscout.co.uk](https://www.ticketscout.co.uk)
-- Browse concerts: [ticketscout.co.uk/concert](https://www.ticketscout.co.uk/concert)
-- Browse football: [ticketscout.co.uk/football](https://www.ticketscout.co.uk/football)
-- Browse theatre: [ticketscout.co.uk/theatre](https://www.ticketscout.co.uk/theatre)
+- Search by artist, team or show on the homepage: [ticketscout.co.uk](https://ticketscout.co.uk)
+- Browse concerts: [ticketscout.co.uk/concert](https://ticketscout.co.uk/concert)
+- Browse football: [ticketscout.co.uk/football](https://ticketscout.co.uk/football)
+- Browse theatre: [ticketscout.co.uk/theatre](https://ticketscout.co.uk/theatre)
 
 ## Key Pages
 
-- [Arsenal Tickets](https://www.ticketscout.co.uk/football/arsenal)
-- [Chelsea Tickets](https://www.ticketscout.co.uk/football/chelsea)
-- [FC Barcelona Tickets](https://www.ticketscout.co.uk/football/fc-barcelona)
-- [Real Madrid Tickets](https://www.ticketscout.co.uk/football/real-madrid)
-- [Wembley Stadium Events](https://www.ticketscout.co.uk/venue/wembley-stadium)
-- [Hamilton Tickets](https://www.ticketscout.co.uk/theatre/hamilton)
-- [FAQ](https://www.ticketscout.co.uk/faq)
-- [Contact](https://www.ticketscout.co.uk/contact)
+- [Arsenal Tickets](https://ticketscout.co.uk/football/arsenal)
+- [Chelsea Tickets](https://ticketscout.co.uk/football/chelsea)
+- [FC Barcelona Tickets](https://ticketscout.co.uk/football/fc-barcelona)
+- [Real Madrid Tickets](https://ticketscout.co.uk/football/real-madrid)
+- [Wembley Stadium Events](https://ticketscout.co.uk/venue/wembley-stadium)
+- [Hamilton Tickets](https://ticketscout.co.uk/theatre/hamilton)
+- [FAQ](https://ticketscout.co.uk/faq)
+- [Contact](https://ticketscout.co.uk/contact)
 
 ## Data Sources
 

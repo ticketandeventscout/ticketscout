@@ -29,4 +29,4 @@ User-agent: Bingbot
 Allow: /
 Crawl-delay: 2
 
-Sitemap: https://www.ticketscout.co.uk/sitemap.xml
+Sitemap: https://ticketscout.co.uk/sitemap.xml

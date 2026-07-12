@@ -34,7 +34,7 @@ export async function onRequestGet({ request, params, env }) {
 
   const url         = new URL(request.url);
   const templateUrl = `${url.origin}/concert.html`;
-  const pageUrl     = `https://www.ticketscout.co.uk/concert/${slug}`;
+  const pageUrl     = `https://ticketscout.co.uk/concert/${slug}`;
 
   const templateResp = await fetch(templateUrl);
   if (!templateResp.ok) return Response.redirect('/', 302);
