@@ -836,7 +836,7 @@
               _merchant: 'SportsEvents365',
               dates:     { start: { localDate: isoDate, localTime: m.time || '' } },
               priceRanges: m.price ? [{ min: m.price, currency: m.currency || 'GBP' }] : [],
-              _embedded: { venues: m.venue ? [{ name: m.venue, city: { name: '' } }] : [] }
+              _embedded: { venues: m.venue ? [{ name: m.venue, city: { name: m.city || '' } }] : [] }
             };
           })
           .filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));

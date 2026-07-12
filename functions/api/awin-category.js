@@ -166,7 +166,10 @@ function findBestMatches(rows, query, targetDate, venueName) {
     ? scored.filter(r => isDateMatch(getRowDate(r.row), targetDate))
     : [];
 
-  // Use date-matched group if we have results; otherwise fall back to all matches
+  // Only use date-matched results when a target date is provided
+  // If no date match found, return empty rather than showing wrong-date events
+  // This prevents past/wrong-date events appearing in compare table
+  if (targetDate && dateMatched.length === 0) return [];
   const pool = dateMatched.length > 0 ? dateMatched : scored;
 
   // Sort by score desc, then price asc

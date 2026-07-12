@@ -141,7 +141,8 @@ export async function onRequestGet({ request, env }) {
       currency: event.minTicketPrice?.currency || 'GBP',
       date:     event.dateOfEvent || '',
       time:     event.timeOfEvent || '',
-      venue:    event.venue?.name || null
+      venue:    event.venue?.name || null,
+      city:     event.city?.name  || null
     });
 
     if (mode === 'list') {

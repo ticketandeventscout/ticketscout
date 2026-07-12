@@ -1205,7 +1205,7 @@
       const venue     = e._embedded?.venues?.[0];
       const location  = [venue?.name, venue?.city?.name].filter(Boolean).join(' · ');
       const minPrice  = e.priceRanges?.[0]?.min;
-      const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
+      const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '<div class="event-list-price" style="color:#888;font-size:13px;">See prices</div>';
 
       // VS fallback cards link directly (no TM ID available)
       if (e._vs) {

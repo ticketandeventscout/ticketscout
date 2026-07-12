@@ -96,8 +96,8 @@ export async function onRequestGet({ request, env }) {
       if (targetMs && item.d) {
         const diffDays = Math.abs(new Date(item.d).getTime() - targetMs) / 86400000;
         // When city is known, only allow ±3 days (same performer in different city = wrong event)
-        // When no city, allow ±14 days (less context available)
-        const maxDays = city ? 3 : 14;
+        // When no city, allow ±7 days (tightened from 14 to reduce wrong-event matches)
+        const maxDays = city ? 3 : 7;
         if (diffDays > maxDays) continue;
         if (diffDays <= 1)  score += 30;
         else if (diffDays <= 3) score += 15;
