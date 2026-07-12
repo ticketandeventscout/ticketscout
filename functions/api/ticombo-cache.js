@@ -315,14 +315,25 @@ export async function onRequestGet({ request, env }) {
       // venue_country, venue_city, deep_link, image_url, qty_tickets,
       // min_sell_price, min_final_sell_price
       // Note: no date or currency column in the feed.
-      const iName   = col('eventname')    !== -1 ? col('eventname')    : col('eventfullname');
-      const iUrl    = col('deeplink')     !== -1 ? col('deeplink')     : col('url');
-      const iPrice  = col('minsellprice') !== -1 ? col('minsellprice') : col('minfinalsellprice');
-      const iCurr   = -1; // no currency column — default EUR per region below
-      const iDate   = -1; // no date column in Ticombo feed
-      const iVenue  = col('venuename')    !== -1 ? col('venuename')    : col('venue');
-      const iCity   = col('venuecity')    !== -1 ? col('venuecity')    : col('city');
+      const iName   = col('eventname')         !== -1 ? col('eventname')         : col('eventfullname');
+      const iUrl    = col('deeplink')          !== -1 ? col('deeplink')          : col('url');
+      // Prefer min_final_sell_price (fees included) over min_sell_price
+      const iPrice  = col('minfinalsellprice') !== -1 ? col('minfinalsellprice') : col('minsellprice');
+      // Feed exposes currency per row (EUR, GBP etc) — was hardcoded before
+      const iCurr   = col('currency');
+      // Feed exposes event_start_date as ISO datetime e.g. 2026-07-14T14:00:00.000Z
+      const iDate   = col('eventstartdate')    !== -1 ? col('eventstartdate')    : col('eventstart');
+      const iVenue  = col('venuename')         !== -1 ? col('venuename')         : col('venue');
+      const iCity   = col('venuecity')         !== -1 ? col('venuecity')         : col('city');
       const iCat    = col('category');
+
+      // Confirm column detection in Workers logs (first two feeds only)
+      if (feed.region === 'UK' || feed.region === 'Europe') {
+        console.log('[Ticombo:' + feed.region + '] date col idx=' + iDate
+          + ' (' + (header[iDate] || 'NOT FOUND') + ')'
+          + ', currency col idx=' + iCurr + ' (' + (header[iCurr] || 'NOT FOUND') + ')'
+          + ', price col idx=' + iPrice + ' (' + (header[iPrice] || 'NOT FOUND') + ')');
+      }
 
       let kept = 0;
       for (let i = 1; i < lines.length; i++) {
@@ -343,7 +354,7 @@ export async function onRequestGet({ request, env }) {
           n: name,
           u: affiliateUrl,
           p: iPrice !== -1 && cols[iPrice] ? parseFloat(cols[iPrice]) : null,
-          c: iCurr !== -1 && cols[iCurr] ? cols[iCurr] : (feed.region === 'UK' ? 'GBP' : 'EUR'),
+          c: iCurr !== -1 && cols[iCurr] ? cols[iCurr].trim() : (feed.region === 'UK' ? 'GBP' : 'EUR'),
           d: date ? date.split('T')[0] : '',
           v: iVenue !== -1 ? (cols[iVenue] || '') : '',
           t: iCity  !== -1 ? (cols[iCity]  || '') : '',
