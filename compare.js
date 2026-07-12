@@ -204,10 +204,12 @@ const ADAPTERS = [
       const match = data.match;
       return {
         source:     'Ticombo',
-        price:      match.price ? Math.round(match.price) : null,
+        price:      match.isFallback ? null : (match.price ? Math.round(match.price) : null),
         currency:   match.currency || 'GBP',
         url:        match.url,
-        available:  true
+        available:  true,
+        // Flag fallback so UI can show "Search" instead of a price
+        isFallback: !!match.isFallback
       };
     }
   },
