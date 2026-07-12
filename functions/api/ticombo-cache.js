@@ -74,6 +74,38 @@ export async function onRequestGet({ request, env }) {
     return json({ error: 'No feed URLs configured. Add feed URLs to the FEEDS array in ticombo-cache.js' }, 500);
   }
 
+  // Header inspection — shows actual CSV column names from feed
+  if (url.searchParams.get('headers') === '1') {
+    const results = [];
+    for (const feed of FEEDS) {
+      try {
+        const resp = await fetch(feed.url);
+        const buffer = await resp.arrayBuffer();
+        let text = '';
+        try {
+          const ds = new DecompressionStream('gzip');
+          const writer = ds.writable.getWriter();
+          const reader = ds.readable.getReader();
+          writer.write(new Uint8Array(buffer));
+          writer.close();
+          const dec = new TextDecoder('utf-8');
+          let chunk;
+          while (!(chunk = await reader.read()).done) {
+            text += dec.decode(chunk.value, { stream: true });
+            if (text.length > 1000) break; // just need first line
+          }
+        } catch {
+          text = new TextDecoder('utf-8').decode(buffer).slice(0, 1000);
+        }
+        const firstLine = text.split('\n')[0];
+        results.push({ region: feed.region, columns: firstLine, sample: text.split('\n')[1] });
+      } catch(e) {
+        results.push({ region: feed.region, error: String(e) });
+      }
+    }
+    return jsonResponse({ headers: results }, 200);
+  }
+
   // Connectivity test
   if (url.searchParams.get('test') === '1') {
     const apiKey  = env.PARTNERIZE_API_KEY;

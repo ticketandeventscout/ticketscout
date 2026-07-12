@@ -110,10 +110,29 @@ export async function onRequestGet({ request, env }) {
       scored.push({ item, score });
     }
 
+    // Debug: log scoring results
+    console.log('[Ticombo] query:', q, 'date:', date, 'city:', city,
+      'scored:', scored.length, scored.slice(0,3).map(s => s.item.n + '(' + s.item.d + ')score=' + s.score).join('|'));
+
+    // If date was provided but no events matched the date window, use search fallback
+    // This prevents returning a completely wrong-date event
+    if (targetMs && scored.length === 0) {
+      console.log('[Ticombo] No date match — using search fallback');
+      return jsonResponse({ match: fallbackMatch }, 200);
+    }
+
     if (scored.length === 0) return jsonResponse({ match: fallbackMatch }, 200);
 
     scored.sort((a, b) => b.score - a.score);
     const best = scored[0].item;
+
+    // If a specific date was requested but matched event has no date,
+    // we cannot confirm it's the right fixture — use search fallback instead
+    // This prevents "Arsenal vs Aston Villa Apr 2027" showing for "Arsenal Nov 2026"
+    if (targetMs && !best.d) {
+      console.log('[Ticombo] Date requested but matched event has no date — using search fallback');
+      return jsonResponse({ match: fallbackMatch }, 200);
+    }
 
     // The cached URL is already a complete Partnerize affiliate link (prf.hn) with
     // the feed's regional camref baked in. Use it directly — do NOT re-wrap.

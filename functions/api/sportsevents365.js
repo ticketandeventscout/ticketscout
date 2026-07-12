@@ -142,7 +142,8 @@ export async function onRequestGet({ request, env }) {
       date:     event.dateOfEvent || '',
       time:     event.timeOfEvent || '',
       venue:    event.venue?.name || null,
-      city:     event.city?.name  || null
+      // SE365 city: try top-level city first, then venue.city, then location
+      city:     event.city?.name || event.venue?.city?.name || event.location?.city?.name || null
     });
 
     if (mode === 'list') {
