@@ -29,7 +29,7 @@ const CACHE_KEY        = 'awin:category:latest';
 const PENDING_KEY      = 'autodiscover:awin:pending';
 const KNOWN_KEY        = 'autodiscover:artists:known';
 const KNOWN_VENUES_KEY = 'autodiscover:venues:known';
-const CACHE_TTL        = 8 * 24 * 60 * 60;  // 8 days — survives missed cron runs
+const CACHE_TTL        = 30 * 24 * 60 * 60; // 30 days — long TTL prevents 502 on missed cron runs
 const PENDING_TTL      = 8 * 60 * 60;  // 8 hours — expires after commit job runs
 const CHUNK_SIZE       = 2000;
 
