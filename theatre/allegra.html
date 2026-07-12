@@ -5,7 +5,7 @@
   <title>Allegra Tickets | Compare Prices | TicketScout</title>
   <meta name="description" content="Compare Allegra ticket prices across verified sellers. Find the cheapest Allegra theatre tickets and buy direct. Updated daily." />
   <meta property="og:title" content="Allegra Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Allegra ticket prices across verified sellers. Find the best deal." />
+  <meta property="og:description" content="Compare Allegra ticket prices across verified sellers." />
   <meta property="og:type" content="website" />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://www.ticketscout.co.uk/theatre/allegra" />
@@ -20,10 +20,14 @@
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/theatre.html');
+      const r = await fetch('/theatre.html?v=20260711g');
       const html = await r.text();
-      const sm = html.match(/<style>([\s\S]*?)<\/style>/i);
-      if (sm) { var st = document.createElement('style'); st.textContent = sm[1]; document.head.appendChild(st); }
+      const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+      if (headStyleMatch) {
+        const st = document.createElement('style');
+        st.textContent = headStyleMatch[1];
+        document.head.appendChild(st);
+      }
       const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
       if (!m) return;
       document.body.innerHTML = m[1];
