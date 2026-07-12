@@ -20,7 +20,7 @@
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/football.html?v=20260712a');
+      const r = await fetch('/football.html?v=20260712b');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {

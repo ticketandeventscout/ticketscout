@@ -933,6 +933,34 @@
             return true;
           });
 
+        // ── Enrich each kept event with the LOWEST price across all sources ──
+        // e.g. Arsenal vs Hull: SE365=£394, Ticombo=£126 → show From £126
+        allEvents.forEach(kept => {
+          const keptDate  = kept.dates?.start?.localDate || '';
+          const keptFuzzy = stripClubSuffix(kept.name);
+          // Find all raw events that match this fixture (same fuzzy name ±2 days)
+          const matches = allRaw.filter(r => {
+            const rDate  = r.dates?.start?.localDate || '';
+            const rFuzzy = stripClubSuffix(r.name);
+            if (keptFuzzy !== rFuzzy) return false;
+            if (!keptDate || !rDate) return keptFuzzy === rFuzzy;
+            return Math.abs(new Date(keptDate) - new Date(rDate)) / 86400000 <= 2;
+          });
+          // Find minimum GBP price across all matched sources
+          // Prefer GBP prices; treat USD prices as approximate (divide by 1.27)
+          let minGbp = null;
+          matches.forEach(r => {
+            const p = r.priceRanges?.[0]?.min;
+            const c = r.priceRanges?.[0]?.currency || 'GBP';
+            if (!p) return;
+            const gbp = c === 'GBP' ? p : Math.round(p / 1.27);
+            if (minGbp === null || gbp < minGbp) minGbp = gbp;
+          });
+          if (minGbp !== null) {
+            kept.priceRanges = [{ min: minGbp, currency: 'GBP' }];
+          }
+        });
+
         updateMeta(team, tmEvents, tmImage);
 
         if (allEvents.length > 0) {

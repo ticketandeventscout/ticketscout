@@ -945,7 +945,35 @@
             _embedded:   { venues: [] }
           });
         }
-        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents];
+        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents]
+          .sort((a, b) => {
+            const da = a.dates?.start?.localDate || '9999-99-99';
+            const db = b.dates?.start?.localDate || '9999-99-99';
+            return da < db ? -1 : da > db ? 1 : 0;
+          });
+
+        // Enrich each event with lowest price across all sources
+        const allRawConcert = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents];
+        allEvents.forEach(kept => {
+          const keptDate = kept.dates?.start?.localDate || '';
+          const keptName = (kept.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const matches  = allRawConcert.filter(r => {
+            const rName = (r.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const rDate = r.dates?.start?.localDate || '';
+            if (keptName !== rName) return false;
+            if (!keptDate || !rDate) return keptName === rName;
+            return Math.abs(new Date(keptDate) - new Date(rDate)) / 86400000 <= 1;
+          });
+          let minGbp = null;
+          matches.forEach(r => {
+            const p = r.priceRanges?.[0]?.min;
+            const c = r.priceRanges?.[0]?.currency || 'GBP';
+            if (!p) return;
+            const gbp = c === 'GBP' ? p : Math.round(p / 1.27);
+            if (minGbp === null || gbp < minGbp) minGbp = gbp;
+          });
+          if (minGbp !== null) kept.priceRanges = [{ min: minGbp, currency: 'GBP' }];
+        });
 
         updateMeta(artist, tmEvents, tmImage); // use TM events for schema
         if (allEvents.length > 0) {
@@ -1194,7 +1222,10 @@
       // Awin-only events: route through compare page using event name+date as context
       // The compare page will look up all sellers for this event
       if (e._awin) {
-        const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name))}`;
+        const _awinDate = e._eventDate || '';
+        const _awinName = e._eventName || e.name;
+        const _awinSlug = _awinDate ? `${_awinDate}-${_awinName}` : _awinName;
+        const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent(_awinSlug)}`;
         return `
           <a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">

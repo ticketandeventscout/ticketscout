@@ -1043,7 +1043,10 @@
       }
       // Awin events: route through compare page
       if (e._awin) {
-        const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name))}`;
+        const _awinDate = e._eventDate || '';
+        const _awinName = e._eventName || e.name;
+        const _awinSlug = _awinDate ? `${_awinDate}-${_awinName}` : _awinName;
+        const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent(_awinSlug)}`;
         const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
         const meta  = [location, date].filter(Boolean).join(' · ');
         return `<a class="event-list-item" href="${compareUrl}">

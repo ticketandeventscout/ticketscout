@@ -585,7 +585,9 @@ async function showEventDetail(rawEventId) {
     const decoded   = decodeURIComponent(eventId.slice(5));
     const dateMatch = decoded.match(/^(\d{4}-\d{2}-\d{2})-(.+)$/);
     const eventDate = dateMatch ? dateMatch[1] : '';
-    const eventName = toTitleCase(dateMatch ? dateMatch[2] : decoded);
+    // When no date, decoded IS the name (no leading dash)
+    const rawName   = dateMatch ? dateMatch[2] : decoded.replace(/^-+/, '');
+    const eventName = toTitleCase(rawName);
     const dateStr   = eventDate
       ? new Date(eventDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })
       : '';
