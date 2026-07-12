@@ -18,7 +18,10 @@
   <meta name="twitter:image" id="tw-image" content="https://www.ticketscout.co.uk/og-default.png" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
   <script type="application/ld+json" id="schema-org"></script>
   <style>
     .artist-hero {
@@ -803,12 +806,7 @@
             _embedded:   { venues: [] }
           });
         }
-        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents]
-          .sort((a, b) => {
-            const da = a.dates?.start?.localDate || '9999-99-99';
-            const db = b.dates?.start?.localDate || '9999-99-99';
-            return da < db ? -1 : da > db ? 1 : 0;
-          });
+        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents];
 
         updateMeta(show, tmEvents, tmImage);
 

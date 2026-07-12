@@ -1,4 +1,4 @@
-<!DOCTYPE html><!-- TicketScout football v20260711c -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -17,8 +17,13 @@
   <meta name="twitter:description" id="tw-description" content="Compare football ticket prices across verified sellers." />
   <meta name="twitter:image" id="tw-image" content="https://www.ticketscout.co.uk/og-default.png" />
   <link rel="stylesheet" href="/styles.css" />
+  <!-- Preconnect to font origins and Ticketmaster image CDN -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <!-- Load font non-render-blocking -->
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
   <script type="application/ld+json" id="schema-org"></script>
   <style>
     .artist-hero {
@@ -121,6 +126,8 @@
       grid-template-columns: 1fr 340px;
       gap: 40px;
       align-items: start;
+      /* Reserve space to prevent CLS when event list loads */
+      min-height: 600px;
     }
 
     @media (max-width: 768px) {
@@ -256,6 +263,8 @@
     }
 
     .mini-faq {
+      /* Reserve space to prevent CLS */
+      min-height: 200px;
       margin-top: 40px;
     }
 
@@ -447,6 +456,8 @@
   </nav>
 
   <!-- Team Hero -->
+  <!-- LCP preload hint — will be updated by JS once image URL is known -->
+  <link id="hero-preload" rel="preload" as="image" fetchpriority="high" href="" />
   <div class="artist-hero" id="artist-hero">
     <div class="artist-hero-bg" id="hero-bg"></div>
     <div class="artist-hero-inner">
@@ -682,53 +693,19 @@
         document.getElementById('artist-name').textContent = 'Football Tickets';
         document.getElementById('artist-sub').textContent  = 'Compare match ticket prices across verified sellers';
 
-        const leagueSections = [
-          { title: 'Premier League', clubs: [
-            ['arsenal','Arsenal'],['chelsea','Chelsea'],['liverpool','Liverpool'],
-            ['manchester-united','Man United'],['manchester-city','Man City'],
-            ['tottenham','Tottenham'],['newcastle','Newcastle'],['aston-villa','Aston Villa'],
-            ['west-ham','West Ham'],['brighton','Brighton'],['everton','Everton'],
-            ['fulham','Fulham'],['brentford','Brentford'],['crystal-palace','Crystal Palace'],
-            ['nottingham-forest','Nott\u2019m Forest']
-          ]},
-          { title: 'Championship & Scotland', clubs: [
-            ['leeds-united','Leeds United'],['celtic','Celtic'],['rangers','Rangers'],
-            ['sheffield-united','Sheffield Utd'],['sunderland','Sunderland'],
-            ['middlesbrough','Middlesbrough'],['hearts','Hearts'],['hibernian','Hibernian'],
-            ['burnley','Burnley'],['watford','Watford']
-          ]},
-          { title: 'La Liga (Spain)', clubs: [
-            ['fc-barcelona','FC Barcelona'],['real-madrid','Real Madrid'],
-            ['atletico-madrid','Atletico Madrid'],['sevilla','Sevilla'],
-            ['real-sociedad','Real Sociedad'],['villarreal','Villarreal'],
-            ['athletic-bilbao','Athletic Bilbao'],['real-betis','Real Betis'],
-            ['valencia','Valencia'],['girona','Girona']
-          ]},
-          { title: 'Bundesliga (Germany)', clubs: [
-            ['bayern-munich','Bayern Munich'],['borussia-dortmund','Dortmund'],
-            ['bayer-leverkusen','Bayer Leverkusen'],['rb-leipzig','RB Leipzig'],
-            ['eintracht-frankfurt','Eintracht Frankfurt'],['vfb-stuttgart','Stuttgart'],
-            ['sc-freiburg','Freiburg'],['borussia-monchengladbach','Gladbach'],
-            ['werder-bremen','Werder Bremen'],['union-berlin','Union Berlin']
-          ]},
-          { title: 'Serie A (Italy)', clubs: [
-            ['juventus','Juventus'],['ac-milan','AC Milan'],['inter-milan','Inter Milan'],
-            ['napoli','Napoli'],['as-roma','AS Roma'],['lazio','Lazio'],
-            ['atalanta','Atalanta'],['fiorentina','Fiorentina'],['bologna','Bologna'],
-            ['torino','Torino']
-          ]},
-          { title: 'Ligue 1 (France)', clubs: [
-            ['paris-saint-germain','PSG'],['olympique-marseille','Marseille'],
-            ['olympique-lyonnais','Lyon'],['monaco','Monaco'],
-            ['nice','Nice'],['lille-osc','Lille'],
-            ['stade-rennais','Rennes'],['rc-lens','Lens']
-          ]},
-          { title: 'Eredivisie & Portugal', clubs: [
-            ['ajax','Ajax'],['psv-eindhoven','PSV Eindhoven'],
-            ['feyenoord','Feyenoord'],['az-alkmaar','AZ Alkmaar'],
-            ['porto','FC Porto'],['benfica','Benfica'],
-            ['sporting-cp','Sporting CP'],['braga','SC Braga']
-          ]}
+        const premClubs = [
+          ['arsenal','Arsenal'],['chelsea','Chelsea'],['liverpool','Liverpool'],
+          ['manchester-united','Man United'],['manchester-city','Man City'],
+          ['tottenham','Tottenham'],['newcastle','Newcastle'],['aston-villa','Aston Villa'],
+          ['west-ham','West Ham'],['brighton','Brighton'],['everton','Everton'],
+          ['fulham','Fulham'],['brentford','Brentford'],['crystal-palace','Crystal Palace'],
+          ['nottingham-forest','Nott\u2019m Forest']
+        ];
+        const otherClubs = [
+          ['leeds-united','Leeds United'],['celtic','Celtic'],['rangers','Rangers'],
+          ['sheffield-united','Sheffield Utd'],['sunderland','Sunderland'],
+          ['middlesbrough','Middlesbrough'],['hearts','Hearts'],['hibernian','Hibernian'],
+          ['burnley','Burnley'],['watford','Watford']
         ];
 
         function clubLink(slug, name) {
@@ -736,13 +713,18 @@
         }
 
         document.getElementById('events-container').innerHTML =
-          leagueSections.map(function(section) {
-            return '<div style="margin-bottom:28px;">' +
-              '<h3 style="font-size:18px;font-weight:600;margin-bottom:16px;color:#1a1a1a;">' + section.title + '</h3>' +
-              '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">' +
-              section.clubs.map(function(c) { return clubLink(c[0], c[1]); }).join('') +
-              '</div></div>';
-          }).join('');
+          '<div style="margin-bottom:24px;">' +
+            '<h3 style="font-size:18px;font-weight:600;margin-bottom:16px;color:#1a1a1a;">Premier League</h3>' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">' +
+              premClubs.map(function(c) { return clubLink(c[0], c[1]); }).join('') +
+            '</div>' +
+          '</div>' +
+          '<div>' +
+            '<h3 style="font-size:18px;font-weight:600;margin-bottom:16px;color:#1a1a1a;">Championship & Scotland</h3>' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;">' +
+              otherClubs.map(function(c) { return clubLink(c[0], c[1]); }).join('') +
+            '</div>' +
+          '</div>';
 
         // Hide team-specific sections that don't apply to the landing page
         var bioSection = document.getElementById('about-heading');
@@ -790,17 +772,15 @@
           if (!ct.includes('application/json')) return Promise.resolve(null);
           return r.json().catch(() => null);
         };
-        const searchName = encodeURIComponent(team.search || team.name);
         const [tmData, awinData, se365Data, vsData, tcData, tnData] = await Promise.all([
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
             : Promise.resolve(null),
-          fetch(`/api/awin-events?name=${searchName}&size=50`).then(safeJson).catch(() => null),
-          fetch(`/api/sportsevents365?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
-          // VS in list mode — results filtered client-side to team name
-          fetch(`/api/vividseats?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
-          fetch(`/api/ticombo?q=${searchName}`).then(safeJson).catch(() => null),
-          fetch(`/api/ticketnetwork?q=${searchName}&mode=list`).then(safeJson).catch(() => null)
+          fetch(`/api/awin-events?name=${encodeURIComponent(team.search || team.name)}&size=50`).then(safeJson).catch(() => null),
+          fetch(`/api/sportsevents365?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
+          fetch(`/api/vividseats?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
+          fetch(`/api/ticombo?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null),
+          fetch(`/api/ticketnetwork?q=${encodeURIComponent(team.search || team.name)}`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];
@@ -835,84 +815,36 @@
         const tmDates  = new Set(tmEvents.map(e => e.dates?.start?.localDate).filter(Boolean));
         const awinOnly = awinNormalised.filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
 
-        // ── SE365: all upcoming events ───────────────────────────────────────
-        const se365Events = (se365Data?.matches || (se365Data?.match ? [se365Data.match] : []))
-          .filter(m => m && m.url)
-          .map(m => {
-            const rawDate = m.date || '';
-            // Normalise dd/mm/yyyy → yyyy-mm-dd, passthrough if already ISO
-            const isoDate = rawDate.match(/^\d{2}\/\d{2}\/\d{4}$/)
-              ? rawDate.split('/').reverse().join('-')
-              : rawDate.split('T')[0];
-            return {
-              id:        `se365-${isoDate}-${(m.name||team.name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}`,
-              name:      m.name || `${team.name} - Tickets`,
-              _se365:    true,
-              _url:      m.url,
-              _price:    m.price,
+        // SE365: convert single match result to event card format if available
+        const se365Events = [];
+        if (se365Data?.match?.url) {
+          const m = se365Data.match;
+          const se365Date = m.date ? m.date.split('T')[0] : '';
+          // Only add if not already covered by TM or Awin
+          if (!se365Date || !tmDates.has(se365Date)) {
+            se365Events.push({
+              id:     `se365-${encodeURIComponent(m.name || team.name)}`,
+              name:   m.name || `${team.name} - Tickets`,
+              _se365: true,
+              _url:   m.url,
+              _price: m.price,
               _merchant: 'SportsEvents365',
-              dates:     { start: { localDate: isoDate, localTime: m.time || '' } },
+              dates:  { start: { localDate: se365Date, localTime: m.time || '' } },
               priceRanges: m.price ? [{ min: m.price, currency: m.currency || 'GBP' }] : [],
-              _embedded: { venues: m.venue ? [{ name: m.venue, city: { name: '' } }] : [] }
-            };
-          })
-          .filter(e => !e.dates.start.localDate || !tmDates.has(e.dates.start.localDate));
+              _embedded: {
+                venues: m.venue ? [{ name: m.venue, city: { name: '' } }] : []
+              }
+            });
+          }
+        }
 
-        // Build covered dates from TM + SE365
-        const coveredDates = new Set([
-          ...tmDates,
-          ...se365Events.map(e => e.dates.start.localDate).filter(Boolean)
-        ]);
 
-        // Fuzzy duplicate check — handles:
-        // 1. Exact name match within ±2 days (date discrepancies between sources)
-        // 2. Fuzzy name match — strips FC/CF/AFC/etc suffixes before comparing
-        //    e.g. "Villarreal FC" vs "Villarreal CF" → both normalise to "villarreal"
-        const stripClubSuffix = s => (s || '')
-          .toLowerCase()
-          .replace(/\b(fc|cf|afc|sc|rc|ac|bc|ud|rcd|ssc|ss|as|vfb|fsv|vfl|tsv|rb|bv|sv)\b/g, '')
-          .replace(/[^a-z0-9]/g, '')
-          .replace(/\s+/g, '');
-
-        const se365Names = se365Events.map(e => ({
-          name:  (e.name || '').toLowerCase().replace(/[^a-z0-9]/g, ''),
-          fuzzy: stripClubSuffix(e.name),
-          date:  e.dates.start.localDate
-        }));
-
-        const isFuzzyDupe = (eventName, eventDate) => {
-          const normName  = (eventName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-          const fuzzyName = stripClubSuffix(eventName);
-          const result = se365Names.some(s => {
-            const nameMatch = s.name === normName || s.fuzzy === fuzzyName;
-            if (!nameMatch) return false;
-            if (!s.date || !eventDate) return true;
-            const diffDays = Math.abs(
-              new Date(s.date).getTime() - new Date(eventDate).getTime()
-            ) / 86400000;
-            return diffDays <= 2;
-          });
-          return result;
-        };
-
-        // ── Vivid Seats: all matching events, filtered to correct team only ────
-        // Team name validation: event name must contain the team's search name
-        const teamSearchNorm = (team.search || team.name).toLowerCase().replace(/[^a-z0-9]/g, '');
-        const vsEventCards = (vsData?.matches || (vsData?.match ? [vsData.match] : []))
-          .filter(vs => {
-            if (!vs || !vs.url) return false;
-            // Validate: event name must contain key words from team name
-            const evNorm = (vs.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const teamWords = (team.search || team.name).toLowerCase().split(/\s+/).filter(w => w.length > 3);
-            // ALL significant team words must appear as whole words in the event name
-            // Uses word boundaries to prevent "villarreal" matching "real" from "Real Madrid"
-            const evWords = (vs.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/);
-            return teamWords.length === 0 || teamWords.every(tw =>
-              evWords.some(ew => ew === tw || ew.startsWith(tw) && tw.length >= 5)
-            );
-          })
-          .map(vs => ({
-            id:          `vs-${vs.date||''}-${(vs.name||team.name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}`,
+        // VS fallback: only show in event list if no TM/Awin/SE365 events
+        const vsEventCards = [];
+        if (vsData?.match?.url && tmEvents.length === 0 && (awinNormalised||[]).length === 0) {
+          const vs = vsData.match;
+          vsEventCards.push({
+            id:          `vs-${encodeURIComponent(team.name||'')}`,
             name:        vs.name || `${team.name} - Tickets`,
             _vs:         true,
             _url:        vs.url,
@@ -921,61 +853,18 @@
             dates:       { start: { localDate: vs.date || '', localTime: '' } },
             priceRanges: vs.price ? [{ min: vs.price, currency: vs.currency || 'USD' }] : [],
             _embedded:   { venues: vs.venue ? [{ name: vs.venue, city: { name: vs.city || '' } }] : [] }
-          }))
-          .filter(e => {
-            if (!e.dates.start.localDate) return !coveredDates.has('');
-            return !coveredDates.has(e.dates.start.localDate) && !isFuzzyDupe(e.name, e.dates.start.localDate);
           });
-
-        // ── TicketNetwork: all matching events, filtered to correct team only ──
-        const tnEventCards = (tnData?.matches || (tnData?.match ? [tnData.match] : []))
-          .filter(tn => {
-            if (!tn || !tn.url || tn.isFallback) return false;
-            const evNorm = (tn.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const teamWords = (team.search || team.name).toLowerCase().split(/\s+/).filter(w => w.length > 3);
-            const tnEvWords = (tn.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/);
-            return teamWords.length === 0 || teamWords.every(tw =>
-              tnEvWords.some(ew => ew === tw || ew.startsWith(tw) && tw.length >= 5)
-            );
-          })
-          .map(tn => ({
-            id:          `tn-${tn.date||''}-${(tn.name||team.name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}`,
-            name:        tn.name || `${team.name} - Tickets`,
-            _vs:         true,
-            _url:        tn.url,
-            _price:      tn.price,
-            _merchant:   'TicketNetwork',
-            dates:       { start: { localDate: tn.date || '', localTime: '' } },
-            priceRanges: tn.price ? [{ min: tn.price, currency: tn.currency || 'USD' }] : [],
-            _embedded:   { venues: tn.venue ? [{ name: tn.venue, city: { name: tn.city || '' } }] : [] }
-          }))
-          .filter(e => {
-            if (!e.dates.start.localDate) return !coveredDates.has('');
-            return !coveredDates.has(e.dates.start.localDate) && !isFuzzyDupe(e.name, e.dates.start.localDate);
-          });
-
-        // ── Ticombo: best match or search fallback card ───────────────────────
+        }
+        // Ticombo: add as a search deep-link card when VS/TM/Awin have coverage
+        // Always present — earns commission on click regardless of specific event match
         const tcEvents = [];
-        if (tcData?.match?.url && !tcData.match.isFallback) {
-          const tc = tcData.match;
-          tcEvents.push({
-            id:          `tc-${(tc.name||team.name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}`,
-            name:        tc.name || `${team.name} tickets on Ticombo`,
-            _vs:         true,
-            _url:        tc.url,
-            _price:      tc.price,
-            _merchant:   'Ticombo',
-            dates:       { start: { localDate: tc.date || '', localTime: '' } },
-            priceRanges: tc.price ? [{ min: tc.price, currency: tc.currency || 'GBP' }] : [],
-            _embedded:   { venues: tc.venue ? [{ name: tc.venue, city: { name: tc.city || '' } }] : [] }
-          });
-        } else if (tcData !== null) {
+        if (tcData !== null) { // add Ticombo card whenever the API responded
           const tcSearchUrl = 'https://ticombo.prf.hn/click/camref:1100l5P9x2/destination:' +
-            encodeURIComponent('https://www.ticombo.com/en/discover/search?query=' + encodeURIComponent(team.search || team.name));
+            encodeURIComponent('https://www.ticombo.com/en/search?q=' + encodeURIComponent(team.search || team.name));
           tcEvents.push({
-            id:          'tc-search-' + team.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,''),
+            id:          'tc-' + encodeURIComponent(team.name),
             name:        team.name + ' tickets on Ticombo',
-            _vs:         true,
+            _vs:         true,  // reuse _vs rendering (direct link, "Buy tickets →")
             _url:        tcSearchUrl,
             _price:      null,
             _merchant:   'Ticombo',
@@ -984,37 +873,7 @@
             _embedded:   { venues: [] }
           });
         }
-
-        // Sort all events by date ascending (soonest first), events with no date go last
-        // Global dedup: merge all sources then remove duplicates by fuzzy name+date
-        // This handles VS vs SE365, VS vs VS, TN vs VS etc. regardless of which source has data
-        const allRaw = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tnEventCards, ...tcEvents];
-
-        // Source priority for dedup: TM > Awin > SE365 > VS > TN > Ticombo
-        // Keep first occurrence of each fuzzy name+date combination
-        const seenDedup = new Map();
-        const allEvents = allRaw
-          .sort((a, b) => {
-            const da = a.dates?.start?.localDate || '9999-99-99';
-            const db = b.dates?.start?.localDate || '9999-99-99';
-            return da < db ? -1 : da > db ? 1 : 0;
-          })
-          .filter(e => {
-            const eName  = (e.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const eFuzzy = stripClubSuffix(e.name);
-            const eDate  = e.dates?.start?.localDate || '';
-            // Check against all already-kept events within ±2 days
-            for (const [key, keptDate] of seenDedup) {
-              const diffDays = eDate && keptDate
-                ? Math.abs(new Date(eDate) - new Date(keptDate)) / 86400000
-                : 0;
-              if (diffDays <= 2 && (key === eName || key === eFuzzy)) return false;
-            }
-            // Keep this event — add both exact and fuzzy keys
-            seenDedup.set(eName,  eDate);
-            seenDedup.set(eFuzzy, eDate);
-            return true;
-          });
+        const allEvents = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tcEvents];
 
         updateMeta(team, tmEvents, tmImage);
 
@@ -1236,32 +1095,26 @@
       const minPrice  = e.priceRanges?.[0]?.min;
       const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
 
-      // SE365 / VS / TN / Ticombo — route through compare page
+      // VS/SE365 fallback: link directly (no TM ID available)
       if (e._vs || e._se365) {
-        const eventDate = e.dates?.start?.localDate || '';
-        const evVenue = e._embedded?.venues?.[0]?.name || '';
-        const evCity  = e._embedded?.venues?.[0]?.city?.name || '';
-        const compareSlug = (eventDate + '-' + (e.name||''))
-          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        const venueParam = evVenue ? '&venue=' + encodeURIComponent(evVenue) : '';
-        const cityParam  = evCity  ? '&city='  + encodeURIComponent(evCity)  : '';
-        const compareUrl = `${window.location.origin}/#/event/${e.id || compareSlug}?date=${eventDate}${venueParam}${cityParam}`;
-        const meta = [location, date].filter(Boolean).join(' · ');
-        return `<a class="event-list-item" href="${compareUrl}">
+        const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
+        const meta  = [location, date].filter(Boolean).join(' · ');
+        return `<a class="event-list-item" href="${e._url}" target="_blank" rel="noopener noreferrer">
             <div class="event-list-left">
-              <div class="event-list-name">${e.name}</div>
+              <div class="event-list-name">${e.name}${badge}</div>
               ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
-            <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>
+            <div class="event-list-right">${priceHtml}<span class="event-list-cta">Buy tickets →</span></div>
           </a>`;
       }
       // Awin events: route through compare page
       if (e._awin) {
         const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name))}`;
-        const meta = [location, date].filter(Boolean).join(' · ');
+        const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
+        const meta  = [location, date].filter(Boolean).join(' · ');
         return `<a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">
-              <div class="event-list-name">${e.name}</div>
+              <div class="event-list-name">${e.name}${badge}</div>
               ${meta ? `<div class="event-list-meta">${meta}</div>` : ''}
             </div>
             <div class="event-list-right">${priceHtml}<span class="event-list-cta">Compare prices →</span></div>

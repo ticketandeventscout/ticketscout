@@ -7,14 +7,17 @@
   <title>TicketScout — Compare UK Ticket Prices</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body>
 
   <!-- Navigation -->
   <nav class="navbar">
     <div class="nav-inner">
-      <a href="#/" style="text-decoration:none; display:flex; align-items:center; gap:10px;">
+      <a href="#/" aria-label="TicketScout - Compare UK Ticket Prices" style="text-decoration:none; display:flex; align-items:center; gap:10px;">
         <svg width="36" height="36" viewBox="0 40 248 200" xmlns="http://www.w3.org/2000/svg">
           <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
           <circle cx="40" cy="140" r="16" fill="#ffffff"/>
@@ -124,7 +127,7 @@
   <!-- Footer -->
   <footer class="footer">
     <div class="footer-inner">
-      <a href="#/" style="display:inline-block; margin-bottom:12px; text-decoration:none;">
+      <a href="#/" aria-label="TicketScout home" style="display:inline-block; margin-bottom:12px; text-decoration:none;">
         <svg width="420" height="76" viewBox="0 0 680 280" xmlns="http://www.w3.org/2000/svg">
           <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
           <circle cx="40" cy="140" r="16" fill="#ffffff"/>
@@ -151,8 +154,8 @@
     </div>
   </footer>
 
-  <script src="events.js?v=20260709s"></script>
-  <script src="compare.js?v=20260709s"></script>
+  <script src="events.js?v=20260712a"></script>
+  <script src="compare.js?v=20260712a"></script>
   <script src="autocomplete.js"></script>
 
 </body>

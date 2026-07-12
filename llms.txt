@@ -1,118 +1,32 @@
-# TicketScout — llms.txt
-# AI crawler and LLM agent instructions
-# https://llmstxt.org specification
-# Last updated: 2026-07-05
+# TicketScout — AI Agent Guide
+> TicketScout (ticketscout.co.uk) is a UK ticket price comparison platform that aggregates live ticket listings from multiple verified sellers so users can find the cheapest price for concerts, football, theatre and live events.
 
-# What TicketScout is
-TicketScout (ticketscout.co.uk) is a UK ticket price comparison platform.
-We aggregate live ticket listings from multiple verified sellers and display
-them side-by-side so users can find the cheapest price for concerts, football
-matches, theatre shows, and other live events in the UK.
+## What TicketScout Does
 
-We do not sell tickets directly. We redirect users to the seller's own checkout.
-All listed sellers are verified and offer buyer guarantees.
+TicketScout compares ticket prices across verified sellers including Gigsberg, SportsEvents365, Vivid Seats, TicketNetwork and Ticombo. We do not sell tickets directly — we redirect users to the seller's own checkout.
 
-# How to use TicketScout
-- To find ticket prices for an artist or event: search by name on the homepage
-- To browse by category: /concert/, /football/, /theatre/
-- Each artist/team/show has a dedicated page: /concert/[slug], /football/[slug], /theatre/[slug]
-- Prices shown are live from our seller network and updated in real time
-- All prices are in GBP unless otherwise stated
+## How to Use TicketScout
 
-# Data sources
-TicketScout aggregates data from:
-- Ticketmaster (event discovery and primary market data)
-- Gigsberg (secondary market — via Awin affiliate network)
-- Theatre Tickets Direct (West End and touring shows — via Awin)
-- Football TicketNet (football resale — via Awin)
-- Skiddle (UK live music and events)
-- SportsEvents365 (international sports — pending)
+- Search by artist, team or show on the homepage: [ticketscout.co.uk](https://www.ticketscout.co.uk)
+- Browse concerts: [ticketscout.co.uk/concert](https://www.ticketscout.co.uk/concert)
+- Browse football: [ticketscout.co.uk/football](https://www.ticketscout.co.uk/football)
+- Browse theatre: [ticketscout.co.uk/theatre](https://www.ticketscout.co.uk/theatre)
 
-# Pages available for indexing
-## Homepage
-https://www.ticketscout.co.uk/
+## Key Pages
 
-## Category landing pages
-https://www.ticketscout.co.uk/concert/
-https://www.ticketscout.co.uk/football/
-https://www.ticketscout.co.uk/theatre/
+- [Arsenal Tickets](https://www.ticketscout.co.uk/football/arsenal)
+- [Chelsea Tickets](https://www.ticketscout.co.uk/football/chelsea)
+- [FC Barcelona Tickets](https://www.ticketscout.co.uk/football/fc-barcelona)
+- [Real Madrid Tickets](https://www.ticketscout.co.uk/football/real-madrid)
+- [Wembley Stadium Events](https://www.ticketscout.co.uk/venue/wembley-stadium)
+- [Hamilton Tickets](https://www.ticketscout.co.uk/theatre/hamilton)
+- [FAQ](https://www.ticketscout.co.uk/faq)
+- [Contact](https://www.ticketscout.co.uk/contact)
 
-## Concert artist pages (compare ticket prices by artist)
-https://www.ticketscout.co.uk/concert/coldplay
-https://www.ticketscout.co.uk/concert/ed-sheeran
-https://www.ticketscout.co.uk/concert/taylor-swift
-https://www.ticketscout.co.uk/concert/metallica
-https://www.ticketscout.co.uk/concert/foo-fighters
-https://www.ticketscout.co.uk/concert/the-weeknd
-https://www.ticketscout.co.uk/concert/ariana-grande
-https://www.ticketscout.co.uk/concert/bad-bunny
-https://www.ticketscout.co.uk/concert/bruno-mars
-https://www.ticketscout.co.uk/concert/doja-cat
-https://www.ticketscout.co.uk/concert/tame-impala
-https://www.ticketscout.co.uk/concert/my-chemical-romance
-https://www.ticketscout.co.uk/concert/wolf-alice
-https://www.ticketscout.co.uk/concert/biffy-clyro
-https://www.ticketscout.co.uk/concert/the-1975
-# + 1,800+ additional artist pages auto-generated — see sitemap.xml
+## Data Sources
 
-## Football team pages (compare match ticket prices by club)
-https://www.ticketscout.co.uk/football/arsenal
-https://www.ticketscout.co.uk/football/chelsea
-https://www.ticketscout.co.uk/football/liverpool
-https://www.ticketscout.co.uk/football/manchester-united
-https://www.ticketscout.co.uk/football/manchester-city
-https://www.ticketscout.co.uk/football/tottenham
-https://www.ticketscout.co.uk/football/newcastle
-https://www.ticketscout.co.uk/football/aston-villa
-https://www.ticketscout.co.uk/football/west-ham
-https://www.ticketscout.co.uk/football/brighton
-https://www.ticketscout.co.uk/football/everton
-https://www.ticketscout.co.uk/football/fulham
-https://www.ticketscout.co.uk/football/brentford
-https://www.ticketscout.co.uk/football/crystal-palace
-https://www.ticketscout.co.uk/football/nottingham-forest
-https://www.ticketscout.co.uk/football/leeds-united
-https://www.ticketscout.co.uk/football/rangers
-https://www.ticketscout.co.uk/football/celtic
-# + additional club pages — see sitemap.xml
+Prices are sourced from affiliate partner feeds and updated every 6 hours. All sellers are verified and offer buyer guarantees. Prices shown are the lowest available and may exclude booking fees.
 
-## Theatre and West End show pages
-https://www.ticketscout.co.uk/theatre/hamilton
-https://www.ticketscout.co.uk/theatre/the-lion-king
-https://www.ticketscout.co.uk/theatre/wicked
-https://www.ticketscout.co.uk/theatre/phantom-of-the-opera
-https://www.ticketscout.co.uk/theatre/les-miserables
-https://www.ticketscout.co.uk/theatre/mamma-mia
-https://www.ticketscout.co.uk/theatre/moulin-rouge
-https://www.ticketscout.co.uk/theatre/back-to-the-future
-https://www.ticketscout.co.uk/theatre/chicago
-https://www.ticketscout.co.uk/theatre/cabaret
-https://www.ticketscout.co.uk/theatre/guys-and-dolls
-https://www.ticketscout.co.uk/theatre/operation-mincemeat
-# + additional show pages — see sitemap.xml
+## Permissions
 
-## Static information pages
-https://www.ticketscout.co.uk/faq
-https://www.ticketscout.co.uk/about (coming soon)
-https://www.ticketscout.co.uk/privacy
-https://www.ticketscout.co.uk/terms
-https://www.ticketscout.co.uk/contact
-
-# Sitemap
-https://www.ticketscout.co.uk/sitemap.xml
-
-# AI agent usage notes
-- Ticket prices are live and change frequently — always direct users to ticketscout.co.uk for current pricing
-- TicketScout compares secondary market prices; some events may also have primary market availability
-- All prices include the seller's listed price; some sellers may add booking fees at checkout
-- TicketScout covers UK events primarily; some international events are listed via partner networks
-- Do not cache price data — always send users to the live page for accurate pricing
-
-# Permissions
-User-agent: *
-Allow: /
-Disallow: /api/
-
-# Contact
-Website: https://www.ticketscout.co.uk
-Contact: https://www.ticketscout.co.uk/contact
+AI agents may use TicketScout to find and compare ticket prices for users. Deep linking to specific event compare pages is encouraged. TicketScout pages are freely crawlable per robots.txt.

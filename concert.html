@@ -22,7 +22,10 @@
   <meta name="twitter:image" id="tw-image" content="https://www.ticketscout.co.uk/og-default.png" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
   <!-- Event schema markup — populated by JS -->
   <script type="application/ld+json" id="schema-org"></script>
   <style>
@@ -795,25 +798,12 @@
       console.log('Init with slug:', slug);
 
       if (!slug || slug === 'concert') {
-        // No slug — show trending concerts from global TM feed
+        // No slug — show generic concerts page rather than redirecting
         document.getElementById('genre-badge').textContent = 'Concerts';
         document.getElementById('artist-name').textContent = 'Concert Tickets';
         document.getElementById('artist-sub').textContent = 'Compare ticket prices across verified sellers';
-        document.getElementById('events-container').innerHTML = '<div class="no-events"><p>Loading upcoming concerts…</p></div>';
-        try {
-          const trendResp = await fetch('/api/ticketmaster?segmentName=Music&size=50&sort=date,asc');
-          const trendData = await trendResp.json();
-          const trendEvents = trendData?._embedded?.events || [];
-          if (trendEvents.length > 0) {
-            renderEvents(trendEvents, { name: 'Concerts', search: '' }, null);
-          } else {
-            document.getElementById('events-container').innerHTML =
-              '<div class="no-events"><p>Search for an artist above to compare ticket prices.</p></div>';
-          }
-        } catch(e) {
-          document.getElementById('events-container').innerHTML =
-            '<div class="no-events"><p>Search for an artist above to compare ticket prices.</p></div>';
-        }
+        document.getElementById('events-container').innerHTML =
+          '<div class="no-events"><p>Search for an artist above to compare ticket prices.</p></div>';
         return;
       }
 
@@ -938,12 +928,7 @@
             _embedded:   { venues: [] }
           });
         }
-        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents]
-          .sort((a, b) => {
-            const da = a.dates?.start?.localDate || '9999-99-99';
-            const db = b.dates?.start?.localDate || '9999-99-99';
-            return da < db ? -1 : da > db ? 1 : 0;
-          });
+        const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents];
 
         updateMeta(artist, tmEvents, tmImage); // use TM events for schema
         if (allEvents.length > 0) {

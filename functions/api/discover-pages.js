@@ -647,15 +647,20 @@ function generateArtistPageHtml(slug) {
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Loading\u2026</title>
+  <title>${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} Tickets | Compare Prices | TicketScout</title>
+  <meta name="robots" content="index, follow" />
   <script>window.__CONCERT_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260707c');
+      const r = await fetch('/concert.html?v=20260711d');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
@@ -681,15 +686,20 @@ function generateFootballPageHtml(slug) {
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Loading\u2026</title>
+  <title>${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} Tickets | Compare Prices | TicketScout</title>
+  <meta name="robots" content="index, follow" />
   <script>window.__FOOTBALL_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/football.html');
+      const r = await fetch('/football.html?v=20260711d');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
@@ -715,10 +725,15 @@ function generateTheatrePageHtml(slug) {
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Loading\u2026</title>
+  <title>${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} Tickets | Compare Prices | TicketScout</title>
+  <meta name="robots" content="index, follow" />
   <script>window.__THEATRE_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body><script>
   (async function() {
@@ -749,15 +764,20 @@ function generateVenuePageHtml(slug) {
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Loading\u2026</title>
+  <title>${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} Events & Tickets | TicketScout</title>
+  <meta name="robots" content="index, follow" />
   <script>window.__VENUE_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/venue.html?v=20260707c');
+      const r = await fetch('/venue.html');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
