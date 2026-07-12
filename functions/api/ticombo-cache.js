@@ -62,6 +62,8 @@ export async function onRequestGet({ request, env }) {
       `  Configured feeds: ${FEEDS.length}`,
       '  ?trigger=1        — download all feeds, build KV index',
       '  ?trigger=1&test=1 — connectivity test only',
+      '  ?trigger=1&raw=1  — DIAGNOSTIC: dump raw columns from ALL feeds + scan for hidden dates',
+      '                      options: &rows=N (sample rows per feed, max 25) &region=uk|europe|germany|spain|singapore',
       '',
       `Last updated: ${updated || 'never'}`,
       stats ? `Stats: ${stats}` : 'No stats yet'
@@ -103,6 +105,123 @@ export async function onRequestGet({ request, env }) {
     } catch(e) {
       return jsonResponse({ error: String(e) }, 200);
     }
+  }
+
+  // ── RAW DIAGNOSTIC MODE — ?trigger=1&raw=1 ────────────────────────────────
+  // Downloads ALL regional feeds (or one via &region=) and, per feed:
+  //   1. Dumps the full header row (every column name, in order)
+  //   2. Shows the first N rows fully keyed by header name (&rows=N, default 8, max 25)
+  //   3. Scans up to 400 rows per feed, EVERY column, for date-like patterns
+  //      (ISO, dd/mm/yyyy, yyyy/mm/dd, and textual months in EN/DE/ES)
+  //      → reports hit counts + sample matches per column
+  // Purpose: determine whether event dates are hidden in event_full_name,
+  // deep_link, or any other column — before asking Partnerize to change the feed.
+  // READ-ONLY: writes nothing to KV, never touches the live index.
+  if (url.searchParams.get('raw') === '1') {
+    const rowsWanted = Math.min(parseInt(url.searchParams.get('rows') || '8', 10) || 8, 25);
+    const regionParam = (url.searchParams.get('region') || '').toLowerCase();
+    const feedsToScan = regionParam
+      ? FEEDS.filter(f => f.region.toLowerCase() === regionParam)
+      : FEEDS;
+    if (feedsToScan.length === 0) {
+      return json({ error: `Unknown region '${regionParam}' — use uk|europe|germany|spain|singapore` }, 400);
+    }
+
+    const SCAN_ROWS = 400; // per feed — enough to see pattern frequency without CPU risk
+
+    // Date-like patterns. Textual months cover EN + DE + ES since feeds are regional.
+    const DATE_PATTERNS = [
+      { label: 'iso (yyyy-mm-dd)',        re: /\b(20\d{2})-(\d{2})-(\d{2})\b/ },
+      { label: 'dd/mm/yyyy or dd.mm.yyyy', re: /\b(\d{1,2})[.\/-](\d{1,2})[.\/-](20\d{2})\b/ },
+      { label: 'yyyy/mm/dd',              re: /\b(20\d{2})[.\/](\d{1,2})[.\/](\d{1,2})\b/ },
+      { label: 'textual month EN/DE/ES',  re: /\b\d{1,2}\.?\s*(jan|feb|mar|mär|maerz|apr|may|mai|jun|jul|aug|sep|set|okt|oct|nov|dec|dez|dic|ene|abr|ago)[a-zäé]*\.?\s*(20\d{2})\b/i },
+      { label: 'unix-ish timestamp',      re: /\b1[6-9]\d{8}\b/ },
+    ];
+
+    const report = [];
+
+    for (const feed of feedsToScan) {
+      try {
+        const feedText = await fetchFeedText(feed);
+        if (feedText.error) { report.push({ region: feed.region, error: feedText.error }); continue; }
+
+        const lines  = feedText.text.split('\n');
+        const header = parseCSVLine(lines[0] || '').map(h => h.trim());
+
+        // First N rows, fully keyed by header name
+        const sampleRows = [];
+        for (let i = 1; i <= rowsWanted && i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = parseCSVLine(lines[i]);
+          const row = {};
+          header.forEach((h, idx) => {
+            const v = (cols[idx] || '').trim();
+            row[h || `col_${idx}`] = v.length > 220 ? v.slice(0, 220) + '…' : v;
+          });
+          sampleRows.push(row);
+        }
+
+        // Date scan: every column, up to SCAN_ROWS rows
+        const colHits = {}; // colName → { pattern → { count, samples[] } }
+        let scanned = 0;
+        for (let i = 1; i < lines.length && scanned < SCAN_ROWS; i++) {
+          if (!lines[i].trim()) continue;
+          scanned++;
+          const cols = parseCSVLine(lines[i]);
+          for (let idx = 0; idx < header.length; idx++) {
+            const v = (cols[idx] || '').trim();
+            if (!v) continue;
+            for (const p of DATE_PATTERNS) {
+              const m = v.match(p.re);
+              if (m) {
+                const colName = header[idx] || `col_${idx}`;
+                colHits[colName]           = colHits[colName] || {};
+                colHits[colName][p.label]  = colHits[colName][p.label] || { count: 0, samples: [] };
+                const bucket = colHits[colName][p.label];
+                bucket.count++;
+                if (bucket.samples.length < 3) {
+                  bucket.samples.push(v.length > 160 ? v.slice(0, 160) + '…' : v);
+                }
+              }
+            }
+          }
+        }
+
+        // Verdict per feed: any column with hits in >50% of scanned rows is a
+        // reliable date carrier; 1-50% = partial (some event types only); 0 = none.
+        const verdicts = Object.entries(colHits).map(([colName, patterns]) => {
+          const best = Object.entries(patterns).sort((a, b) => b[1].count - a[1].count)[0];
+          const pct  = scanned ? Math.round((best[1].count / scanned) * 100) : 0;
+          return {
+            column: colName,
+            best_pattern: best[0],
+            hit_rate: `${best[1].count}/${scanned} rows (${pct}%)`,
+            reliability: pct > 50 ? 'RELIABLE — parse this column' : pct > 0 ? 'PARTIAL — some rows only' : 'none',
+            samples: best[1].samples
+          };
+        }).sort((a, b) => parseInt(b.hit_rate) - parseInt(a.hit_rate));
+
+        report.push({
+          region:        feed.region,
+          campaign_id:   feed.id,
+          total_lines:   lines.length - 1,
+          rows_scanned:  scanned,
+          header,
+          date_scan:     verdicts.length ? verdicts : 'NO date-like patterns found in any column',
+          sample_rows:   sampleRows
+        });
+
+      } catch (err) {
+        report.push({ region: feed.region, error: String(err) });
+      }
+    }
+
+    return json({
+      mode: 'raw diagnostic (read-only, nothing written to KV)',
+      feeds_scanned: report.length,
+      how_to_read: 'Check date_scan per feed first. A RELIABLE column means dates ARE in the feed and we patch ingestion to parse them. If all feeds say NO patterns, dates must come from Partnerize column mapping or cross-source enrichment.',
+      report
+    }, 200);
   }
 
   // Connectivity test
@@ -271,6 +390,46 @@ export async function onRequestGet({ request, env }) {
   ]);
 
   return json({ success: true, total: unique.length, sizeMB: (indexJson.length/1024/1024).toFixed(2), feedStats }, 200);
+}
+
+// Self-contained feed download + decompress for the raw diagnostic mode.
+// Duplicates the trigger path's decompress logic on purpose — the diagnostic
+// must not share/alter production code paths. Returns { text } or { error }.
+async function fetchFeedText(feed) {
+  try {
+    const resp = await fetch(feed.url);
+    if (!resp.ok) return { error: `HTTP ${resp.status}` };
+
+    const buffer = await resp.arrayBuffer();
+    const contentEncoding = resp.headers.get('content-encoding') || '';
+    const contentType     = resp.headers.get('content-type')     || '';
+    const looksGzipped    = contentEncoding.includes('gzip')
+                         || contentType.includes('octet-stream')
+                         || contentType.includes('gzip');
+    let text = '';
+    try {
+      if (looksGzipped) {
+        const ds     = new DecompressionStream('gzip');
+        const writer = ds.writable.getWriter();
+        const reader = ds.readable.getReader();
+        writer.write(new Uint8Array(buffer));
+        writer.close();
+        const dec = new TextDecoder('utf-8');
+        let chunk;
+        while (!(chunk = await reader.read()).done) {
+          text += dec.decode(chunk.value, { stream: true });
+          if (text.length > 30 * 1024 * 1024) break; // 30MB cap per feed
+        }
+      } else {
+        text = new TextDecoder('utf-8').decode(buffer);
+      }
+    } catch {
+      text = new TextDecoder('utf-8').decode(buffer);
+    }
+    return { text };
+  } catch (err) {
+    return { error: String(err) };
+  }
 }
 
 function parseCSVLine(line) {
