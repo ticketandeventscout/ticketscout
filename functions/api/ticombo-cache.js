@@ -346,9 +346,16 @@ export async function onRequestGet({ request, env }) {
         if (!name || !url) continue;
         if (date && new Date(date) < today) continue; // skip past events
 
-        // Build affiliate deep-link using the region's camref
-        const destUrl    = url.startsWith('http') ? url : `https://www.ticombo.com${url}`;
-        const affiliateUrl = `https://ticombo.prf.hn/click/camref:${feed.camref}/destination:${encodeURIComponent(destUrl)}`;
+        // The deep_link from the feed already contains the Partnerize tracking URL
+        // (prf.hn/click/camref:.../) with the correct regional camref baked in.
+        // Use it directly — do NOT wrap it in a second prf.hn hop or commission
+        // attribution breaks. Only fall back to constructing a link if the URL
+        // is a bare ticombo.com path (no tracking wrapper).
+        const isPrfLink   = url.includes('prf.hn/click/');
+        const destUrl     = url.startsWith('http') ? url : `https://www.ticombo.com${url}`;
+        const affiliateUrl = isPrfLink
+          ? url   // already a valid Partnerize tracking link — use as-is
+          : `https://ticombo.prf.hn/click/camref:${feed.camref}/destination:${encodeURIComponent(destUrl)}`;
 
         allItems.push({
           n: name,
