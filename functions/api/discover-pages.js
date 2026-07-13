@@ -1197,7 +1197,8 @@ async function fetchTicketmasterEvents(apiKey, kv) {
     u.searchParams.set('page', String(page));
     u.searchParams.set('sort', 'onSaleStartDate,desc');
     u.searchParams.set('segmentId', segmentId);
-    u.searchParams.set('countryCode', 'GB');
+    // No countryCode filter — discover international events too.
+    // UK fans buy tickets to events worldwide (European football, US tours etc).
     try {
       const resp = await fetch(u.toString());
       const data = await resp.json();
