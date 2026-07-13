@@ -344,7 +344,6 @@ function normaliseName(str) {
 const TEAM_SYNONYMS = {
   'munich': 'munchen',
   'munchen': 'munchen',
-  'munchen': 'munich',
   'marseille': 'marseille',
 };
 
