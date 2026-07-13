@@ -12,7 +12,7 @@
 // Artist data — inlined here to avoid ES module import issues in Pages Functions
 // Keep in sync with concert-data.js at the project root
 const ARTISTS = [
-{ slug: 'coldplay',            name: 'Coldplay',            search: 'Coldplay',            genre: 'Rock / Pop',                   description: 'Coldplay are one of the best-selling music artists of all time, known for their anthemic rock sound and spectacular live shows. The British band have sold over 100 million records worldwide and are renowned for their colourful, immersive concerts featuring LED wristbands and confetti cannons.' },
+  { slug: 'coldplay',            name: 'Coldplay',            search: 'Coldplay',            genre: 'Rock / Pop',                   description: 'Coldplay are one of the best-selling music artists of all time, known for their anthemic rock sound and spectacular live shows. The British band have sold over 100 million records worldwide and are renowned for their colourful, immersive concerts featuring LED wristbands and confetti cannons.' },
   { slug: 'ed-sheeran',         name: 'Ed Sheeran',          search: 'Ed Sheeran',          genre: 'Pop',                          description: 'Ed Sheeran is one of the UK\'s most successful artists, known for his acoustic-driven pop sound and record-breaking world tours. With multiple Grammy Awards and Brit Awards to his name, his live shows are celebrated for their intimate atmosphere despite playing to stadium-sized crowds.' },
   { slug: 'metallica',          name: 'Metallica',           search: 'Metallica',           genre: 'Heavy Metal',                  description: 'Metallica are one of the most influential heavy metal bands in history, having sold over 125 million records worldwide. Their M72 World Tour is one of the highest-grossing tours of all time, featuring a unique in-the-round stage design with no barricade between the band and the audience.' },
   { slug: 'foo-fighters',       name: 'Foo Fighters',        search: 'Foo Fighters',        genre: 'Rock',                         description: 'Foo Fighters are one of the world\'s biggest rock bands, led by Nirvana drummer Dave Grohl. Known for their energetic and marathon live performances, the band have won 12 Grammy Awards and are a fixture at major festivals and arenas worldwide.' },
@@ -104,7 +104,7 @@ const ARTISTS = [
   { slug: 'the-empire-strips-back', name: 'The Empire Strips Back', search: 'The Empire Strips Back', genre: 'Live Events', description: 'Compare The Empire Strips Back ticket prices across verified sellers.' },
   { slug: 'piff-the-magic-dragon', name: 'Piff The Magic Dragon', search: 'Piff The Magic Dragon', genre: 'Live Events', description: 'Compare Piff The Magic Dragon ticket prices across verified sellers.' },
   { slug: 'venardos-circus', name: 'Venardos Circus', search: 'Venardos Circus', genre: 'Live Events', description: 'Compare Venardos Circus ticket prices across verified sellers.' },
-  { slug: 'rupauls-drag-race', name: 'Rupauls Drag Race', search: 'Rupauls Drag Race', genre: 'Live Events', description: 'Compare Rupauls Drag Race ticket prices across verified sellers.' },
+  { slug: 'rupauls-drag-race', name: 'Rupauls Drag Race', search: 'Rupauls Drag Race', genre: 'Live Events', description: 'Compare Rupauls Drag Race ticket prices across verified sellers.' }
 ];
 
 export async function onRequestGet({ request, env }) {
