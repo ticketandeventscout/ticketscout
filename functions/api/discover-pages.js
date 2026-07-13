@@ -151,6 +151,403 @@ export async function onRequestGet({ request, env }) {
     }, 200);
   }
 
+  // ── REGISTER-KNOWN PHASE — one-time sitemap slug registration ─────────────
+  // Writes all 283 sitemap slugs into KNOWN_KEY and KNOWN_VENUES_KEY so the
+  // backfill system can protect them, and creates minimal KV entity records for
+  // any slug that doesn't already have one (so /api/concert?slug= stops 404ing).
+  // Run ONCE: ?trigger=1&phase=register-known
+  // Safe to re-run — existing KV records are never overwritten, only missing ones created.
+  if (phase === 'register-known') {
+  const SITEMAP_CONCERT = [
+    'adele',
+    'all-points-east',
+    'allegra',
+    'arctic-monkeys',
+    'ariana-grande',
+    'bad-bunny',
+    'beyonce',
+    'biffy-clyro',
+    'billie-eilish',
+    'blink-182',
+    'bloc-party',
+    'blur',
+    'bruno-mars',
+    'coldplay',
+    'doja-cat',
+    'dua-lipa',
+    'ed-sheeran',
+    'elton-john',
+    'foo-fighters',
+    'gojira',
+    'green-day',
+    'harry-styles',
+    'interpol',
+    'iron-maiden',
+    'judas-priest',
+    'kaiser-chiefs',
+    'keane',
+    'knocked-loose',
+    'lewis-capaldi',
+    'linkin-park',
+    'manic-street-preachers',
+    'metallica',
+    'my-chemical-romance',
+    'now-you-see-me-live',
+    'oasis',
+    'pantera',
+    'placebo',
+    'pulp',
+    'radiohead',
+    'rammstein',
+    'red-hot-chili-peppers',
+    'sam-smith',
+    'slipknot',
+    'snow-patrol',
+    'stereophonics',
+    'suede',
+    'sum-41',
+    'system-of-a-down',
+    'tame-impala',
+    'taylor-swift',
+    'the-1975',
+    'the-fratellis',
+    'the-killers',
+    'the-rolling-stones',
+    'the-strokes',
+    'the-weeknd',
+    'travis',
+    'two-door-cinema-club',
+    'wolf-alice'
+  ];
+  const SITEMAP_FOOTBALL = [
+    'arsenal',
+    'chelsea',
+    'liverpool',
+    'manchester-united',
+    'manchester-city',
+    'tottenham',
+    'newcastle',
+    'aston-villa',
+    'west-ham',
+    'brighton',
+    'everton',
+    'fulham',
+    'brentford',
+    'crystal-palace',
+    'nottingham-forest',
+    'leicester-city',
+    'southampton',
+    'ipswich',
+    'wolverhampton',
+    'bournemouth',
+    'leeds-united',
+    'celtic',
+    'rangers',
+    'sheffield-united',
+    'sheffield-wednesday',
+    'sunderland',
+    'middlesbrough',
+    'hearts',
+    'hibernian',
+    'burnley',
+    'watford',
+    'blackburn-rovers',
+    'cardiff-city',
+    'coventry-city',
+    'derby-county',
+    'hull-city',
+    'luton-town',
+    'millwall',
+    'norwich-city',
+    'queens-park-rangers',
+    'swansea-city',
+    'stoke-city',
+    'aberdeen',
+    'motherwell',
+    'dundee-united',
+    'arsenal-women',
+    'chelsea-women',
+    'liverpool-women',
+    'manchester-united-women',
+    'fc-barcelona',
+    'real-madrid',
+    'atletico-madrid',
+    'sevilla',
+    'real-sociedad',
+    'villarreal',
+    'athletic-bilbao',
+    'real-betis',
+    'valencia',
+    'getafe',
+    'osasuna',
+    'rayo-vallecano',
+    'celta-vigo',
+    'espanyol',
+    'mallorca',
+    'girona',
+    'alaves',
+    'leganes',
+    'las-palmas',
+    'real-valladolid',
+    'bayern-munich',
+    'borussia-dortmund',
+    'bayer-leverkusen',
+    'rb-leipzig',
+    'eintracht-frankfurt',
+    'vfb-stuttgart',
+    'sc-freiburg',
+    'borussia-monchengladbach',
+    'werder-bremen',
+    'hoffenheim',
+    'fc-augsburg',
+    'vfl-wolfsburg',
+    'fsv-mainz-05',
+    'union-berlin',
+    'hamburger-sv',
+    'schalke-04',
+    'juventus',
+    'ac-milan',
+    'inter-milan',
+    'napoli',
+    'as-roma',
+    'lazio',
+    'atalanta',
+    'fiorentina',
+    'torino',
+    'bologna',
+    'udinese',
+    'hellas-verona',
+    'cagliari',
+    'parma',
+    'paris-saint-germain',
+    'olympique-marseille',
+    'olympique-lyonnais',
+    'monaco',
+    'nice',
+    'stade-rennais',
+    'rc-lens',
+    'stade-brestois',
+    'lille-osc',
+    'rc-strasbourg',
+    'ajax',
+    'psv-eindhoven',
+    'feyenoord',
+    'az-alkmaar',
+    'porto',
+    'benfica',
+    'sporting-cp',
+    'braga'
+  ];
+  const SITEMAP_THEATRE = [
+    'a-little-night-music',
+    'a-midsummer-nights-dream',
+    'allegra',
+    'avenue-q',
+    'back-to-the-future',
+    'be-like-blippi',
+    'beautiful-carole-king-musical',
+    'beetlejuice-the-musical',
+    'berlin',
+    'big-bad-wolf',
+    'bill-bailey-vaudevillean',
+    'billy-elliot-the-musical',
+    'black-is-the-color-of-my-voice',
+    'blood-brothers',
+    'cabaret',
+    'cat',
+    'charlie-and-the-chocolate-factory',
+    'chicago',
+    'come-from-away',
+    'company',
+    'dirty-dancing',
+    'disney-aladdin',
+    'frozen-the-musical',
+    'grease',
+    'guys-and-dolls',
+    'hadestown',
+    'hamilton',
+    'hamlet-globe',
+    'harry-potter-cursed-child',
+    'into-the-woods',
+    'jersey-boys',
+    'joseph-amazing-technicolor-dreamcoat',
+    'les-miserables',
+    'les-miserables-sondheim-theatre',
+    'mamma-mia',
+    'matilda-the-musical',
+    'moulin-rouge',
+    'now-you-see-me-live',
+    'oliver',
+    'one-man-two-guvnors',
+    'operation-mincemeat',
+    'phantom-of-the-opera',
+    'phantom-of-the-opera-movie',
+    'rent',
+    'rocky-horror-show',
+    'romeo-and-juliet-globe',
+    'saturday-night-fever',
+    'six-the-musical',
+    'spring-awakening',
+    'standing-at-the-sky-edge',
+    'stephen-sondheim',
+    'sweeney-todd',
+    'the-book-of-mormon',
+    'the-curious-incident-of-the-dog-in-the-night-time',
+    'the-lion-king',
+    'the-play-that-goes-wrong',
+    'uncle-vanya',
+    'wicked'
+  ];
+  const SITEMAP_VENUE = [
+    'adelphi-theatre',
+    'lyceum-theatre',
+    'palace-theatre',
+    'palace-theatre-london',
+    'savoy-theatre',
+    'shaftesbury-theatre',
+    'victoria-palace-theatre',
+    'barbican-centre',
+    'royal-albert-hall',
+    'royal-festival-hall',
+    'wembley-stadium',
+    'emirates-stadium',
+    'stamford-bridge',
+    'london-stadium',
+    'tottenham-hotspur-stadium',
+    'anfield',
+    'old-trafford',
+    'etihad-stadium',
+    'st-james-park',
+    'villa-park',
+    'amex-stadium',
+    'co-op-live-manchester',
+    'first-direct-arena-leeds',
+    'ovo-hydro-glasgow',
+    'cardiff-arena',
+    'sse-arena-belfast',
+    'resorts-world-arena-birmingham',
+    'motorpoint-arena-nottingham',
+    'utilita-arena-birmingham',
+    'glastonbury-festival',
+    'reading-festival',
+    'leeds-festival',
+    'download-festival',
+    'latitude-festival',
+    'boomtown-fair',
+    'o2-arena',
+    'camp-nou',
+    'santiago-bernabeu',
+    'estadio-metropolitano',
+    'allianz-arena',
+    'signal-iduna-park',
+    'san-siro',
+    'juventus-stadium',
+    'parc-des-princes',
+    'stade-de-france',
+    'johan-cruyff-arena',
+    'estadio-do-dragao',
+    'madison-square-garden',
+    'sphere-las-vegas'
+  ];
+
+    let knownArtists = new Set();
+    let knownVenues  = new Set();
+    try { const k = await kv.get(KNOWN_KEY);        if (k) knownArtists = new Set(JSON.parse(k)); } catch {}
+    try { const k = await kv.get(KNOWN_VENUES_KEY); if (k) knownVenues  = new Set(JSON.parse(k)); } catch {}
+
+    let created = 0, skipped = 0, errors = 0;
+
+    // Register concert slugs
+    for (const slug of SITEMAP_CONCERT) {
+      knownArtists.add(slug);
+      const key = 'concert:artist:' + slug;
+      try {
+        const existing = await kv.get(key);
+        if (!existing) {
+          const displayName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          await kv.put(key, JSON.stringify({
+            slug, name: displayName, search: displayName,
+            genre: 'Live Events',
+            description: `Compare ${displayName} ticket prices across verified sellers.`
+          }));  // no TTL — permanent
+          created++;
+        } else { skipped++; }
+      } catch { errors++; }
+    }
+
+    // Register theatre slugs
+    for (const slug of SITEMAP_THEATRE) {
+      knownArtists.add(slug);
+      const key = 'theatre:show:' + slug;
+      try {
+        const existing = await kv.get(key);
+        if (!existing) {
+          const displayName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          await kv.put(key, JSON.stringify({
+            slug, name: displayName, search: displayName,
+            genre: 'Theatre',
+            description: `Compare ${displayName} ticket prices across verified sellers.`
+          }));
+          created++;
+        } else { skipped++; }
+      } catch { errors++; }
+    }
+
+    // Register football slugs
+    for (const slug of SITEMAP_FOOTBALL) {
+      knownArtists.add(slug);
+      const key = 'football:team:' + slug;
+      try {
+        const existing = await kv.get(key);
+        if (!existing) {
+          const displayName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          await kv.put(key, JSON.stringify({
+            slug, name: displayName, search: displayName,
+            genre: 'Football',
+            description: `Compare ${displayName} ticket prices across verified sellers.`
+          }));
+          created++;
+        } else { skipped++; }
+      } catch { errors++; }
+    }
+
+    // Register venue slugs (separate known list)
+    for (const slug of SITEMAP_VENUE) {
+      knownVenues.add(slug);
+      const key = 'venue:' + slug;
+      try {
+        const existing = await kv.get(key);
+        if (!existing) {
+          const displayName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          await kv.put(key, JSON.stringify({
+            slug, name: displayName, search: displayName,
+            description: `Compare ticket prices for events at ${displayName}.`
+          }));
+          created++;
+        } else { skipped++; }
+      } catch { errors++; }
+    }
+
+    // Persist the updated known sets
+    await kv.put(KNOWN_KEY,        JSON.stringify([...knownArtists]));
+    await kv.put(KNOWN_VENUES_KEY, JSON.stringify([...knownVenues]));
+
+    return json({
+      message: 'Sitemap slugs registered into KNOWN_KEY.',
+      totalRegistered: SITEMAP_CONCERT.length + SITEMAP_THEATRE.length +
+                       SITEMAP_FOOTBALL.length + SITEMAP_VENUE.length,
+      breakdown: {
+        concert:  SITEMAP_CONCERT.length,
+        theatre:  SITEMAP_THEATRE.length,
+        football: SITEMAP_FOOTBALL.length,
+        venue:    SITEMAP_VENUE.length
+      },
+      kvEntityRecords: { created, skipped, errors },
+      backfillNext: '?trigger=1&phase=backfill',
+      note: 'Run ?phase=backfill next to repair any TTLs on existing records.'
+    }, 200);
+  }
+
   const apiKey = env.TM_API_KEY;
   if (!apiKey) return json({ error: 'Missing TM_API_KEY' }, 500);
 
