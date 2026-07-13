@@ -157,6 +157,36 @@ export async function onRequestGet({ request, env }) {
   // any slug that doesn't already have one (so /api/concert?slug= stops 404ing).
   // Run ONCE: ?trigger=1&phase=register-known
   // Safe to re-run — existing KV records are never overwritten, only missing ones created.
+  // ── CLEAR-QUEUE PHASE ────────────────────────────────────────────────────
+  // Safely wipes the pending autodiscovery queue without touching KNOWN_KEY,
+  // entity KV records, or any committed pages.
+  // Usage: ?trigger=1&phase=clear-queue
+  // Add &confirm=yes to actually clear (dry-run by default).
+  if (phase === 'clear-queue') {
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    const pendingRaw = await kv.get(PENDING_KEY);
+    if (!pendingRaw) {
+      return json({ message: 'Queue is already empty — nothing to clear.', cleared: 0 }, 200);
+    }
+    const pending  = JSON.parse(pendingRaw);
+    const artists  = (pending.artists || []).length;
+    const venues   = (pending.venues  || []).length;
+    if (!confirm) {
+      return json({
+        dryRun: true,
+        message: 'Queue found — add &confirm=yes to clear it.',
+        wouldClear: { artists, venues, total: artists + venues },
+        sampleArtists: (pending.artists || []).slice(0, 5).map(a => a.slug)
+      }, 200);
+    }
+    await kv.delete(PENDING_KEY);
+    return json({
+      message: 'Pending queue cleared.',
+      cleared: { artists, venues, total: artists + venues },
+      note: 'KNOWN_KEY and all entity records are untouched. Fresh discoveries will repopulate the queue via the weekly cron or a manual ?trigger=1 scan.'
+    }, 200);
+  }
+
   if (phase === 'register-known') {
   const SITEMAP_CONCERT = [
     'adele',
