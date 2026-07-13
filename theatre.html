@@ -1072,5 +1072,41 @@
   </script>
   <script src="/autocomplete.js" defer></script>
 
+
+  <script>
+  // Price-trend badge (Phase 2 data) — renders only when history exists
+  (function () {
+    var slug = window.__THEATRE_SLUG__ || (location.pathname.match(/\\/theatre\\/([a-z0-9-]+)/) || [])[1];
+    if (!slug) return;
+    fetch('/api/price-history?slug=' + encodeURIComponent(slug))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.summary || d.summary.current == null) return;
+        var s = d.summary;
+        var text, bg, fg;
+        if (s.trend === 'down' && s.low30d != null && s.current <= s.low30d * 1.05) {
+          text = '\u2193 Lowest price in 30 days \u2014 from \u00a3' + Math.round(s.current);
+          bg = '#dcfce7'; fg = '#166534';
+        } else if (s.trend === 'down') {
+          text = '\u2193 Prices falling \u2014 from \u00a3' + Math.round(s.current);
+          bg = '#dcfce7'; fg = '#166534';
+        } else if (s.trend === 'up') {
+          text = '\u2191 Prices rising \u2014 from \u00a3' + Math.round(s.current);
+          bg = '#fef3c7'; fg = '#92400e';
+        } else {
+          return; // flat trend: no badge — avoid noise
+        }
+        var h1 = document.getElementById('artist-name');
+        if (!h1 || document.getElementById('price-trend-badge')) return;
+        var badge = document.createElement('div');
+        badge.id = 'price-trend-badge';
+        badge.textContent = text;
+        badge.style.cssText = 'display:inline-block;margin-top:8px;padding:4px 12px;'
+          + 'border-radius:14px;font-size:13px;font-weight:600;background:' + bg + ';color:' + fg + ';';
+        h1.insertAdjacentElement('afterend', badge);
+      })
+      .catch(function () {});
+  })();
+  </script>
 </body>
 </html>
