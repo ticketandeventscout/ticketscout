@@ -7,7 +7,18 @@
 // your project → Settings → Environment variables
 // ===========================
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet(ctx) {
+  const { request, env } = ctx;
+
+  // ── Edge cache: identical queries answered from the Cloudflare colo ──
+  // for 10 minutes instead of hitting TM's API (5k calls/day quota).
+  // One viral event page = at most ~6 TM calls/colo/hour instead of
+  // one call per page view. This is the traffic-surge protection layer.
+  const cache    = caches.default;
+  const cacheKey = new Request(new URL(request.url).toString(), { method: 'GET' });
+  const cached   = await cache.match(cacheKey);
+  if (cached) return cached;
+
   const apiKey = env.TM_API_KEY;
 
   if (!apiKey) {
@@ -80,18 +91,27 @@ export async function onRequestGet({ request, env }) {
   try {
     const tmResponse = await fetch(tmUrl.toString());
     const data = await tmResponse.json();
-    return jsonResponse(data, tmResponse.status);
+    const resp = jsonResponse(data, tmResponse.status, tmResponse.ok);
+    // Only cache successful responses (never cache TM errors/rate-limits)
+    if (tmResponse.ok) {
+      ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    }
+    return resp;
   } catch (err) {
     return jsonResponse({ error: 'Unable to reach Ticketmaster.' }, 502);
   }
 }
 
-function jsonResponse(body, status) {
+function jsonResponse(body, status, cacheable) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': 'no-store'
+      // s-maxage: Cloudflare edge caches for 10 min; SWR serves stale
+      // while revalidating in the background. Browsers get 1 min.
+      'Cache-Control': cacheable
+        ? 'public, max-age=60, s-maxage=600, stale-while-revalidate=3600'
+        : 'no-store'
     }
   });
 }

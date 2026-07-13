@@ -117,6 +117,7 @@ export async function onRequestGet({ request, env }) {
 
     const today = new Date();
     const index = [];
+    const discoverCounts = new Map();   // autodiscovery: performer frequencies
 
     for (let i = 1; i < lines.length; i++) {
       if (!lines[i].trim()) continue;
@@ -127,6 +128,8 @@ export async function onRequestGet({ request, env }) {
 
       if (!name || !url) continue;
       if (expiry && new Date(expiry) < today) continue;
+
+      discoverCollect(discoverCounts, name, iCat !== -1 ? (cols[iCat] || '') : '');
 
       index.push({
         n: name,
@@ -178,6 +181,9 @@ export async function onRequestGet({ request, env }) {
 
     await Promise.all(puts);
 
+    // Autodiscovery: queue new performers found in this feed refresh
+    const discovered = await discoverQueue(kv, discoverCounts, 'vividseats-feed');
+
     return json({
       success:   true,
       total:     index.length,
@@ -219,4 +225,73 @@ function json(body, status) {
 
 function text(msg) {
   return new Response(msg, { status: 200, headers: { 'Content-Type': 'text/plain' } });
+}
+
+// ── Autodiscovery from feed rows (Awin pattern — zero extra fetches) ──
+// Collects performer-name frequencies during the parse, then queues names
+// seen on >= MIN_ROWS rows that aren't already known. Sports rows are
+// EXCLUDED (US feeds carry NBA/NFL teams that don't belong in /football).
+const DISCOVER_PENDING_KEY = 'autodiscover:awin:pending';   // shared queue — discover-pages commits it
+const DISCOVER_KNOWN_KEY   = 'autodiscover:artists:known';
+const DISCOVER_MIN_ROWS    = 3;    // name must appear on >= 3 rows (real touring act)
+const DISCOVER_MAX_PER_RUN = 40;   // keep the pending queue sane
+
+function discoverCollect(counts, name, category) {
+  const cat = (category || '').toUpperCase();
+  if (cat.includes('SPORT')) return;                       // never queue US sports
+  const clean = (name || '').split(' - ')[0].split(' at ')[0].trim();
+  if (clean.length < 3 || clean.length > 60) return;
+  if (/\d{4}/.test(clean)) return;                         // tour-year strings etc
+  if (/ vs\.? /i.test(clean)) return;                      // fixtures, not artists
+  if (/tribute|experience of|celebrating/i.test(clean)) return;
+  const isTheatre = cat.includes('THEAT');
+  const key = clean.toLowerCase();
+  const cur = counts.get(key) || { name: clean, rows: 0, theatre: 0 };
+  cur.rows++; if (isTheatre) cur.theatre++;
+  counts.set(key, cur);
+}
+
+async function discoverQueue(kv, counts, sourceLabel) {
+  try {
+    let known = new Set();
+    try { const k = await kv.get(DISCOVER_KNOWN_KEY); if (k) known = new Set(JSON.parse(k)); } catch {}
+    let pending = { artists: [], venues: [] };
+    try { const p = await kv.get(DISCOVER_PENDING_KEY); if (p) pending = JSON.parse(p); } catch {}
+    const pendingSlugs = new Set((pending.artists || []).map(a => a.slug));
+
+    const candidates = [...counts.values()]
+      .filter(c => c.rows >= DISCOVER_MIN_ROWS)
+      .sort((a, b) => b.rows - a.rows);
+
+    let queued = 0;
+    for (const c of candidates) {
+      if (queued >= DISCOVER_MAX_PER_RUN) break;
+      const slug = toDiscoverSlug(c.name);
+      if (!slug || slug.length < 3) continue;
+      if (known.has(slug) || pendingSlugs.has(slug)) continue;
+      const category = c.theatre > c.rows / 2 ? 'theatre' : 'concert';
+      pending.artists = pending.artists || [];
+      pending.artists.push({
+        slug, name: c.name, search: c.name,
+        genre: category === 'theatre' ? 'Theatre' : 'Live Events',
+        category, source: sourceLabel,
+        description: `Compare ${c.name} ticket prices across verified sellers.`
+      });
+      pendingSlugs.add(slug); queued++;
+    }
+    if (queued > 0) {
+      pending.updated = new Date().toISOString();
+      await kv.put(DISCOVER_PENDING_KEY, JSON.stringify(pending), { expirationTtl: 8 * 60 * 60 });
+    }
+    return queued;
+  } catch { return 0; }
+}
+
+function toDiscoverSlug(name) {
+  return (name || '')
+    .replace(/\s*\([^)]*\)\s*/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ß/g, 'ss')
+    .toLowerCase().replace(/[^a-z0-9\s-]/g, '')
+    .trim().replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 60);
 }
