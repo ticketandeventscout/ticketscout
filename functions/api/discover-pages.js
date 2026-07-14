@@ -1044,15 +1044,33 @@ export async function onRequestGet({ request, env }) {
 // 2 calls PER FILE on the legacy path. Cap: 300 pages/run; remainder
 // stays queued. Falls back available at ?phase=commit&legacy=1.
 const COMMIT_BATCH_CAP = 300;
+const COMMIT_LOCK_KEY  = 'discover:commit:lock';
+const COMMIT_LOCK_TTL  = 5 * 60; // 5 minutes — self-heals if function crashes mid-run
 
 async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dryRun, env) {
+  // ── Commit lock — prevents concurrent runs double-splicing data files ──
+  if (!dryRun) {
+    const lock = await kv.get(COMMIT_LOCK_KEY);
+    if (lock) {
+      return json({
+        error: 'Another commit run is already in progress (lock expires in 5 min). Try again shortly.',
+        lockedAt: lock
+      }, 429);
+    }
+    await kv.put(COMMIT_LOCK_KEY, new Date().toISOString(), { expirationTtl: COMMIT_LOCK_TTL });
+  }
+
   const pendingRaw = await kv.get(PENDING_KEY);
-  if (!pendingRaw) return json({ message: 'No pending pages to commit.', committed: 0 }, 200);
+  if (!pendingRaw) {
+    if (!dryRun) await kv.delete(COMMIT_LOCK_KEY).catch(() => {});
+    return json({ message: 'No pending pages to commit.', committed: 0 }, 200);
+  }
 
   const pending = JSON.parse(pendingRaw);
   let artists = pending.artists || [];
   let venues  = pending.venues  || [];
   if (artists.length === 0 && venues.length === 0) {
+    if (!dryRun) await kv.delete(COMMIT_LOCK_KEY).catch(() => {});
     return json({ message: 'Pending queue is empty.', committed: 0 }, 200);
   }
 
@@ -1137,6 +1155,7 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
     commitSha = await github.commitFilesBatch(files, message);
   } catch (err) {
     // Whole batch failed — leave the queue intact for retry, report the error
+    await kv.delete(COMMIT_LOCK_KEY).catch(() => {});
     return json({ error: 'Batch commit failed — pending queue preserved for retry.',
                   detail: String(err), filesAttempted: files.length }, 500);
   }
@@ -1173,6 +1192,7 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
   await kv.put(KNOWN_KEY,        JSON.stringify([...knownArtists]));
   await kv.put(KNOWN_VENUES_KEY, JSON.stringify([...knownVenues]));
 
+  await kv.delete(COMMIT_LOCK_KEY).catch(() => {});
   return json({
     committed, commitSha, filesInCommit: files.length,
     remainderQueued: remainderArtists.length + remainderVenues.length,
