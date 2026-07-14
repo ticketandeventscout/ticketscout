@@ -1128,24 +1128,11 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
     committed.venues.push(venue.slug);
   }
 
-  // ── Updated data files (read current content, splice, include in tree) ─
-  for (const [category, items] of Object.entries(byCategory)) {
-    if (items.length === 0) continue;
-    try {
-      const dataFile = await computeCategoryDataFileUpdate(github, category, items);
-      if (dataFile) files.push(dataFile);
-    } catch (err) {
-      committed.errors.push({ type: `${category}-data`, error: String(err) });
-    }
-  }
-  if (venues.length > 0) {
-    try {
-      const venueFile = await computeVenueDataFileUpdate(github, venues);
-      if (venueFile) files.push(venueFile);
-    } catch (err) {
-      committed.errors.push({ type: 'venue-data', error: String(err) });
-    }
-  }
+  // ── Data files (concert.js / football.js / theatre.js) are NOT modified ─
+  // Auto-discovered entries are served from KV (concert:artist:slug etc),
+  // which the API handlers already read as their primary fallback path.
+  // The JS arrays are hand-curated static lists — never auto-modified.
+  // This permanently eliminates the double-splice build failures.
 
   // ── ONE commit for everything ────────────────────────────────────────
   const names = [...artists.map(a => a.name), ...venues.map(v => v.name)];
