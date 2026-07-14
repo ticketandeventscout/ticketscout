@@ -245,20 +245,54 @@ const ADAPTERS = [
     }
   },
 
-  // ── Future adapters go here ──────────────────────────────────────────────
-  //
-  // {
-  //   source: 'viagogo',
-  //   buildUrl(eventName, venueCity) { ... },
-  //   normalise(data, eventName) { ... }
-  // },
-  //
-  // {
-  //   source: 'Eventim',
-  //   buildUrl(eventName, venueCity) { ... },
-  //   normalise(data, eventName) { ... }
-  // },
-  // ────────────────────────────────────────────────────────────────────────
+  // ── Eventim UK — deep link only (no product feed) ───────────────────────
+  // Awin publisher 2960641, merchant 15330. Constructs a search deep link
+  // directly — no API call, no price, shows "Search Eventim" in the table.
+  // Only shown for UK-relevant events (concerts + theatre, not football).
+  // Commission: per-click or per-sale depending on campaign terms.
+  {
+    source: 'Eventim',
+
+    buildUrl(eventName, venueCity, eventDate, venueName) {
+      // Returns the event name — the custom fetch() builds the actual URL
+      return eventName;
+    },
+
+    async fetch(url, eventName) {
+      // url is just the eventName passed through from buildUrl
+      // Build the Eventim search deep link with Awin tracking
+      const searchQuery = encodeURIComponent((eventName || url).split(' vs ')[0].trim());
+      const destination = encodeURIComponent(
+        `https://www.eventim.co.uk/search/?affiliate=EVT&search_term=${searchQuery}`
+      );
+      const affiliateUrl = `https://www.awin1.com/cread.php?awinmid=15330&awinaffid=2960641&ued=${destination}`;
+      return { eventimUrl: affiliateUrl };
+    },
+
+    normalise(data, eventName, eventDate, venueName, venueCity) {
+      if (!data || !data.eventimUrl) return null;
+      // Only show for non-football categories — Eventim UK is strong on
+      // concerts and theatre but has limited football inventory
+      // (football is served by Gigsberg/FTN/SE365)
+      // Detect football by checking if eventName contains " vs " with no
+      // known concert/theatre markers — adapters don't have category context
+      // so we use a lightweight heuristic
+      const looksLikeFootball = / vs /i.test(eventName) &&
+        !/tour|concert|show|musical|theatre|opera|ballet|festival/i.test(eventName);
+      if (looksLikeFootball) return null;
+
+      return {
+        source:     'Eventim',
+        price:      null,           // no price — deep link only
+        currency:   'GBP',
+        url:        data.eventimUrl,
+        available:  true,
+        isFallback: true            // renders as "Search Eventim" not a price
+      };
+    }
+  },
+
+  // ── Future adapters go here ───────────────────────────────────────────────
 ];
 
 
@@ -322,13 +356,20 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
       // Pass performerName for search queries, but keep full eventName for normalise matching
       const url = adapter.buildUrl(performerName, venueCity, eventDate, venueName);
 
-      const response = await fetch(url);
-      const ct = response.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) {
-        console.warn('[compare]', adapter.source, 'returned non-JSON:', response.status, ct);
-        return null;
+      // Adapters with a custom fetch() method (e.g. deep-link adapters that
+      // don't make network calls) bypass the standard JSON fetch path
+      let data;
+      if (adapter.fetch) {
+        data = await adapter.fetch(url, performerName, venueCity, eventDate, venueName);
+      } else {
+        const response = await fetch(url);
+        const ct = response.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          console.warn('[compare]', adapter.source, 'returned non-JSON:', response.status, ct);
+          return null;
+        }
+        data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
       }
-      const data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
       if (!data) return null;
       const result = await adapter.normalise(data, performerName);
       // result is null if adapter found no match
@@ -471,6 +512,7 @@ const SOURCE_STYLES = {
   'Football TicketNet UK': { logo: null,                                           bg: '#16a34a', color: '#fff', abbr: 'FT' },
   'Ticombo':               { logo: '/public/logos/ticombo.svg',                     bg: '#6366f1', color: '#fff', abbr: 'TC' },
   'TicketNetwork':         { logo: 'https://www.ticketnetwork.com/favicon.ico',         bg: '#c0392b', color: '#fff', abbr: 'TN' },
+  'Eventim':               { logo: 'https://www.eventim.co.uk/favicon.ico',            bg: '#e8252a', color: '#fff', abbr: 'EV' },
 };
 
 function buildLogoEl(style) {
@@ -546,4 +588,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}         
+}
