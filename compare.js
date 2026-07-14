@@ -86,6 +86,7 @@ const ADAPTERS = [
       }
 
       const match = data.match;
+      if (competitionMismatch(eventName, match.name)) return null;  // E1 guard
       if (!match.price) return null;
 
       return {
@@ -142,7 +143,9 @@ const ADAPTERS = [
       if (data.error || !data.match) return null;
 
       const match = data.match;
+      if (competitionMismatch(eventName, match.name)) return null;  // E1 guard
       if (!match.url) return null;
+      if (competitionMismatch(eventName, match.name)) return null;  // E1 guard
 
       // Price may be null if SE365 doesn't return one — still surface the seller
       // with a "See site" fallback so the user knows it's available
@@ -172,6 +175,7 @@ const ADAPTERS = [
     normalise(data, eventName) {
       if (data.error || !data.match || !data.match.url) return null;
       const match = data.match;
+      if (competitionMismatch(eventName, match.name)) return null;  // E1 guard
       // Prices are in USD from VS catalog — display as USD, not GBP
       // Still surface even without price (earns commission on click-through)
       return {
@@ -202,6 +206,7 @@ const ADAPTERS = [
         return null;
       }
       const match = data.match;
+      if (competitionMismatch(eventName, match.name)) return null;  // E1 guard
       return {
         source:     'Ticombo',
         price:      match.isFallback ? null : (match.price ? Math.round(match.price) : null),
@@ -229,6 +234,7 @@ const ADAPTERS = [
     normalise(data, eventName) {
       if (data.error || !data.match || !data.match.url) return null;
       const match = data.match;
+      if (competitionMismatch(eventName, match.name)) return null;  // E1 guard
       return {
         source:    'TicketNetwork',
         price:     match.price ? Math.round(match.price) : null,
@@ -239,20 +245,54 @@ const ADAPTERS = [
     }
   },
 
-  // ── Future adapters go here ──────────────────────────────────────────────
-  //
-  // {
-  //   source: 'viagogo',
-  //   buildUrl(eventName, venueCity) { ... },
-  //   normalise(data, eventName) { ... }
-  // },
-  //
-  // {
-  //   source: 'Eventim',
-  //   buildUrl(eventName, venueCity) { ... },
-  //   normalise(data, eventName) { ... }
-  // },
-  // ────────────────────────────────────────────────────────────────────────
+  // ── Eventim UK — deep link only (no product feed) ───────────────────────
+  // Awin publisher 2960641, merchant 15330. Constructs a search deep link
+  // directly — no API call, no price, shows "Search Eventim" in the table.
+  // Only shown for UK-relevant events (concerts + theatre, not football).
+  // Commission: per-click or per-sale depending on campaign terms.
+  {
+    source: 'Eventim',
+
+    buildUrl(eventName, venueCity, eventDate, venueName) {
+      // Returns the event name — the custom fetch() builds the actual URL
+      return eventName;
+    },
+
+    async fetch(url, eventName) {
+      // url is just the eventName passed through from buildUrl
+      // Build the Eventim search deep link with Awin tracking
+      const searchQuery = encodeURIComponent((eventName || url).split(' vs ')[0].trim());
+      const destination = encodeURIComponent(
+        `https://www.eventim.co.uk/search/?affiliate=EVT&search_term=${searchQuery}`
+      );
+      const affiliateUrl = `https://www.awin1.com/cread.php?awinmid=15330&awinaffid=2960641&ued=${destination}`;
+      return { eventimUrl: affiliateUrl };
+    },
+
+    normalise(data, eventName, eventDate, venueName, venueCity) {
+      if (!data || !data.eventimUrl) return null;
+      // Only show for non-football categories — Eventim UK is strong on
+      // concerts and theatre but has limited football inventory
+      // (football is served by Gigsberg/FTN/SE365)
+      // Detect football by checking if eventName contains " vs " with no
+      // known concert/theatre markers — adapters don't have category context
+      // so we use a lightweight heuristic
+      const looksLikeFootball = / vs /i.test(eventName) &&
+        !/tour|concert|show|musical|theatre|opera|ballet|festival/i.test(eventName);
+      if (looksLikeFootball) return null;
+
+      return {
+        source:     'Eventim',
+        price:      null,           // no price — deep link only
+        currency:   'GBP',
+        url:        data.eventimUrl,
+        available:  true,
+        isFallback: true            // renders as "Search Eventim" not a price
+      };
+    }
+  },
+
+  // ── Future adapters go here ───────────────────────────────────────────────
 ];
 
 
@@ -294,6 +334,20 @@ function extractPerformerName(fullName) {
   return fullName.trim();
 }
 
+
+// ── Competition-marker mismatch guard (E1) ─────────────────────────────────
+// "Arsenal vs Chelsea" and "Arsenal Women vs Chelsea Women" can share a week
+// and a stadium. If the query and the matched listing disagree on a
+// women's/youth/legends marker, the match is a different competition —
+// comparing its price would be comparing a different product entirely.
+const COMPETITION_MARKERS = /\b(women|women's|womens|wsl|ladies|u21|u23|u18|u19|academy|youth|legends|reserves)\b/i;
+function competitionMismatch(queryName, matchName) {
+  if (!queryName || !matchName) return false;
+  const q = COMPETITION_MARKERS.test(queryName);
+  const m = COMPETITION_MARKERS.test(matchName);
+  return q !== m;   // one has a marker, the other doesn't → different competition
+}
+
 async function comparePrices(eventName, venueCity, eventDate, venueName) {
   // Use performer name (stripped of subtitles) for adapter searches
   const performerName = extractPerformerName(eventName);
@@ -302,13 +356,20 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
       // Pass performerName for search queries, but keep full eventName for normalise matching
       const url = adapter.buildUrl(performerName, venueCity, eventDate, venueName);
 
-      const response = await fetch(url);
-      const ct = response.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) {
-        console.warn('[compare]', adapter.source, 'returned non-JSON:', response.status, ct);
-        return null;
+      // Adapters with a custom fetch() method (e.g. deep-link adapters that
+      // don't make network calls) bypass the standard JSON fetch path
+      let data;
+      if (adapter.fetch) {
+        data = await adapter.fetch(url, performerName, venueCity, eventDate, venueName);
+      } else {
+        const response = await fetch(url);
+        const ct = response.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          console.warn('[compare]', adapter.source, 'returned non-JSON:', response.status, ct);
+          return null;
+        }
+        data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
       }
-      const data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
       if (!data) return null;
       const result = await adapter.normalise(data, performerName);
       // result is null if adapter found no match
@@ -395,6 +456,26 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         return a.price - b.price;
       });
 
+    // ── Plausibility gate (E2) ─────────────────────────────────────────
+    // A price under 40% of the cross-source median for the same event is
+    // very likely a speculative listing or a wrong-event match. Keep the
+    // row (click still earns commission) but mark it implausible so it
+    // never wins the "Best price" badge or the headline slot.
+    const realPrices = withPrices.map(r => r.price).filter(Boolean).sort((a, b) => a - b);
+    if (realPrices.length >= 3) {
+      const median = realPrices[Math.floor(realPrices.length / 2)];
+      withPrices.forEach(r => {
+        if (r.price && r.price < median * 0.4) r.implausible = true;
+      });
+      // Re-sort: plausible prices first (ascending), implausible after, no-price last
+      withPrices.sort((a, b) => {
+        const rank = r => !r.price ? 2 : (r.implausible ? 1 : 0);
+        if (rank(a) !== rank(b)) return rank(a) - rank(b);
+        if (!a.price || !b.price) return 0;
+        return a.price - b.price;
+      });
+    }
+
     slot.innerHTML = '';
     const otherHavePrices = withPrices.some(r => r.price);
     // Show TM when: it has a price, OR no other seller has a real price (sole coverage)
@@ -404,7 +485,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
       }
     }
     withPrices.forEach(result => {
-      slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url, result.currency));
+      slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url, result.currency, result.implausible));
     });
     // Safety — if nothing rendered at all, show TM as fallback
     if (!slot.innerHTML.trim() && tmUrl && tmUrl !== '#') {
@@ -431,6 +512,7 @@ const SOURCE_STYLES = {
   'Football TicketNet UK': { logo: null,                                           bg: '#16a34a', color: '#fff', abbr: 'FT' },
   'Ticombo':               { logo: '/public/logos/ticombo.svg',                     bg: '#6366f1', color: '#fff', abbr: 'TC' },
   'TicketNetwork':         { logo: 'https://www.ticketnetwork.com/favicon.ico',         bg: '#c0392b', color: '#fff', abbr: 'TN' },
+  'Eventim':               { logo: 'https://www.eventim.co.uk/favicon.ico',            bg: '#e8252a', color: '#fff', abbr: 'EV' },
 };
 
 function buildLogoEl(style) {
@@ -444,14 +526,14 @@ function buildLogoEl(style) {
   return `<div class="compare-source-logo" style="background:${style.bg};color:${style.color};">${style.abbr}</div>`;
 }
 
-function buildRow(source, price, url, currency) {
+function buildRow(source, price, url, currency, implausible) {
   const symbol    = (currency && currency !== 'GBP') ? '$' : '£';
   const priceText = price ? `${symbol}${Math.round(price)}` : null;
   const dataPrice = price ? Math.round(price) : 0;
   const style     = SOURCE_STYLES[source] || { logo: null, bg: '#1a6fc4', color: '#fff', abbr: source.slice(0,2).toUpperCase() };
 
   return `
-    <div class="compare-row" data-price="${dataPrice}">
+    <div class="compare-row" data-price="${dataPrice}" data-implausible="${implausible ? '1' : '0'}">
       <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
         ${buildLogoEl(style)}
       </div>
@@ -477,6 +559,8 @@ function highlightBestPrice() {
   let lowest = Infinity;
   rows.forEach(row => {
     const price = parseFloat(row.dataset.price);
+    // Implausible prices (E2 gate) never win the Best price badge
+    if (row.dataset.implausible === '1') return;
     if (price > 0 && price < lowest) lowest = price;
   });
 
@@ -484,6 +568,7 @@ function highlightBestPrice() {
 
   rows.forEach(row => {
     const price = parseFloat(row.dataset.price);
+    if (row.dataset.implausible === '1') return;
     if (price === lowest) {
       const badge = document.createElement('span');
       badge.textContent = 'Best price';
@@ -503,4 +588,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}         
+}
