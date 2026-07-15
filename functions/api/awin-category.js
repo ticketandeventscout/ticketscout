@@ -21,10 +21,11 @@ export async function onRequestGet({ request, env }) {
   if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV binding.' }, 500);
 
   const incoming = new URL(request.url);
-  const q     = incoming.searchParams.get('q');
-  const debug = incoming.searchParams.get('debug') === '1';
-  const date  = incoming.searchParams.get('date') || '';  // YYYY-MM-DD from Ticketmaster
-  const venue = incoming.searchParams.get('venue') || '';
+  const q        = incoming.searchParams.get('q');
+  const debug    = incoming.searchParams.get('debug') === '1';
+  const date     = incoming.searchParams.get('date') || '';  // YYYY-MM-DD from Ticketmaster
+  const venue    = incoming.searchParams.get('venue') || '';
+  const merchant = incoming.searchParams.get('merchant') || '';  // e.g. 'Eventim PL' — restrict to one merchant
 
   if (!q) return jsonResponse({ error: 'q (event name) is required.' }, 400);
 
@@ -73,7 +74,11 @@ export async function onRequestGet({ request, env }) {
       }, 200);
     }
 
-    const matches = findBestMatches(allRows, q, date, venue);
+    // Optional merchant restriction (dedicated adapters e.g. Eventim PL)
+    const pool = merchant
+      ? allRows.filter(r => (r.merchant_name || '').toLowerCase() === merchant.toLowerCase())
+      : allRows;
+    const matches = findBestMatches(pool, q, date, venue);
     if (matches.length === 0) return jsonResponse({ matches: [] }, 200);
 
     return jsonResponse({ matches: matches.map(toResult) }, 200);
@@ -178,7 +183,15 @@ function findBestMatches(rows, query, targetDate, venueName) {
     return a.row.price - b.row.price;
   });
 
-  return [pool[0].row];
+  // Best match PER MERCHANT — so Gigsberg, Eventim PL and Football TicketNet
+  // can each appear as separate priced rows in the compare table instead of
+  // one merchant's match hiding all the others.
+  const byMerchant = new Map();
+  for (const r of pool) {
+    const m = r.row.merchant_name || 'Awin';
+    if (!byMerchant.has(m)) byMerchant.set(m, r.row);
+  }
+  return [...byMerchant.values()].slice(0, 4);
 }
 
 function toResult(row) {

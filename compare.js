@@ -112,18 +112,18 @@ const ADAPTERS = [
     },
 
     normalise(data, eventName) {
-      // awin-category returns { matches: [...] } or { matches: [] }
+      // awin-category returns { matches: [...] } — one best match per merchant.
+      // Return them ALL as separate compare rows (Gigsberg + Eventim PL + FTN...)
       const matches = data?.matches || [];
       if (!matches.length) return null;
-      const best = matches[0]; // already ranked best match
-      if (!best.url) return null;
-      return {
+      const rows = matches.filter(m => m.url).map(best => ({
         source:    best.merchant_name || 'Gigsberg',
         price:     best.price ? Math.round(best.price) : null,
         currency:  best.currency || 'GBP',
         url:       best.url,
         available: true
-      };
+      }));
+      return rows.length ? rows : null;
     }
   },
 
@@ -245,6 +245,38 @@ const ADAPTERS = [
     }
   },
 
+  // ── Eventim PL — priced rows from the Awin category cache ───────────────
+  // Eventim PL has a real product feed (4,171 rows) in the Awin cache, but
+  // the Gigsberg adapter only surfaces ONE best Awin row per event across
+  // all merchants. This adapter queries the same cache restricted to
+  // merchant='Eventim PL' so Polish events show Eventim PL's price as its
+  // own compare row alongside Gigsberg's.
+  {
+    source: 'Eventim PL',
+
+    buildUrl(eventName, venueCity, eventDate, venueName) {
+      const params = new URLSearchParams({ q: eventName, merchant: 'Eventim PL' });
+      if (eventDate) params.set('date', eventDate);
+      if (venueCity) params.set('city', venueCity);
+      return `/api/awin-category?${params.toString()}`;
+    },
+
+    normalise(data, eventName) {
+      const matches = data?.matches || [];
+      if (!matches.length) return null;
+      const best = matches[0];
+      if (!best.url) return null;
+      if (competitionMismatch(eventName, best.name)) return null;  // E1 guard
+      return {
+        source:    'Eventim PL',
+        price:     best.price ? Math.round(best.price) : null,
+        currency:  best.currency || 'PLN',
+        url:       best.url,
+        available: true
+      };
+    }
+  },
+
   // ── Eventim UK — deep link only (no product feed) ───────────────────────
   // Awin publisher 2960641, merchant 15330. Constructs a search deep link
   // directly — no API call, no price, shows "Search Eventim" in the table.
@@ -271,16 +303,8 @@ const ADAPTERS = [
 
     normalise(data, eventName, eventDate, venueName, venueCity) {
       if (!data || !data.eventimUrl) return null;
-      // Only show for non-football categories — Eventim UK is strong on
-      // concerts and theatre but has limited football inventory
-      // (football is served by Gigsberg/FTN/SE365)
-      // Detect football by checking if eventName contains " vs " with no
-      // known concert/theatre markers — adapters don't have category context
-      // so we use a lightweight heuristic
-      const looksLikeFootball = / vs /i.test(eventName) &&
-        !/tour|concert|show|musical|theatre|opera|ballet|festival/i.test(eventName);
-      if (looksLikeFootball) return null;
-
+      // Shown on ALL categories including football — a no-price fallback link
+      // costs nothing, gives users one more option, and every click is tracked.
       return {
         source:     'Eventim',
         price:      null,           // no price — deep link only
@@ -379,7 +403,8 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
 
   return settled
     .filter(r => r.status === 'fulfilled' && r.value !== null)
-    .map(r => r.value);
+    // Adapters may return a single result OR an array (e.g. awin best-per-merchant)
+    .flatMap(r => Array.isArray(r.value) ? r.value : [r.value]);
 }
 
 
@@ -513,6 +538,8 @@ const SOURCE_STYLES = {
   'Ticombo':               { logo: '/public/logos/ticombo.svg',                     bg: '#6366f1', color: '#fff', abbr: 'TC' },
   'TicketNetwork':         { logo: 'https://www.ticketnetwork.com/favicon.ico',         bg: '#c0392b', color: '#fff', abbr: 'TN' },
   'Eventim':               { logo: 'https://www.eventim.co.uk/favicon.ico',            bg: '#e8252a', color: '#fff', abbr: 'EV' },
+  'Eventim PL':            { logo: 'https://www.eventim.pl/favicon.ico',              bg: '#003399', color: '#fff', abbr: 'EP' },
+  'Eventim PL':            { logo: 'https://www.eventim.pl/favicon.ico',             bg: '#e8252a', color: '#fff', abbr: 'EP' },
 };
 
 function buildLogoEl(style) {
@@ -526,8 +553,10 @@ function buildLogoEl(style) {
   return `<div class="compare-source-logo" style="background:${style.bg};color:${style.color};">${style.abbr}</div>`;
 }
 
+const CURRENCY_SYMBOLS = { GBP: '£', USD: '$', EUR: '€', PLN: 'zł', CHF: 'CHF ', CAD: 'C$', AUD: 'A$', SGD: 'S$' };
+
 function buildRow(source, price, url, currency, implausible) {
-  const symbol    = (currency && currency !== 'GBP') ? '$' : '£';
+  const symbol    = CURRENCY_SYMBOLS[(currency || 'GBP').toUpperCase()] || (currency + ' ');
   const priceText = price ? `${symbol}${Math.round(price)}` : null;
   const dataPrice = price ? Math.round(price) : 0;
   const style     = SOURCE_STYLES[source] || { logo: null, bg: '#1a6fc4', color: '#fff', abbr: source.slice(0,2).toUpperCase() };
@@ -588,4 +617,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
+}         

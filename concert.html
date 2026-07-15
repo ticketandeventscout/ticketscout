@@ -747,10 +747,21 @@
         const schemaEvents = events.slice(0, 5).map(e => {
           const venue    = e._embedded?.venues?.[0];
           const minPrice = e.priceRanges?.[0]?.min;
+          const startISO = e.dates?.start?.dateTime || e.dates?.start?.localDate;
+          // endDate: TM rarely provides one — assume a 3-hour event window,
+          // or same-day when only a date (not time) is known
+          let endISO = startISO;
+          if (e.dates?.start?.dateTime) {
+            endISO = new Date(new Date(e.dates.start.dateTime).getTime() + 3 * 3600 * 1000).toISOString();
+          }
           return {
             '@type': 'MusicEvent',
             'name': e.name,
-            'startDate': e.dates?.start?.localDate,
+            'description': `${e.name} at ${venue?.name || 'venue TBC'}. Compare ticket prices from verified resale sellers on TicketScout.`,
+            'startDate': startISO,
+            'endDate': endISO,
+            'eventStatus': 'https://schema.org/EventScheduled',
+            'organizer': { '@type': 'Organization', 'name': name, 'url': pageUrl },
             'image': image,
             'location': venue ? {
               '@type': 'MusicVenue',
@@ -762,13 +773,14 @@
               }
             } : undefined,
             'performer': { '@type': 'MusicGroup', 'name': name },
-            'offers': minPrice ? {
+            'offers': {
               '@type': 'Offer',
-              'price': minPrice,
+              ...(minPrice ? { 'price': minPrice } : {}),
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
-              'url': pageUrl
-            } : undefined,
+              'url': pageUrl,
+              'validFrom': new Date().toISOString().split('T')[0]
+            },
             'url': pageUrl
           };
         });
@@ -1205,7 +1217,7 @@
       const venue     = e._embedded?.venues?.[0];
       const location  = [venue?.name, venue?.city?.name].filter(Boolean).join(' · ');
       const minPrice  = e.priceRanges?.[0]?.min;
-      const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '<div class="event-list-price" style="color:#888;font-size:13px;">See prices</div>';
+      const priceHtml = minPrice ? `<div class="event-list-price">From £${Math.round(minPrice)}</div>` : '';
 
       // VS fallback cards link directly (no TM ID available)
       if (e._vs) {
