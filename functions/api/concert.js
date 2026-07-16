@@ -220,12 +220,33 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
+
+  // ── Phase 4.3E — enriched About copy for auto-created pages ─────────────
+  // entity:meta:{category}:{slug} is written by /api/enrich-entities and
+  // carries CC0 facts + a seeded, entity-unique "About" paragraph. It only
+  // REPLACES generic fallback descriptions ("Compare X ticket prices…");
+  // hand-curated descriptions in the static array are always kept.
+  let enrichFacts = null;
+  try {
+    const ekv = env.GIGSBERG_KV;
+    if (ekv) {
+      const m = await ekv.get(`entity:meta:concert:${artist.slug}`);
+      if (m) {
+        const meta = JSON.parse(m);
+        enrichFacts = meta.facts || null;
+        const generic = !artist.description || /^Compare .{0,80} ticket prices across verified sellers/.test(artist.description);
+        if (meta.aboutText && generic) artist.description = meta.aboutText;
+      }
+    }
+  } catch {}
+
   return jsonResponse({
     artist: {
       slug:        artist.slug,
       name:        artist.name,
       genre:       artist.genre,
-      description: artist.description
+      description: artist.description,
+      facts:       enrichFacts
     },
     attractionId,
     tmImage

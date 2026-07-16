@@ -41,6 +41,18 @@ const PENDING_KEY      = 'autodiscover:awin:pending';
 const KNOWN_KEY        = 'autodiscover:artists:known';
 const KNOWN_VENUES_KEY = 'autodiscover:venues:known';
 
+// ── Phase 4 keys ─────────────────────────────────────────────────────────
+// sitemap:registry — per-category slug→lastmod map, the single source of
+// truth for the dynamic sitemap (/api/sitemap). Built once from the GitHub
+// tree (?phase=build-registry), then maintained by every commit run.
+const REGISTRY_KEY = 'sitemap:registry';
+// autodiscover:deferred — entities that failed the liquidity gate at commit
+// time. Re-checked weekly via ?phase=recheck-deferred; requeued to pending
+// when a priced offer reappears, dropped after MAX_DEFER_ATTEMPTS.
+const DEFERRED_KEY          = 'autodiscover:deferred';
+const LIQUIDITY_FRESH_DAYS  = 14;  // items queued within this window pass the gate
+const MAX_DEFER_ATTEMPTS    = 8;   // ~2 months of weekly re-checks, then dropped
+
 const TRIBUTE_KEYWORDS = [
   'tribute', 'salute', 'legacy', 'experience', 'revival', 'forever',
   'reunion', 'story of', 'performed by', 'feat.', 'vs.', ' vs ',
@@ -64,6 +76,8 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&source=ticombo       — discover from Ticombo via Partnerize API, queue to KV',
       '  ?trigger=1&phase=commit         — commit queued pages to GitHub',
       '  ?trigger=1&phase=backfill       — write KV data for already-committed pages',
+      '  ?trigger=1&phase=build-registry — build sitemap:registry from the GitHub tree (one-time)',
+      '  ?trigger=1&phase=recheck-deferred — re-check liquidity-gated entities, requeue liquid ones',
       '  &dry=1                          — dry run, no writes',
       '',
       'NOTE: Awin discovery runs automatically via awin-category-cache — no separate job needed.'
@@ -89,6 +103,206 @@ export async function onRequestGet({ request, env }) {
     return useLegacy
       ? await commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, env)
       : await commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dryRun, env);
+  }
+
+  // ── BUILD-REGISTRY PHASE (Phase 4) — one-time sitemap registry build ─────
+  // Reads the FULL repo tree from GitHub (1 API call) and records every
+  // on-disk entity page into sitemap:registry, keyed by category:
+  //   { updated, sections: { concert: {slug:'YYYY-MM-DD'}, football: {...},
+  //     theatre: {...}, venue: {...} } }
+  // /api/sitemap serves the live sitemap directly from this key.
+  // Initial lastmod = today (we don't know true creation dates; from now on
+  // the commit job stamps real dates). Safe to re-run: existing lastmod
+  // values are preserved, only missing slugs are added.
+  if (phase === 'build-registry') {
+    if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
+    const github = new GitHubAPI(githubToken, owner, repo, branch);
+    let tree;
+    try {
+      const ref  = await github.request('GET', `/repos/${owner}/${repo}/git/ref/heads/${branch}`);
+      const head = await github.request('GET', `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`);
+      tree = await github.request('GET', `/repos/${owner}/${repo}/git/trees/${head.tree.sha}?recursive=1`);
+    } catch (err) {
+      return json({ error: 'GitHub tree fetch failed', detail: String(err) }, 500);
+    }
+
+    let registry = { updated: null, sections: { concert: {}, football: {}, theatre: {}, venue: {} } };
+    try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
+    for (const cat of ['concert', 'football', 'theatre', 'venue']) {
+      if (!registry.sections[cat]) registry.sections[cat] = {};
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const counts = { concert: 0, football: 0, theatre: 0, venue: 0, skipped: 0 };
+    const re = /^(concert|football|theatre|venue)\/([a-z0-9-]+)\.html$/;
+    for (const node of (tree.tree || [])) {
+      if (node.type !== 'blob') continue;
+      const m = re.exec(node.path);
+      if (!m) continue;
+      const [, cat, slug] = m;
+      if (registry.sections[cat][slug]) { counts.skipped++; continue; } // preserve existing lastmod
+      registry.sections[cat][slug] = today;
+      counts[cat]++;
+    }
+    registry.updated = new Date().toISOString();
+
+    if (dryRun) return json({ dryRun: true, added: counts,
+      totals: Object.fromEntries(Object.entries(registry.sections).map(([k, v]) => [k, Object.keys(v).length])),
+      truncatedTree: !!tree.truncated }, 200);
+
+    await kv.put(REGISTRY_KEY, JSON.stringify(registry));
+    return json({
+      message: 'Sitemap registry built. Verify at /api/sitemap?sec=football then deploy the new static sitemap.xml index.',
+      added: counts,
+      totals: Object.fromEntries(Object.entries(registry.sections).map(([k, v]) => [k, Object.keys(v).length])),
+      truncatedTree: !!tree.truncated
+    }, 200);
+  }
+
+  // ── RECHECK-DEFERRED PHASE (Phase 4) — weekly liquidity re-check ─────────
+  // Walks the deferred queue (entities that had no priced offer at commit
+  // time). For each, searches the live Awin cache; if the entity now has
+  // ≥1 offer it's requeued to pending with a fresh timestamp. Items are
+  // dropped after MAX_DEFER_ATTEMPTS failed re-checks.
+  // Usage: ?trigger=1&phase=recheck-deferred [&limit=10]
+  if (phase === 'recheck-deferred') {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10) || 10, 25);
+    let deferred = [];
+    try { const d = await kv.get(DEFERRED_KEY); if (d) deferred = JSON.parse(d); } catch {}
+    if (deferred.length === 0) return json({ message: 'Deferred queue is empty.', rechecked: 0 }, 200);
+
+    const origin = new URL(request.url).origin;
+    const batch = deferred.slice(0, limit);
+    const rest  = deferred.slice(limit);
+    const requeued = [], kept = [], dropped = [];
+
+    for (const item of batch) {
+      let liquid = false;
+      // Cheap check first: Phase 2 price summary
+      try { if (await kv.get(`price:summary:entity:${item.slug}`)) liquid = true; } catch {}
+      // Otherwise search the Awin cache via our own API (same-zone subrequest)
+      if (!liquid) {
+        try {
+          const r = await fetch(`${origin}/api/awin-category?q=${encodeURIComponent(item.name || item.slug)}`);
+          if (r.ok) { const d = await r.json(); liquid = (d.matches || []).length > 0; }
+        } catch {}
+      }
+      if (liquid) {
+        requeued.push({ ...item, queuedAt: new Date().toISOString(), deferAttempts: undefined });
+      } else {
+        const attempts = (item.deferAttempts || 0) + 1;
+        if (attempts >= MAX_DEFER_ATTEMPTS) dropped.push(item.slug);
+        else kept.push({ ...item, deferAttempts: attempts });
+      }
+    }
+
+    if (!dryRun) {
+      // Rotate: unprocessed rest first, then kept (so next run sees fresh items)
+      await kv.put(DEFERRED_KEY, JSON.stringify([...rest, ...kept]));
+      if (requeued.length) {
+        let existing = { artists: [], venues: [] };
+        try { const ep = await kv.get(PENDING_KEY); if (ep) existing = JSON.parse(ep); } catch {}
+        await kv.put(PENDING_KEY, JSON.stringify({
+          artists: [...(existing.artists || []), ...requeued],
+          venues: existing.venues || [],
+          updatedAt: new Date().toISOString()
+        }), { expirationTtl: 8 * 60 * 60 });
+      }
+    }
+    return json({ rechecked: batch.length, requeued: requeued.map(i => i.slug),
+      stillDeferred: kept.length + rest.length, dropped, dryRun }, 200);
+  }
+
+  // ── REGENERATE PHASE (Phase 4.1/4.2) — rebuild existing stubs in batches ─
+  // Regenerates on-disk entity stubs with: the Tier-1 comparison title
+  // pattern, a fact-based meta description, and the server-side JSON-LD
+  // @graph (from entity:meta written by /api/enrich-entities). Also cures
+  // Hamilton-class template drift — every regenerated stub points at the
+  // current TEMPLATE_VERSION.
+  // Cursor-batched: ?trigger=1&phase=regenerate&category=football [&limit=50]
+  // Run per category after enrichment has covered it. Safe to re-run.
+  if (phase === 'regenerate') {
+    if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
+    const category = url.searchParams.get('category');
+    if (!['football', 'concert', 'theatre'].includes(category)) {
+      return json({ error: 'category is required: football | concert | theatre' }, 400);
+    }
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 150);
+
+    let registry = null;
+    try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
+    if (!registry || !registry.sections || !registry.sections[category]) {
+      return json({ error: 'sitemap:registry not built — run ?phase=build-registry first' }, 503);
+    }
+    const slugs = Object.keys(registry.sections[category]).sort();
+
+    const cursorKey = `regen:cursor:${category}`;
+    let offset = parseInt(url.searchParams.get('offset') || '', 10);
+    if (isNaN(offset)) {
+      try { const c = await kv.get(cursorKey); offset = c ? parseInt(c, 10) || 0 : 0; } catch { offset = 0; }
+    }
+    const batch = slugs.slice(offset, offset + limit);
+    if (batch.length === 0) {
+      if (!dryRun) await kv.delete(cursorKey).catch(() => {});
+      return json({ message: `Regeneration of ${category} complete (${slugs.length} pages). Cursor reset.`, done: true }, 200);
+    }
+
+    // Build enriched HTML for the batch
+    const kvPrefix = categoryToKvPrefix(category);
+    const htmlGenerator = categoryToHtmlGenerator(category);
+    const files = [];
+    let enrichedCount = 0;
+    for (const slug of batch) {
+      let name = null, facts = null;
+      try { const rec = await kv.get(kvPrefix + slug); if (rec) name = JSON.parse(rec).name; } catch {}
+      try {
+        const m = await kv.get(`entity:meta:${category}:${slug}`);
+        if (m) { facts = JSON.parse(m).facts; enrichedCount++; }
+      } catch {}
+      files.push({ path: `${category}/${slug}.html`, content: htmlGenerator(slug, { name, facts }) });
+    }
+
+    if (dryRun) {
+      return json({
+        dryRun: true, category, offset, batchSize: batch.length,
+        withEnrichmentFacts: enrichedCount, totalInSection: slugs.length,
+        sampleHead: files[0].content.slice(0, 1400),
+        message: 'Dry run — nothing committed.'
+      }, 200);
+    }
+
+    // Reuse the commit lock so a regen never races the Mon 00:10 auto-commit
+    const lock = await kv.get(COMMIT_LOCK_KEY);
+    if (lock) return json({ error: 'A commit run is in progress — try again in a few minutes.', lockedAt: lock }, 429);
+    await kv.put(COMMIT_LOCK_KEY, new Date().toISOString(), { expirationTtl: COMMIT_LOCK_TTL });
+
+    const github = new GitHubAPI(githubToken, owner, repo, branch);
+    let commitSha;
+    try {
+      commitSha = await github.commitFilesBatch(files,
+        `Regenerate ${files.length} ${category} stubs: enriched titles, meta, JSON-LD (v${TEMPLATE_VERSION})`);
+    } catch (err) {
+      await kv.delete(COMMIT_LOCK_KEY).catch(() => {});
+      return json({ error: 'Batch commit failed — cursor NOT advanced, safe to retry.', detail: String(err) }, 500);
+    }
+
+    // lastmod = today for regenerated pages (real content change: new copy/schema)
+    const today = new Date().toISOString().slice(0, 10);
+    for (const slug of batch) registry.sections[category][slug] = today;
+    registry.updated = new Date().toISOString();
+    await kv.put(REGISTRY_KEY, JSON.stringify(registry));
+
+    const nextOffset = offset + batch.length;
+    const done = nextOffset >= slugs.length;
+    if (done) await kv.delete(cursorKey).catch(() => {});
+    else await kv.put(cursorKey, String(nextOffset));
+    await kv.delete(COMMIT_LOCK_KEY).catch(() => {});
+
+    return json({
+      category, commitSha, regenerated: batch.length, withEnrichmentFacts: enrichedCount,
+      progress: `${nextOffset}/${slugs.length}`, done,
+      next: done ? null : `?trigger=1&phase=regenerate&category=${category}&limit=${limit}`
+    }, 200);
   }
 
   // ── BACKFILL PHASE — write KV data for already-committed pages ───────────
@@ -1021,10 +1235,11 @@ export async function onRequestGet({ request, env }) {
   let existing = { artists: [], venues: [] };
   try { const ep = await kv.get(PENDING_KEY); if (ep) existing = JSON.parse(ep); } catch {}
 
+  const stamp = new Date().toISOString();
   await kv.put(PENDING_KEY, JSON.stringify({
-    artists:   [...existing.artists, ...artistList],
-    venues:    [...existing.venues,  ...venueList],
-    updatedAt: new Date().toISOString()
+    artists:   [...existing.artists, ...artistList.map(a => ({ ...a, queuedAt: stamp }))],
+    venues:    [...existing.venues,  ...venueList.map(v => ({ ...v, queuedAt: stamp }))],
+    updatedAt: stamp
   }), { expirationTtl: 8 * 60 * 60 });
 
   return json({
@@ -1086,6 +1301,34 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
     }, 200);
   }
 
+  // ── LIQUIDITY GATE (Phase 4.1) ────────────────────────────────────────
+  // Only publish entities that plausibly have ≥1 priced offer right now.
+  // Rules (cheapest first, zero external calls in the hot path):
+  //   PASS if a Phase 2 price summary exists for the slug, OR
+  //   PASS if the item was queued within LIQUIDITY_FRESH_DAYS (it was just
+  //        discovered inside a live priced feed — liquidity by construction).
+  //   Items with no queuedAt (legacy queue entries) are treated as fresh so
+  //   the current queue drain is not disrupted.
+  //   FAIL → moved to autodiscover:deferred for weekly re-checks.
+  // Venues are exempt: venue pages list events, they don't sell a headline price.
+  const liquid = [], gated = [];
+  const freshCutoff = Date.now() - LIQUIDITY_FRESH_DAYS * 86400000;
+  for (const artist of artists) {
+    const queuedTs = artist.queuedAt ? Date.parse(artist.queuedAt) : NaN;
+    if (isNaN(queuedTs) || queuedTs >= freshCutoff) { liquid.push(artist); continue; }
+    let hasSummary = false;
+    try { hasSummary = !!(await kv.get(`price:summary:entity:${artist.slug}`)); } catch {}
+    if (hasSummary) liquid.push(artist); else gated.push(artist);
+  }
+  if (gated.length) {
+    let deferred = [];
+    try { const d = await kv.get(DEFERRED_KEY); if (d) deferred = JSON.parse(d); } catch {}
+    const known = new Set(deferred.map(i => i.slug));
+    for (const g of gated) if (!known.has(g.slug)) deferred.push({ ...g, deferredAt: new Date().toISOString() });
+    await kv.put(DEFERRED_KEY, JSON.stringify(deferred));
+  }
+  artists = liquid;
+
   // Cap the batch; keep the remainder queued for the next run
   let remainderArtists = [], remainderVenues = [];
   if (artists.length + venues.length > COMMIT_BATCH_CAP) {
@@ -1119,7 +1362,7 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
     if (items.length === 0) continue;
     const htmlGenerator = categoryToHtmlGenerator(category);
     for (const artist of items) {
-      files.push({ path: `${category}/${artist.slug}.html`, content: htmlGenerator(artist.slug) });
+      files.push({ path: `${category}/${artist.slug}.html`, content: htmlGenerator(artist.slug, { name: artist.name }) });
       committed[category].push(artist.slug);
     }
   }
@@ -1179,9 +1422,29 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
   await kv.put(KNOWN_KEY,        JSON.stringify([...knownArtists]));
   await kv.put(KNOWN_VENUES_KEY, JSON.stringify([...knownVenues]));
 
+  // ── Sitemap registry update (Phase 4.3D) ─────────────────────────────
+  // New pages appear in /api/sitemap on the same run that creates them.
+  // lastmod = commit date (a real content change, not render time).
+  try {
+    let registry = { updated: null, sections: { concert: {}, football: {}, theatre: {}, venue: {} } };
+    try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
+    const today = new Date().toISOString().slice(0, 10);
+    for (const [category, items] of Object.entries(byCategory)) {
+      if (!registry.sections[category]) registry.sections[category] = {};
+      for (const artist of items) registry.sections[category][artist.slug] = today;
+    }
+    if (!registry.sections.venue) registry.sections.venue = {};
+    for (const venue of venues) registry.sections.venue[venue.slug] = today;
+    registry.updated = new Date().toISOString();
+    await kv.put(REGISTRY_KEY, JSON.stringify(registry));
+  } catch (err) {
+    committed.errors.push({ type: 'sitemap-registry', error: String(err) });
+  }
+
   await kv.delete(COMMIT_LOCK_KEY).catch(() => {});
   return json({
     committed, commitSha, filesInCommit: files.length,
+    liquidityGate: { passed: liquid.length, deferred: gated.length },
     remainderQueued: remainderArtists.length + remainderVenues.length,
     message: 'Done — one batch commit pushed; Cloudflare deploying.'
   }, 200);
@@ -1252,7 +1515,7 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, 
         const path = `${category}/${artist.slug}.html`;
         await github.createFile(
           path,
-          htmlGenerator(artist.slug),
+          htmlGenerator(artist.slug, { name: artist.name }),
           `Auto-add ${category} page: ${artist.name} [${artist.source}]`
         );
         committed[category].push(artist.slug);
@@ -1517,20 +1780,21 @@ class GitHubAPI {
 // HTML generators — one per category
 // ===========================
 
-function generateArtistPageHtml(slug) {
-  const displayName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+function generateArtistPageHtml(slug, enrich) {
+  const { name: displayName, title, description, jsonLd } = stubHeadEnrichment('concert', slug, enrich);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} Tickets | Compare Prices | TicketScout</title>
+  <title>${escAttr(title)}</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare ${displayName} ticket prices across verified sellers. Find the cheapest ${displayName} tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="${displayName} Tickets | TicketScout" />
-  <meta property="og:description" content="Compare ${displayName} ticket prices across verified sellers. Find the best deal." />
+  <meta name="description" content="${escAttr(description)}" />
+  <meta property="og:title" content="${escAttr(displayName)} Tickets | TicketScout" />
+  <meta property="og:description" content="${escAttr(description)}" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/${slug}" />
+  <script type="application/ld+json">${jsonLd}</script>
   <script>window.__CONCERT_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1542,7 +1806,7 @@ function generateArtistPageHtml(slug) {
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=${TEMPLATE_VERSION}');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
@@ -1563,20 +1827,90 @@ function generateArtistPageHtml(slug) {
 </script></body></html>`;
 }
 
-function generateFootballPageHtml(slug) {
-  const displayName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+// ── Template version used inside generated stubs — single point of truth ──
+// Bump here when football.html/concert.html/theatre.html change, then run
+// ?phase=regenerate per category to cure stub drift (Hamilton-class bug).
+const TEMPLATE_VERSION = '20260714a';
+
+// ── Phase 4 head enrichment for generated stubs ──────────────────────────
+// Returns { title, description, jsonLd } for a stub's <head>. All three are
+// server-visible and survive the client-side body swap (only <body> is
+// replaced by the template loader). JS-injected JSON-LD is unreliably picked
+// up by Google — baking it into the head at commit time is the fix (4.2).
+function escAttr(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+function stubHeadEnrichment(category, slug, enrich) {
+  const facts = (enrich && enrich.facts) || {};
+  const name  = (enrich && enrich.name) || facts.name ||
+                slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const pageUrl = `https://ticketscout.co.uk/${category}/${slug}`;
+
+  // Tier-1 comparison-intent title pattern (4.1)
+  const title = `Compare ${name} Ticket Prices — Cheapest ${name} Tickets | TicketScout`;
+
+  // Meta description: comparison base + one entity-specific fact fragment
+  let fragment = '';
+  if (category === 'football' && facts.stadium) {
+    fragment = ` Home matches at ${facts.stadium}${facts.city ? `, ${facts.city}` : ''}.`;
+  } else if (category === 'concert' && facts.origin) {
+    fragment = `${facts.genres && facts.genres.length ? ` ${facts.genres[0].replace(/\b\w/g, c => c.toUpperCase())} from ${facts.origin}.` : ` Touring artist from ${facts.origin}.`}`;
+  }
+  let description = `Compare ${name} ticket prices across verified sellers and find the cheapest ${name} tickets. Updated daily.${fragment}`;
+  if (description.length > 158) description = description.slice(0, 155).replace(/\s+\S*$/, '') + '…';
+
+  // JSON-LD @graph — nodes/fields self-omit when facts are missing
+  const graph = [];
+  const catLabel = { football: 'Football', concert: 'Concerts', theatre: 'Theatre' }[category] || category;
+  if (category === 'football') {
+    const team = { '@type': 'SportsTeam', '@id': `${pageUrl}#team`, name, sport: 'Football' };
+    if (facts.league)  team.memberOf = { '@type': 'SportsOrganization', name: facts.league };
+    if (facts.founded) team.foundingDate = facts.founded;
+    if (facts.stadium) {
+      team.location = { '@id': `${pageUrl}#venue` };
+      const venue = { '@type': 'StadiumOrArena', '@id': `${pageUrl}#venue`, name: facts.stadium };
+      if (facts.capacity) venue.maximumAttendeeCapacity = facts.capacity;
+      if (facts.city) {
+        venue.address = { '@type': 'PostalAddress', addressLocality: facts.city };
+        if (facts.country) venue.address.addressCountry = facts.country;
+      }
+      graph.push(venue);
+    }
+    graph.push(team);
+  } else if (category === 'concert') {
+    const artist = { '@type': facts.artistType === 'Person' ? 'Person' : 'MusicGroup', '@id': `${pageUrl}#artist`, name };
+    if (facts.genres && facts.genres.length) artist.genre = facts.genres;
+    if (facts.artistType !== 'Person' && facts.origin) artist.foundingLocation = { '@type': 'Place', name: facts.origin };
+    graph.push(artist);
+  }
+  graph.push({
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: catLabel, item: `https://ticketscout.co.uk/${category}` },
+      { '@type': 'ListItem', position: 2, name: `${name} Tickets` }
+    ]
+  });
+  // \u003c escaping prevents any </script> breakout from entity names
+  const jsonLd = JSON.stringify({ '@context': 'https://schema.org', '@graph': graph }).replace(/</g, '\\u003c');
+
+  return { name, title, description, jsonLd };
+}
+
+function generateFootballPageHtml(slug, enrich) {
+  const { name: displayName, title, description, jsonLd } = stubHeadEnrichment('football', slug, enrich);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} Tickets | Compare Prices | TicketScout</title>
+  <title>${escAttr(title)}</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare ${displayName} ticket prices across verified sellers. Find the cheapest ${displayName} tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="${displayName} Tickets | TicketScout" />
-  <meta property="og:description" content="Compare ${displayName} ticket prices across verified sellers. Find the best deal." />
+  <meta name="description" content="${escAttr(description)}" />
+  <meta property="og:title" content="${escAttr(displayName)} Tickets | TicketScout" />
+  <meta property="og:description" content="${escAttr(description)}" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/${slug}" />
+  <script type="application/ld+json">${jsonLd}</script>
   <script>window.__FOOTBALL_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1588,7 +1922,7 @@ function generateFootballPageHtml(slug) {
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/football.html?v=20260714a');
+      const r = await fetch('/football.html?v=${TEMPLATE_VERSION}');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
@@ -1609,20 +1943,21 @@ function generateFootballPageHtml(slug) {
 </script></body></html>`;
 }
 
-function generateTheatrePageHtml(slug) {
-  const displayName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+function generateTheatrePageHtml(slug, enrich) {
+  const { name: displayName, title, description, jsonLd } = stubHeadEnrichment('theatre', slug, enrich);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} Tickets | Compare Prices | TicketScout</title>
+  <title>${escAttr(title)}</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare ${displayName} ticket prices across verified sellers. Find the cheapest ${displayName} tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="${displayName} Tickets | TicketScout" />
-  <meta property="og:description" content="Compare ${displayName} ticket prices across verified sellers. Find the best deal." />
+  <meta name="description" content="${escAttr(description)}" />
+  <meta property="og:title" content="${escAttr(displayName)} Tickets | TicketScout" />
+  <meta property="og:description" content="${escAttr(description)}" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/theatre/${slug}" />
+  <script type="application/ld+json">${jsonLd}</script>
   <script>window.__THEATRE_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1634,7 +1969,7 @@ function generateTheatrePageHtml(slug) {
 <body><script>
   (async function() {
     try {
-      const r = await fetch('/theatre.html?v=20260714a');
+      const r = await fetch('/theatre.html?v=${TEMPLATE_VERSION}');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
