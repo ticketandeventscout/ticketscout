@@ -148,6 +148,9 @@ async function enrichOne(category, slug, name) {
     source = 'musicbrainz'; licence = 'CC0';
   }
   facts = facts || {};
+  // For UK clubs, country is implicit — suppress so it doesn't
+  // appear in copy (e.g. avoid "country: United Kingdom" in sentences)
+  if (facts.country === 'United Kingdom') delete facts.country;
   facts.name = name;
   facts.slug = slug;
 
@@ -202,8 +205,27 @@ async function wikidataClubFacts(name) {
 
   const facts = {};
   if (row.stadiumLabel?.value) facts.stadium  = row.stadiumLabel.value;
+  // Normalise city: Wikidata often returns "London Borough of Islington" etc.
+  const LONDON_DISTRICTS = new Set([
+    'Islington','Camden','Hackney','Tower Hamlets','Southwark','Lambeth',
+    'Hammersmith and Fulham','Fulham','Wandsworth','Westminster',
+    'Kensington and Chelsea','Lewisham','Greenwich','Bexley','Bromley',
+    'Croydon','Sutton','Merton','Kingston upon Thames','Richmond upon Thames',
+    'Hounslow','Ealing','Hillingdon','Harrow','Brent','Barnet','Haringey',
+    'Enfield','Waltham Forest','Redbridge','Newham','Barking and Dagenham',
+    'Havering','City of London'
+  ]);
+  const normaliseCity = c => {
+    c = c.replace(/^London Borough of /, '').replace(/^Royal Borough of /, '')
+         .replace(/^Borough of /, '').replace(/^City of (?!London)/, '')
+         .replace(/^Metropolitan Borough of /, '');
+    if (LONDON_DISTRICTS.has(c)) return 'London';
+    // "Frankfurt am Main" → "Frankfurt" for cleaner prose
+    c = c.replace(/ am Main$/, '');
+    return c;
+  };
   if (row.capacity?.value)     facts.capacity = parseInt(row.capacity.value, 10) || undefined;
-  if (row.cityLabel?.value)    facts.city     = row.cityLabel.value;
+  if (row.cityLabel?.value)    facts.city     = normaliseCity(row.cityLabel.value);
   if (row.leagueLabel?.value)  facts.league   = row.leagueLabel.value;
   if (row.founded?.value)      facts.founded  = row.founded.value.slice(0, 4);
   if (row.countryLabel?.value) facts.country  = row.countryLabel.value;
