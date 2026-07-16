@@ -1,5 +1,8 @@
 User-agent: *
 Allow: /
+# Section sitemaps are served by a function under /api/ — this Allow is
+# more specific than the Disallow below, so it wins (longest-match rule)
+Allow: /api/sitemap
 Disallow: /api/
 
 # Crawl-delay to be polite
