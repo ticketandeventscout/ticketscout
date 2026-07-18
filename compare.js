@@ -31,6 +31,8 @@ const ADAPTERS = [
 
     // Build the URL for our server-side proxy
     buildUrl(eventName, venueCity, eventDate, venueName) {
+      const params = new URLSearchParams({ q: eventName });
+      if (venueCity) params.set('city', venueCity);
       return `/api/seatgeek?${params.toString()}`;
     },
 
@@ -729,4 +731,4 @@ function highlightBestPrice() {
 
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}         
+}
