@@ -131,7 +131,7 @@ export async function onRequestGet(context) {
     if (!env.PARTNERIZE_API_KEY || !env.PARTNERIZE_USER_KEY) {
       report.networks.partnerize = { skipped: 'PARTNERIZE_API_KEY / PARTNERIZE_USER_KEY not set' };
     } else try {
-      const auth = 'Basic ' + btoa(`${env.PARTNERIZE_API_KEY}:${env.PARTNERIZE_USER_KEY}`);
+      const auth = 'Basic ' + btoa(`${env.PARTNERIZE_USER_KEY}:${env.PARTNERIZE_API_KEY}`);
       const u = `https://api.performancehorizon.com/reporting/report_publisher/publisher/1110l36128/conversion.json` +
         `?start_date=${encodeURIComponent(sinceISO + ' 00:00:00')}&end_date=${encodeURIComponent(untilISO + ' 23:59:59')}`;
       const r = await fetch(u, { headers: { 'Authorization': auth } });
