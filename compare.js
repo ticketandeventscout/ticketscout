@@ -372,11 +372,79 @@ function competitionMismatch(queryName, matchName) {
   return q !== m;   // one has a marker, the other doesn't → different competition
 }
 
+// ===========================
+// Phase 6 — click-out attribution, signal beacons, merchant status
+// ===========================
+// Source label → merchant id (must mirror SOURCE_TO_MERCHANT in /api/go)
+const MERCHANT_IDS = {
+  'Ticketmaster': 'tm', 'Gigsberg': 'gigsberg', 'Gigsberg UK': 'gigsberg',
+  'Vivid Seats': 'vividseats', 'SportsEvents365': 'se365', 'Skiddle': 'skiddle',
+  'SeatGeek': 'seatgeek', 'Theatre Tickets Direct': 'ttd',
+  'Football TicketNet UK': 'ftn', 'Ticombo': 'ticombo',
+  'TicketNetwork': 'ticketnetwork', 'Eventim': 'eventim_uk', 'Eventim PL': 'eventim_pl'
+};
+
+// Route outbound affiliate links through /api/go for attribution, the
+// merchant kill-switch, and analytics. FAIL-SAFE: only hosts on this list
+// are wrapped — an unrecognised domain keeps its direct link (exactly
+// today's behaviour, just without attribution) so a whitelist gap can
+// never bounce a paying customer to the homepage. Must stay a subset of
+// ALLOWED_HOSTS in functions/api/go.js. Unrecognised affiliate domains
+// are console.warned — add them to BOTH lists when spotted.
+const GO_HOSTS = [
+  'ticketmaster.co.uk', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
+  'eventim.co.uk', 'eventim.pl', 'theatreticketsdirect.co.uk',
+  'ticketnetwork.com', 'vividseats.com', 'skiddle.com', 'seatgeek.com',
+  'hotels.com', 'trivago.co.uk', 'awin1.com', 'prf.hn',
+  'pxf.io', 'sjv.io', 'evyy.net',
+  'anrdoezrs.net', 'dpbolvw.net', 'jdoqocy.com', 'kqzyfj.com', 'tkqlhce.com'
+];
+function goUrl(url, source, price) {
+  if (!url || url === '#' || !/^https:\/\//.test(url)) return url;
+  try {
+    const host = new URL(url).hostname;
+    if (!GO_HOSTS.some(d => host === d || host.endsWith('.' + d))) {
+      console.warn('[go] unlisted affiliate domain, linking direct:', host, '(' + source + ')');
+      return url;   // fail-safe: direct link, no attribution, no breakage
+    }
+  } catch { return url; }
+  const p = new URLSearchParams({ u: url, s: source || '' });
+  if (price) p.set('p', String(Math.round(price)));
+  return '/api/go?' + p.toString();
+}
+
+// Fire-and-forget signal beacon (errors, request counts, implausible hits).
+// keepalive lets it survive the user navigating away mid-flight.
+function signalBeacon(params) {
+  try {
+    fetch('/api/go?beacon=' + params, { method: 'GET', keepalive: true }).catch(() => {});
+  } catch {}
+}
+
+// Merchant status — fetched once per compare render, edge-cached 5 min.
+// { suspended: [ids], badges: [ids], scores: {id: 0..1} }
+let MERCHANT_STATUS = { suspended: [], badges: [], scores: {} };
+async function loadMerchantStatus() {
+  try {
+    const r = await fetch('/api/merchant-status');
+    if (r.ok) MERCHANT_STATUS = await r.json();
+  } catch {}
+  return MERCHANT_STATUS;
+}
+
 async function comparePrices(eventName, venueCity, eventDate, venueName) {
   // Use performer name (stripped of subtitles) for adapter searches
   const performerName = extractPerformerName(eventName);
+
+  // Phase 6.3: skip suspended merchants entirely; count adapter attempts
+  // (site-wide denominator for the reliability score)
+  await loadMerchantStatus();
+  const activeAdapters = ADAPTERS.filter(a =>
+    !MERCHANT_STATUS.suspended.includes(MERCHANT_IDS[a.source]));
+  signalBeacon('req&n=' + activeAdapters.length);
+
   const settled = await Promise.allSettled(
-    ADAPTERS.map(async adapter => {
+    activeAdapters.map(async adapter => {
       // Pass performerName for search queries, but keep full eventName for normalise matching
       const url = adapter.buildUrl(performerName, venueCity, eventDate, venueName);
 
@@ -390,9 +458,14 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
         const ct = response.headers.get('content-type') || '';
         if (!ct.includes('application/json')) {
           console.warn('[compare]', adapter.source, 'returned non-JSON:', response.status, ct);
+          signalBeacon('err&s=' + encodeURIComponent(adapter.source));
           return null;
         }
-        data = await response.json().catch(e => { console.warn('[compare]', adapter.source, 'JSON parse error:', e); return null; });
+        data = await response.json().catch(e => {
+          console.warn('[compare]', adapter.source, 'JSON parse error:', e);
+          signalBeacon('err&s=' + encodeURIComponent(adapter.source));
+          return null;
+        });
       }
       if (!data) return null;
       const result = await adapter.normalise(data, performerName);
@@ -400,6 +473,14 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
       return result;
     })
   );
+
+  // Network-level adapter failures (rejected promises) → error beacon
+  settled.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      console.warn('[compare]', activeAdapters[i].source, 'adapter failed:', r.reason);
+      signalBeacon('err&s=' + encodeURIComponent(activeAdapters[i].source));
+    }
+  });
 
   return settled
     .filter(r => r.status === 'fulfilled' && r.value !== null)
@@ -439,6 +520,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         .compare-buy { background:#1a6fc4; color:#fff; padding:9px 16px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; flex-shrink:0; margin-left:4px; }
         .compare-buy:hover { background:#155da0; }
         .best-price-badge { display:block; background:#22c55e; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; text-align:center; margin-top:2px; }
+        .trusted-badge { display:inline-block; color:#16a34a; font-size:10px; font-weight:600; margin-left:6px; white-space:nowrap; }
         .compare-loading { padding:20px; text-align:center; color:#888; font-size:14px; }
         .compare-footnote { font-size:11px; color:#999; text-align:center; padding:12px 20px 4px; line-height:1.5; }
         .compare-title { font-size:14px; font-weight:600; color:#1a1a1a; padding:14px 20px 10px; border-bottom:1px solid #f0f0f0; }
@@ -461,7 +543,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
           <div class="compare-loading">Checking prices across sellers…</div>
         </div>
       </div>
-      <div class="compare-footnote">Prices shown are the lowest available and may exclude booking fees. Resale prices may differ from face value. Always confirm on the seller's site before purchasing.</div>
+      <div class="compare-footnote">Prices shown are the lowest available and may exclude booking fees. Ticketmaster and SportsEvents365 prices are live; other sellers' prices are refreshed several times a day. Resale prices may differ from face value. Always confirm the final price on the seller's site before purchasing.</div>
     </div>
   `;
 
@@ -481,6 +563,30 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         return a.price - b.price;
       });
 
+    // ── Source dedup ───────────────────────────────────────────────────
+    // The same seller can arrive twice for one event (e.g. Eventim PL via
+    // its dedicated adapter AND inside the generic Awin best-per-merchant
+    // rows). One row per seller: keep the cheapest priced entry, or the
+    // first entry when none carry a price.
+    {
+      const bySource = new Map();
+      for (const r of withPrices) {
+        const existing = bySource.get(r.source);
+        if (!existing) { bySource.set(r.source, r); continue; }
+        if (r.price && (!existing.price || r.price < existing.price)) bySource.set(r.source, r);
+      }
+      if (bySource.size < withPrices.length) {
+        withPrices.length = 0;
+        withPrices.push(...bySource.values());
+        withPrices.sort((a, b) => {
+          if (!a.price && !b.price) return 0;
+          if (!a.price) return 1;
+          if (!b.price) return -1;
+          return a.price - b.price;
+        });
+      }
+    }
+
     // ── Plausibility gate (E2) ─────────────────────────────────────────
     // A price under 40% of the cross-source median for the same event is
     // very likely a speculative listing or a wrong-event match. Keep the
@@ -490,7 +596,10 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     if (realPrices.length >= 3) {
       const median = realPrices[Math.floor(realPrices.length / 2)];
       withPrices.forEach(r => {
-        if (r.price && r.price < median * 0.4) r.implausible = true;
+        if (r.price && r.price < median * 0.4) {
+          r.implausible = true;
+          signalBeacon('implausible&s=' + encodeURIComponent(r.source));
+        }
       });
       // Re-sort: plausible prices first (ascending), implausible after, no-price last
       withPrices.sort((a, b) => {
@@ -526,21 +635,24 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
 // Source styles — logo image URLs where available, coloured abbr badge as fallback
 // Source logos — favicons from affiliate sites with coloured abbr badge as fallback
 const SOURCE_STYLES = {
-  'Ticketmaster':          { logo: 'https://www.ticketmaster.co.uk/favicon.ico', bg: '#026cdf', color: '#fff', abbr: 'TM' },
-  'Gigsberg':              { logo: 'https://www.gigsberg.com/favicon.ico',        bg: '#0a1628', color: '#fff', abbr: 'GS' },
-  'Gigsberg UK':           { logo: 'https://www.gigsberg.com/favicon.ico',        bg: '#0a1628', color: '#fff', abbr: 'GS' },
-  'Vivid Seats':           { logo: '/public/logos/vividseats.svg',                 bg: '#00a0e9', color: '#fff', abbr: 'VS' },
-  'SportsEvents365':       { logo: 'https://www.sportsevents365.com/favicon.ico', bg: '#e85d04', color: '#fff', abbr: 'SE' },
-  'Skiddle':               { logo: 'https://www.skiddle.com/favicon.ico',         bg: '#00b4b4', color: '#fff', abbr: 'SK' },
-  'SeatGeek':              { logo: 'https://seatgeek.com/favicon.ico',            bg: '#de5448', color: '#fff', abbr: 'SG' },
-  'Theatre Tickets Direct':{ logo: 'https://www.theatreticketsdirect.co.uk/favicon.ico', bg: '#7c3aed', color: '#fff', abbr: 'TD' },
-  'Football TicketNet UK': { logo: null,                                           bg: '#16a34a', color: '#fff', abbr: 'FT' },
-  'Ticombo':               { logo: '/public/logos/ticombo.svg',                     bg: '#6366f1', color: '#fff', abbr: 'TC' },
-  'TicketNetwork':         { logo: 'https://www.ticketnetwork.com/favicon.ico',         bg: '#c0392b', color: '#fff', abbr: 'TN' },
-  'Eventim':               { logo: 'https://www.eventim.co.uk/favicon.ico',            bg: '#e8252a', color: '#fff', abbr: 'EV' },
-  'Eventim PL':            { logo: 'https://www.eventim.pl/favicon.ico',              bg: '#003399', color: '#fff', abbr: 'EP' },
-  'Eventim PL':            { logo: 'https://www.eventim.pl/favicon.ico',             bg: '#e8252a', color: '#fff', abbr: 'EP' },
+  // Logos via Google's favicon service — crisp 64px, works for every
+  // provider, no local asset maintenance. Coloured abbr badge remains
+  // the fallback if an icon fails to load.
+  'Ticketmaster':          { logo: fav('ticketmaster.co.uk'),          bg: '#026cdf', color: '#fff', abbr: 'TM' },
+  'Gigsberg':              { logo: fav('gigsberg.com'),                bg: '#0a1628', color: '#fff', abbr: 'GS' },
+  'Gigsberg UK':           { logo: fav('gigsberg.com'),                bg: '#0a1628', color: '#fff', abbr: 'GS' },
+  'Vivid Seats':           { logo: fav('vividseats.com'),              bg: '#00a0e9', color: '#fff', abbr: 'VS' },
+  'SportsEvents365':       { logo: fav('sportsevents365.com'),         bg: '#e85d04', color: '#fff', abbr: 'SE' },
+  'Skiddle':               { logo: fav('skiddle.com'),                 bg: '#00b4b4', color: '#fff', abbr: 'SK' },
+  'SeatGeek':              { logo: fav('seatgeek.com'),                bg: '#de5448', color: '#fff', abbr: 'SG' },
+  'Theatre Tickets Direct':{ logo: fav('theatreticketsdirect.co.uk'),  bg: '#7c3aed', color: '#fff', abbr: 'TD' },
+  'Football TicketNet UK': { logo: fav('footballticketnet.com'),       bg: '#16a34a', color: '#fff', abbr: 'FT' },
+  'Ticombo':               { logo: fav('ticombo.com'),                 bg: '#6366f1', color: '#fff', abbr: 'TC' },
+  'TicketNetwork':         { logo: fav('ticketnetwork.com'),           bg: '#c0392b', color: '#fff', abbr: 'TN' },
+  'Eventim':               { logo: fav('eventim.co.uk'),               bg: '#e8252a', color: '#fff', abbr: 'EV' },
+  'Eventim PL':            { logo: fav('eventim.pl'),                  bg: '#003399', color: '#fff', abbr: 'EP' },
 };
+function fav(domain) { return 'https://www.google.com/s2/favicons?domain=' + domain + '&sz=64'; }
 
 function buildLogoEl(style) {
   if (style.logo) {
@@ -566,13 +678,13 @@ function buildRow(source, price, url, currency, implausible) {
       <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
         ${buildLogoEl(style)}
       </div>
-      <div class="compare-source-name">${source}</div>
+      <div class="compare-source-name">${source}${MERCHANT_STATUS.badges.includes(MERCHANT_IDS[source]) ? ' <span class="trusted-badge" title="Consistently reliable pricing and availability over 60+ days">✓ Trusted Seller</span>' : ''}</div>
       <div class="compare-right">
         ${priceText
           ? `<div class="compare-from">From</div><div class="compare-price-wrap"><div class="price-label">${priceText}</div></div>`
           : `<div class="compare-price-wrap"><div class="price-label" style="font-size:13px;color:#888;">Check site</div></div>`
         }
-        <a href="${url}" target="_blank" rel="noopener noreferrer" class="compare-buy">Get tickets →</a>
+        <a href="${goUrl(url, source, price)}" target="_blank" rel="sponsored nofollow noopener noreferrer" class="compare-buy">Get tickets →</a>
       </div>
     </div>
   `;

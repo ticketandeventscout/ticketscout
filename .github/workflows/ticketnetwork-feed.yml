@@ -5,9 +5,6 @@ on:
     - cron: '0 */6 * * *'   # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   refresh-feed:
     runs-on: ubuntu-latest
@@ -17,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install lftp
         run: sudo apt-get update -q && sudo apt-get install -y lftp
@@ -40,14 +37,16 @@ jobs:
           echo "bye" >> /tmp/lftp_script.txt
           lftp -f /tmp/lftp_script.txt
           rm /tmp/lftp_script.txt
-          ls -lh public/ticketnetwork-feed.csv.gz
+          ls -lh public/ticketnetwork-feed-896.csv.gz
 
       - name: Verify download
         run: |
+          # NOTE: every path here must be the -896 file — the serving path
+          # (ticketnetwork-cache.js FEED_PATH) reads exactly this name.
           if [ ! -f public/ticketnetwork-feed-896.csv.gz ]; then
             echo "ERROR: File missing"; exit 1
           fi
-          SIZE=$(stat -c%s public/ticketnetwork-feed.csv.gz)
+          SIZE=$(stat -c%s public/ticketnetwork-feed-896.csv.gz)
           if [ "$SIZE" -lt 1000000 ]; then
             echo "ERROR: File too small (${SIZE} bytes)"; exit 1
           fi
@@ -57,18 +56,36 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # One-time cleanup: remove the stale old-name file that was masking
+          # verify failures (safe to keep here — no-op once gone)
+          git rm --ignore-unmatch -q public/ticketnetwork-feed.csv.gz || true
           git add public/ticketnetwork-feed-896.csv.gz
           if git diff --staged --quiet; then
-            echo "No changes"
-          else
-            git commit -m "chore: refresh TicketNetwork feed [$(date -u '+%Y-%m-%d')]"
-            git push
+            echo "No changes to commit — feed unchanged since last run"
+            exit 0
           fi
+          git commit -m "chore: refresh TicketNetwork feed [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+          # Retry with rebase: other bots (discover-pages Trees API commits,
+          # regenerate sweeps, manual deploys) can land commits during the
+          # ~70s this job spends downloading. A plain push then fails
+          # non-fast-forward. Rebase our single feed commit on top and retry.
+          for attempt in 1 2 3; do
+            if git push; then
+              echo "Pushed on attempt $attempt"; exit 0
+            fi
+            echo "Push rejected (attempt $attempt) — rebasing on latest main"
+            git pull --rebase origin main
+          done
+          echo "ERROR: push failed after 3 attempts"; exit 1
 
       - name: Rebuild KV cache
         env:
           CACHE_URL: ${{ secrets.CLOUDFLARE_CACHE_URL_TN }}
         run: |
+          if [ -z "$CACHE_URL" ]; then
+            echo "WARNING: CLOUDFLARE_CACHE_URL_TN secret not set — skipping cache rebuild"
+            exit 0
+          fi
           RESP=$(curl -sf --max-time 60 "$CACHE_URL" || echo '{"error":"failed"}')
           echo "$RESP" | head -c 300
           echo "$RESP" | grep -q '"success":true' && echo "Cache OK" || echo "Check response above"

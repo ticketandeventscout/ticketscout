@@ -88,18 +88,63 @@ export async function onRequestGet(ctx) {
     }
   }
 
-  try {
-    const tmResponse = await fetch(tmUrl.toString());
-    const data = await tmResponse.json();
-    const resp = jsonResponse(data, tmResponse.status, tmResponse.ok);
-    // Only cache successful responses (never cache TM errors/rate-limits)
-    if (tmResponse.ok) {
-      ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+  // ── Last-good fallback (KV) ─────────────────────────────────────────────
+  // TM's free quota is 5k calls/day. When it's exhausted (429) or TM is
+  // down (5xx), serve the most recent good response for this exact query
+  // from KV instead of surfacing the error — the homepage/trending and
+  // entity event lists degrade to slightly-stale data instead of blank.
+  const kv = env.GIGSBERG_KV;
+  const lastGoodKey = 'tm:lastgood:' + incoming.pathname + '?' +
+    [...incoming.searchParams].filter(([k]) => k !== 'apikey').sort()
+      .map(([k, v]) => k + '=' + v).join('&');
+
+  // Circuit breaker: while the quota flag is set, don't burn calls on
+  // guaranteed 429s — go straight to the last-good copy for 10 minutes.
+  let quotaExhausted = false;
+  try { quotaExhausted = !!(kv && await kv.get('tm:quota:exhausted')); } catch {}
+
+  if (!quotaExhausted) {
+    try {
+      const tmResponse = await fetch(tmUrl.toString());
+      const data = await tmResponse.json();
+      const resp = jsonResponse(data, tmResponse.status, tmResponse.ok);
+      if (tmResponse.ok) {
+        ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+        // Refresh the last-good copy (7-day TTL — long enough to ride out
+        // a full quota day, short enough to never serve ancient events)
+        if (kv) ctx.waitUntil(kv.put(lastGoodKey, JSON.stringify(data), { expirationTtl: 7 * 24 * 3600 }));
+        return resp;
+      }
+      if (tmResponse.status === 429 && kv) {
+        // Set the breaker so subsequent requests skip TM for 10 minutes
+        ctx.waitUntil(kv.put('tm:quota:exhausted', new Date().toISOString(), { expirationTtl: 600 }));
+      }
+      // Non-OK → fall through to last-good
+    } catch (err) {
+      // Network failure → fall through to last-good
     }
-    return resp;
-  } catch (err) {
-    return jsonResponse({ error: 'Unable to reach Ticketmaster.' }, 502);
   }
+
+  // Serve the stale copy if we have one
+  if (kv) {
+    try {
+      const stale = await kv.get(lastGoodKey);
+      if (stale) {
+        return new Response(stale, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            // Cache the stale answer briefly at the edge too — during an
+            // outage this keeps function invocations near zero
+            'Cache-Control': 'public, max-age=60, s-maxage=300',
+            'X-TM-Fallback': 'stale'
+          }
+        });
+      }
+    } catch {}
+  }
+
+  return jsonResponse({ error: 'Ticketmaster unavailable and no cached copy exists yet.' }, 503);
 }
 
 function jsonResponse(body, status, cacheable) {

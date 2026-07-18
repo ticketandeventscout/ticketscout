@@ -509,7 +509,7 @@
         <h3>Why use TicketScout?</h3>
         <div class="sidebar-trust-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          Compare prices from 10+ sellers
+          Compare prices from up to 13 sellers
         </div>
         <div class="sidebar-trust-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -517,7 +517,7 @@
         </div>
         <div class="sidebar-trust-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          Live prices updated in real time
+          Live and daily-refreshed prices
         </div>
         <div class="sidebar-trust-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -722,7 +722,7 @@
       const name = artist.name;
       const slug = artist.slug;
       const pageUrl = `https://ticketscout.co.uk/concert/${slug}`;
-      const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`;
+      const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Prices refreshed through the day.`;
       const image = tmImage || 'https://ticketscout.co.uk/og-default.png';
 
       // Standard meta
@@ -763,24 +763,29 @@
             'eventStatus': 'https://schema.org/EventScheduled',
             'organizer': { '@type': 'Organization', 'name': name, 'url': pageUrl },
             'image': image,
-            'location': venue ? {
-              '@type': 'MusicVenue',
-              'name': venue.name,
+            // location is REQUIRED for Event rich results — always emit it,
+            // with a named Place even when the venue is still TBC (GSC
+            // "Missing field 'location'" / "Missing field 'name'" fixes)
+            'location': {
+              '@type': venue ? 'MusicVenue' : 'Place',
+              'name': (venue && venue.name) || 'Venue to be announced',
               'address': {
                 '@type': 'PostalAddress',
-                'addressLocality': venue.city?.name || '',
-                'addressCountry': venue.country?.countryCode || 'GB'
+                'addressLocality': venue?.city?.name || '',
+                'addressCountry': venue?.country?.countryCode || 'GB'
               }
-            } : undefined,
+            },
             'performer': { '@type': 'MusicGroup', 'name': name },
-            'offers': {
+            // offers only when a real price exists — an Offer without a
+            // price triggers GSC "Missing field 'price'" on every event
+            ...(minPrice ? { 'offers': {
               '@type': 'Offer',
-              ...(minPrice ? { 'price': minPrice } : {}),
+              'price': minPrice,
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
               'url': pageUrl,
               'validFrom': new Date().toISOString().split('T')[0]
-            },
+            } } : {}),
             'url': pageUrl
           };
         });
@@ -964,6 +969,38 @@
             return da < db ? -1 : da > db ? 1 : 0;
           });
 
+        // ── Cross-source event dedup ────────────────────────────────────
+        // The same show arrives from several sources (and sometimes twice
+        // from TM) under name variants: "Bruno Mars" vs "Bruno Mars – The
+        // Romantic Tour". One card per (base name, date, time, venue):
+        // keep the row with the richer name, merge price/image from the rest.
+        {
+          const evBase = n => (n || '').toLowerCase().split(/\s+[\u2013\u2014-]\s+/)[0].replace(/[^a-z0-9]/g, '');
+          const evKey = e => [
+            evBase(e.name),
+            e.dates?.start?.localDate || '',
+            e.dates?.start?.localTime || '',
+            ((e._embedded?.venues?.[0]?.name) || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+          ].join('|');
+          const seenEv = new Map();
+          for (const e of allEvents) {
+            const k = evKey(e);
+            const ex = seenEv.get(k);
+            if (!ex) { seenEv.set(k, e); continue; }
+            const keep = (e.name || '').length > (ex.name || '').length ? e : ex;
+            const drop = keep === e ? ex : e;
+            if (!keep.priceRanges && drop.priceRanges) keep.priceRanges = drop.priceRanges;
+            if (!keep.images && drop.images) keep.images = drop.images;
+            if (!keep.url && drop.url) keep.url = drop.url;
+            seenEv.set(k, keep);
+          }
+          if (seenEv.size < allEvents.length) {
+            const merged = [...seenEv.values()];
+            allEvents.length = 0;
+            allEvents.push(...merged);
+          }
+        }
+
         // Enrich each event with lowest price across all sources
         const allRawConcert = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents];
         allEvents.forEach(kept => {
@@ -993,7 +1030,7 @@
         } else {
           document.getElementById('events-container').innerHTML = `
             <div class="no-events">
-              <p>We couldn't find upcoming ${artist.name} dates right now. Check back soon — we update our listings in real time.</p>
+              <p>We couldn't find upcoming ${artist.name} dates right now. Check back soon — we refresh our listings through the day.</p>
             </div>`;
           updateMeta(artist, [], tmImage);
         }
@@ -1268,7 +1305,7 @@
   <script>
   // Price-trend badge (Phase 2 data) — renders only when history exists
   (function () {
-    var slug = window.__CONCERT_SLUG__ || (location.pathname.match(/\\/concert\\/([a-z0-9-]+)/) || [])[1];
+    var slug = window.__CONCERT_SLUG__ || (location.pathname.match(/\/concert\/([a-z0-9-]+)/) || [])[1];
     if (!slug) return;
     fetch('/api/price-history?slug=' + encodeURIComponent(slug))
       .then(function (r) { return r.ok ? r.json() : null; })

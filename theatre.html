@@ -491,7 +491,7 @@
         <h3>Why use TicketScout?</h3>
         <div class="sidebar-trust-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b21a8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          Compare prices from 10+ sellers
+          Compare prices from up to 13 sellers
         </div>
         <div class="sidebar-trust-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b21a8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -596,7 +596,7 @@
       const name    = show.name;
       const slug    = show.slug;
       const pageUrl = `https://ticketscout.co.uk/theatre/${slug}`;
-      const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Updated in real time.`;
+      const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Prices refreshed through the day.`;
       const image   = tmImage || 'https://ticketscout.co.uk/og-default.png';
 
       document.title = `${name} Tickets — Compare Prices | TicketScout`;
@@ -631,23 +631,28 @@
             'eventStatus': 'https://schema.org/EventScheduled',
             'organizer': { '@type': 'Organization', 'name': name, 'url': pageUrl },
             'image': image,
-            'location': venue ? {
-              '@type': 'PerformingArtsTheater',
-              'name': venue.name,
+            // location is REQUIRED for Event rich results — always emit it,
+            // with a named Place even when the venue is still TBC (GSC
+            // "Missing field 'location'" / "Missing field 'name'" fixes)
+            'location': {
+              '@type': venue ? 'PerformingArtsTheater' : 'Place',
+              'name': (venue && venue.name) || 'Venue to be announced',
               'address': {
                 '@type': 'PostalAddress',
-                'addressLocality': venue.city?.name || '',
-                'addressCountry': venue.country?.countryCode || 'GB'
+                'addressLocality': venue?.city?.name || '',
+                'addressCountry': venue?.country?.countryCode || 'GB'
               }
-            } : undefined,
-            'offers': {
+            },
+            // offers only when a real price exists — an Offer without a
+            // price triggers GSC "Missing field 'price'" on every event
+            ...(minPrice ? { 'offers': {
               '@type': 'Offer',
-              ...(minPrice ? { 'price': minPrice } : {}),
+              'price': minPrice,
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
               'url': pageUrl,
               'validFrom': new Date().toISOString().split('T')[0]
-            },
+            } } : {}),
             'url': pageUrl
           };
         });
@@ -821,6 +826,38 @@
         }
         const allEvents = [...tmEvents, ...awinOnly, ...vsEventCards, ...tcEvents];
 
+        // ── Cross-source event dedup ────────────────────────────────────
+        // The same show arrives from several sources (and sometimes twice
+        // from TM) under name variants: "Bruno Mars" vs "Bruno Mars – The
+        // Romantic Tour". One card per (base name, date, time, venue):
+        // keep the row with the richer name, merge price/image from the rest.
+        {
+          const evBase = n => (n || '').toLowerCase().split(/\s+[\u2013\u2014-]\s+/)[0].replace(/[^a-z0-9]/g, '');
+          const evKey = e => [
+            evBase(e.name),
+            e.dates?.start?.localDate || '',
+            e.dates?.start?.localTime || '',
+            ((e._embedded?.venues?.[0]?.name) || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+          ].join('|');
+          const seenEv = new Map();
+          for (const e of allEvents) {
+            const k = evKey(e);
+            const ex = seenEv.get(k);
+            if (!ex) { seenEv.set(k, e); continue; }
+            const keep = (e.name || '').length > (ex.name || '').length ? e : ex;
+            const drop = keep === e ? ex : e;
+            if (!keep.priceRanges && drop.priceRanges) keep.priceRanges = drop.priceRanges;
+            if (!keep.images && drop.images) keep.images = drop.images;
+            if (!keep.url && drop.url) keep.url = drop.url;
+            seenEv.set(k, keep);
+          }
+          if (seenEv.size < allEvents.length) {
+            const merged = [...seenEv.values()];
+            allEvents.length = 0;
+            allEvents.push(...merged);
+          }
+        }
+
         updateMeta(show, tmEvents, tmImage);
 
         if (allEvents.length > 0) {
@@ -828,7 +865,7 @@
         } else {
           document.getElementById('events-container').innerHTML = `
             <div class="no-events">
-              <p>We couldn't find upcoming ${show.name} performances right now. Check back soon — we update listings in real time.</p>
+              <p>We couldn't find upcoming ${show.name} performances right now. Check back soon — we refresh listings through the day.</p>
             </div>`;
           updateMeta(show, [], tmImage);
         }
@@ -1088,7 +1125,7 @@
   <script>
   // Price-trend badge (Phase 2 data) — renders only when history exists
   (function () {
-    var slug = window.__THEATRE_SLUG__ || (location.pathname.match(/\\/theatre\\/([a-z0-9-]+)/) || [])[1];
+    var slug = window.__THEATRE_SLUG__ || (location.pathname.match(/\/theatre\/([a-z0-9-]+)/) || [])[1];
     if (!slug) return;
     fetch('/api/price-history?slug=' + encodeURIComponent(slug))
       .then(function (r) { return r.ok ? r.json() : null; })

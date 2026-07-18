@@ -1830,7 +1830,7 @@ function generateArtistPageHtml(slug, enrich) {
 // ── Template version used inside generated stubs — single point of truth ──
 // Bump here when football.html/concert.html/theatre.html change, then run
 // ?phase=regenerate per category to cure stub drift (Hamilton-class bug).
-const TEMPLATE_VERSION = '20260714a';
+const TEMPLATE_VERSION = '20260717a';
 
 // ── Phase 4 head enrichment for generated stubs ──────────────────────────
 // Returns { title, description, jsonLd } for a stub's <head>. All three are
