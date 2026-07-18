@@ -20,8 +20,8 @@
 //   AWIN_API_TOKEN            — Awin dashboard → API credentials (publisher 2960641)
 //   IMPACT_ACCOUNT_SID        — Impact → Settings → API (publisher 7443544)
 //   IMPACT_AUTH_TOKEN         —   "
-//   PARTNERIZE_APP_KEY        — Partnerize account (publisher 1110l36128)
-//   PARTNERIZE_USER_API_KEY   —   "
+//   PARTNERIZE_API_KEY        — Partnerize account (publisher 1110l36128)
+//   PARTNERIZE_USER_KEY       —   "
 //
 // MERCHANT MAPPING — one-time KV config, key `affiliate:advertiser-map`:
 //   { "awin":   { "<advertiserId>": "gigsberg", "<advertiserId>": "ftn", ... },
@@ -128,10 +128,10 @@ export async function onRequestGet(context) {
 
   // ── PARTNERIZE — Ticombo ──────────────────────────────────────────────
   if ((!only || only === 'partnerize')) {
-    if (!env.PARTNERIZE_APP_KEY || !env.PARTNERIZE_USER_API_KEY) {
-      report.networks.partnerize = { skipped: 'PARTNERIZE_APP_KEY / PARTNERIZE_USER_API_KEY not set' };
+    if (!env.PARTNERIZE_API_KEY || !env.PARTNERIZE_USER_KEY) {
+      report.networks.partnerize = { skipped: 'PARTNERIZE_API_KEY / PARTNERIZE_USER_KEY not set' };
     } else try {
-      const auth = 'Basic ' + btoa(`${env.PARTNERIZE_APP_KEY}:${env.PARTNERIZE_USER_API_KEY}`);
+      const auth = 'Basic ' + btoa(`${env.PARTNERIZE_API_KEY}:${env.PARTNERIZE_USER_KEY}`);
       const u = `https://api.performancehorizon.com/reporting/report_publisher/publisher/1110l36128/conversion.json` +
         `?start_date=${encodeURIComponent(sinceISO + ' 00:00:00')}&end_date=${encodeURIComponent(untilISO + ' 23:59:59')}`;
       const r = await fetch(u, { headers: { 'Authorization': auth } });
