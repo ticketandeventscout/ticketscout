@@ -156,15 +156,15 @@ async function tsRegisterEvents(env, records) {
     'venue=COALESCE(excluded.venue, event_pages.venue), ' +
     'city=COALESCE(excluded.city, event_pages.city), ' +
     'price=COALESCE(excluded.price, event_pages.price), ' +
-    'currency=COALESCE(excluded.currency, events.currency), ' +
-    'tm_url=COALESCE(excluded.tm_url, events.tm_url), ' +
-    'image=COALESCE(excluded.image, events.image), ' +
+    'currency=COALESCE(excluded.currency, event_pages.currency), ' +
+    'tm_url=COALESCE(excluded.tm_url, event_pages.tm_url), ' +
+    'image=COALESCE(excluded.image, event_pages.image), ' +
     'source=excluded.source, ' +
     'updated_at=CASE WHEN event_pages.name IS NOT excluded.name ' +
     'OR event_pages.venue IS NOT COALESCE(excluded.venue, event_pages.venue) ' +
     'OR event_pages.city IS NOT COALESCE(excluded.city, event_pages.city) ' +
     'OR event_pages.price IS NOT COALESCE(excluded.price, event_pages.price) ' +
-    'THEN excluded.updated_at ELSE events.updated_at END'
+    'THEN excluded.updated_at ELSE event_pages.updated_at END'
   );
   const seen = new Set();
   const batch = [];

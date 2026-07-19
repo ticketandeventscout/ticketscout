@@ -715,25 +715,39 @@ async function tsBulkSyncAwinEvents(env, kv, rows) {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  // Build records: extract date/venue from the description field (same
-  // format awin-events.js reads at serve time), categorise via the
-  // existing genre router, dedupe by slug keeping the cheapest price.
+  // Build records: prefer the feed's structured columns (event_date,
+  // venue_name, event_city — populated by the football feeds); fall back to
+  // parsing the description in BOTH formats awin-events.js supports
+  // (Date: yyyy-mm-dd AND Date: dd/mm/yyyy). Rows with no date in any form
+  // (e.g. plain-prose theatre blurbs) genuinely can't form a dated page and
+  // are skipped — they stay on their entity page instead.
+  const extractSyncDate = (row) => {
+    const col = (row.event_date || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(col)) return col;
+    const dmyCol = col.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (dmyCol) return `${dmyCol[3]}-${dmyCol[2]}-${dmyCol[1]}`;
+    const desc = row.description || '';
+    const iso = desc.match(/Date:\s*(\d{4}-\d{2}-\d{2})/i);
+    if (iso) return iso[1];
+    const dmy = desc.match(/Date:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+    if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+    return '';
+  };
   const bySlug = new Map();
   for (const row of rows) {
     const desc = row.description || '';
-    const dateMatch = desc.match(/Date:\s*(\d{4}-\d{2}-\d{2})/i);
-    const date = dateMatch ? dateMatch[1] : '';
+    const date = extractSyncDate(row);
     if (!date || date < today) continue; // dateless/past rows can't have stable pages
 
     const category = genreToCategory(awinGenre(row.merchant_category, row.category_name));
     const slug = tsEventSlug(category, date, row.product_name);
     if (!slug) continue;
 
-    const venueMatch = desc.match(/Venue:\s*([^,]+)/i);
+    const venueMatch = desc.match(/Venue:\s*([^,\n]+)/i);
     const rec = {
       slug, category, name: row.product_name, date,
-      venue: venueMatch ? venueMatch[1].trim() : null,
-      city: null,
+      venue: (row.venue_name || '').trim() || (venueMatch ? venueMatch[1].trim() : null),
+      city: (row.event_city || '').trim() || null,
       price: row.price ? Math.round(row.price) : null,
       currency: row.currency || 'GBP',
       tmUrl: null,
@@ -796,15 +810,15 @@ async function tsRegisterEvents(env, records) {
     'venue=COALESCE(excluded.venue, event_pages.venue), ' +
     'city=COALESCE(excluded.city, event_pages.city), ' +
     'price=COALESCE(excluded.price, event_pages.price), ' +
-    'currency=COALESCE(excluded.currency, events.currency), ' +
-    'tm_url=COALESCE(excluded.tm_url, events.tm_url), ' +
-    'image=COALESCE(excluded.image, events.image), ' +
+    'currency=COALESCE(excluded.currency, event_pages.currency), ' +
+    'tm_url=COALESCE(excluded.tm_url, event_pages.tm_url), ' +
+    'image=COALESCE(excluded.image, event_pages.image), ' +
     'source=excluded.source, ' +
     'updated_at=CASE WHEN event_pages.name IS NOT excluded.name ' +
     'OR event_pages.venue IS NOT COALESCE(excluded.venue, event_pages.venue) ' +
     'OR event_pages.city IS NOT COALESCE(excluded.city, event_pages.city) ' +
     'OR event_pages.price IS NOT COALESCE(excluded.price, event_pages.price) ' +
-    'THEN excluded.updated_at ELSE events.updated_at END'
+    'THEN excluded.updated_at ELSE event_pages.updated_at END'
   );
   const seen = new Set();
   const batch = [];
