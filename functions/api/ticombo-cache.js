@@ -54,6 +54,39 @@ export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const kv  = env.GIGSBERG_KV;
 
+  // ── Read-only diagnostics — MUST come before the trigger gate so they
+  //    return immediately without downloading/rebuilding the feeds ──────────
+  // ?sample=1        — first 5 items + date coverage
+  // ?find=metallica  — search the live index by name (case-insensitive)
+  if (url.searchParams.get('sample') === '1' || url.searchParams.get('find')) {
+    if (!kv) return json({ error: 'Missing GIGSBERG_KV binding' }, 500);
+    try {
+      const raw = await kv.get(KV_INDEX);   // real key (was 'ticombo:index' — wrong)
+      if (!raw) return json({ error: 'No KV data found — run ?trigger=1 first' }, 200);
+      const index = JSON.parse(raw);
+      const shape = item => ({
+        name: item.n,
+        url: item.u ? item.u.slice(0, 90) + '…' : null,
+        price: item.p, currency: item.c, date: item.d,
+        venue: item.v, city: item.t, category: item.g, region: item.r
+      });
+      const findTerm = (url.searchParams.get('find') || '').toLowerCase().trim();
+      if (findTerm) {
+        const hits = index.filter(i => (i.n || '').toLowerCase().includes(findTerm));
+        return json({
+          total: index.length, query: findTerm,
+          matchCount: hits.length, matches: hits.slice(0, 25).map(shape)
+        }, 200);
+      }
+      const sample = index.slice(0, 5).map(shape);
+      const withDates = index.filter(i => i.d).slice(0, 3).map(i => ({ name: i.n, date: i.d }));
+      return json({ total: index.length, sample_items: sample,
+        items_with_dates: withDates.length, sample_with_dates: withDates }, 200);
+    } catch(e) {
+      return json({ error: String(e) }, 200);
+    }
+  }
+
   if (url.searchParams.get('trigger') !== '1') {
     const updated = await kv?.get(KV_UPDATED).catch(() => null);
     const stats   = await kv?.get(KV_STATS).catch(() => null);
@@ -64,6 +97,8 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&test=1 — connectivity test only',
       '  ?trigger=1&raw=1  — DIAGNOSTIC: dump raw columns from ALL feeds + scan for hidden dates',
       '                      options: &rows=N (sample rows per feed, max 25) &region=uk|europe|germany|spain|singapore',
+      '  ?find=NAME        — search the live index by event name (no refresh)',
+      '  ?sample=1         — first 5 stored items + date coverage',
       '',
       `Last updated: ${updated || 'never'}`,
       stats ? `Stats: ${stats}` : 'No stats yet'
@@ -74,37 +109,6 @@ export async function onRequestGet({ request, env }) {
 
   if (FEEDS.length === 0) {
     return json({ error: 'No feed URLs configured. Add feed URLs to the FEEDS array in ticombo-cache.js' }, 500);
-  }
-
-  // Sample mode — reads existing KV index and shows first 3 items with all fields
-  // Use this to check what data is actually stored (including whether dates exist)
-  if (url.searchParams.get('sample') === '1') {
-    try {
-      const raw = await kv.get('ticombo:index');
-      if (!raw) return jsonResponse({ error: 'No KV data found — run ?trigger=1 first' }, 200);
-      const index = JSON.parse(raw);
-      const sample = index.slice(0, 5).map(item => ({
-        name: item.n,
-        url: item.u ? item.u.slice(0, 80) + '...' : null,
-        price: item.p,
-        currency: item.c,
-        date: item.d,
-        venue: item.v,
-        city: item.t,
-        category: item.g,
-        region: item.r
-      }));
-      // Also find items that DO have dates
-      const withDates = index.filter(i => i.d).slice(0, 3).map(i => ({ name: i.n, date: i.d }));
-      return jsonResponse({ 
-        total: index.length,
-        sample_items: sample,
-        items_with_dates: withDates.length,
-        sample_with_dates: withDates
-      }, 200);
-    } catch(e) {
-      return jsonResponse({ error: String(e) }, 200);
-    }
   }
 
   // ── RAW DIAGNOSTIC MODE — ?trigger=1&raw=1 ────────────────────────────────
