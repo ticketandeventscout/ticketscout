@@ -27,7 +27,8 @@ const SANDBOX_BASE    = 'https://api-v2.sandbox365.com';
 const PRODUCTION_BASE = 'https://api-v2.sportsevents365.com';
 const CACHE_KEY       = 'se365:participants:latest';
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet(ctx) {
+  const { request, env } = ctx;
   const apiKey      = env.SE365_API_KEY;
   const httpUser    = env.SE365_HTTP_USERNAME;
   const httpPass    = env.SE365_HTTP_PASSWORD;
@@ -56,6 +57,9 @@ export async function onRequestGet({ request, env }) {
   const date     = incoming.searchParams.get('date') || ''; // YYYY-MM-DD from Ticketmaster
   const debug    = incoming.searchParams.get('debug') === '1';
   const mode     = incoming.searchParams.get('mode') || 'single'; // 'list' returns all matches
+  // Phase 1.4B: callers that know their page category declare it so served
+  // events can be registered for SSR (same pattern as awin-events.js).
+  const cat      = (incoming.searchParams.get('cat') || '').trim().toLowerCase();
 
   if (!q) {
     return jsonResponse({ error: 'q (event name) is required.' }, 400);
@@ -132,6 +136,36 @@ export async function onRequestGet({ request, env }) {
 
     const pool = upcoming.length > 0 ? upcoming : events;
     if (pool.length === 0) return jsonResponse(mode === 'list' ? { matches: [] } : { match: null }, 200);
+
+    // Phase 1.4B: register upcoming SE365 events in the D1 events registry
+    // so /event/{slug} pages can server-render them.
+    // Category resolution — never guess: (1) the caller's declared cat wins;
+    // (2) otherwise participants with eventTypeId 1000 (Football) register
+    // as football; (3) anything else (rugby, F1, concerts…) is SKIPPED —
+    // SE365 spans many event types and a mis-categorised URL/JSON-LD page
+    // is worse than no page. When new category pages start calling this
+    // adapter they declare their own cat and coverage grows for free.
+    const regCategory =
+      (['football', 'concert', 'theatre'].includes(cat) && cat) ||
+      (participant.eventTypeId === 1000 ? 'football' : null);
+    if (regCategory) tsCaptureThrottled(env, (p) => ctx.waitUntil(p), 'se365:' + regCategory + ':' + participant.id, () => {
+      const records = [];
+      for (const e of upcoming.slice(0, 50)) {
+        const [dd, mm, yyyy] = String(e.dateOfEvent || '').split('/');
+        const iso = (dd && mm && yyyy) ? `${yyyy}-${mm}-${dd}` : '';
+        const slug = tsEventSlug(regCategory, iso, e.name || '');
+        if (!slug) continue;
+        records.push({
+          slug, category: regCategory, name: e.name, date: iso,
+          venue: e.venue?.name || null,
+          city: e.city?.name || e.venue?.city?.name || e.location?.city?.name || null,
+          price: e.minTicketPrice?.price ? Math.round(e.minTicketPrice.price) : null,
+          currency: e.minTicketPrice?.currency || 'GBP',
+          tmUrl: null, image: null, source: 'se365'
+        });
+      }
+      return records;
+    });
 
     // ── Step 4: Build result ───────────────────────────────────────────────
     const buildMatch = (event) => ({
@@ -355,4 +389,83 @@ function jsonResponse(body, status) {
       'Cache-Control': 'no-store'
     }
   });
+}
+
+
+// ===========================
+// Phase 1.4B — event registry capture
+// Shared block: identical copies live in ticketmaster.js and the other
+// capture files; tsEventSlug also has a client copy in compare.js.
+// Slug format is FROZEN v1 — never change without migrating /event/ URLs.
+// ===========================
+
+// {category}-{yyyy-mm-dd}-{normalised-name} — MUST MATCH all other copies.
+function tsEventSlug(category, date, name) {
+  if (!category || !date || !name) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const norm = String(name).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80).replace(/-+$/g, '');
+  return norm ? category + '-' + date + '-' + norm : null;
+}
+
+// Batched D1 upsert. updated_at only bumps when content actually changed —
+// the sitemap uses it as lastmod, and fake lastmod trains Google to ignore it.
+async function tsRegisterEvents(env, records) {
+  const db = env.PRICE_DB;
+  if (!db || !records || !records.length) return;
+  const now = new Date().toISOString();
+  const stmt = db.prepare(
+    'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) ' +
+    'VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ' +
+    'ON CONFLICT(slug) DO UPDATE SET ' +
+    'name=excluded.name, ' +
+    'venue=COALESCE(excluded.venue, event_pages.venue), ' +
+    'city=COALESCE(excluded.city, event_pages.city), ' +
+    'price=COALESCE(excluded.price, event_pages.price), ' +
+    'currency=COALESCE(excluded.currency, events.currency), ' +
+    'tm_url=COALESCE(excluded.tm_url, events.tm_url), ' +
+    'image=COALESCE(excluded.image, events.image), ' +
+    'source=excluded.source, ' +
+    'updated_at=CASE WHEN event_pages.name IS NOT excluded.name ' +
+    'OR event_pages.venue IS NOT COALESCE(excluded.venue, event_pages.venue) ' +
+    'OR event_pages.city IS NOT COALESCE(excluded.city, event_pages.city) ' +
+    'OR event_pages.price IS NOT COALESCE(excluded.price, event_pages.price) ' +
+    'THEN excluded.updated_at ELSE events.updated_at END'
+  );
+  const seen = new Set();
+  const batch = [];
+  for (const r of records) {
+    if (!r || !r.slug || seen.has(r.slug)) continue;
+    seen.add(r.slug);
+    batch.push(stmt.bind(
+      r.slug, r.category, r.name, r.date,
+      r.venue || null, r.city || null,
+      r.price || null, r.currency || null,
+      r.tmUrl || null, r.image || null,
+      r.source || null, now
+    ));
+    if (batch.length >= 400) break; // per-request safety cap
+  }
+  if (batch.length) await db.batch(batch);
+}
+
+// Cache-API throttle: at most one registry write per markerId per 6h per
+// colo. Costs zero KV writes; fail-open and fully fire-and-forget.
+function tsCaptureThrottled(env, waitUntil, markerId, buildRecords) {
+  try {
+    if (!env.PRICE_DB) return;
+    const cache = caches.default;
+    const marker = new Request('https://ts-internal.ticketscout.co.uk/event-capture/' + encodeURIComponent(markerId));
+    waitUntil((async () => {
+      if (await cache.match(marker)) return;
+      const records = buildRecords();
+      if (!records || !records.length) return;
+      await tsRegisterEvents(env, records);
+      await cache.put(marker, new Response('1', { headers: { 'Cache-Control': 'max-age=21600' } }));
+    })().catch(() => {}));
+  } catch {}
 }

@@ -882,7 +882,7 @@
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
             : Promise.resolve(null),
-          fetch(`/api/awin-events?name=${encodeURIComponent(artist.search || artist.name)}&size=50`).then(safeJson).catch(() => null),
+          fetch(`/api/awin-events?name=${encodeURIComponent(artist.search || artist.name)}&size=50&cat=concert`).then(safeJson).catch(() => null),
           fetch(`/api/vividseats?q=${encodeURIComponent(artist.search || artist.name)}`).then(safeJson).catch(() => null),
           fetch(`/api/ticombo?q=${encodeURIComponent(artist.search || artist.name)}`).then(safeJson).catch(() => null),
           fetch(`/api/ticketnetwork?q=${encodeURIComponent(artist.search || artist.name)}`).then(safeJson).catch(() => null)
@@ -1248,6 +1248,22 @@
       document.getElementById('events-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    // Phase 1.4B — event slug builder. MUST MATCH the copies in compare.js
+    // and the server capture files. FROZEN v1 — never change without
+    // migrating every indexed /event/ URL. Returns null when no stable
+    // slug is possible → caller falls back to the legacy hash route.
+    function tsEventSlug(category, date, name) {
+      if (!category || !date || !name) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      var norm = String(name).toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80).replace(/-+$/g, '');
+      return norm ? category + '-' + date + '-' + norm : null;
+    }
+
     function buildEventRow(e) {
       const date      = formatDate(e.dates?.start?.localDate);
       const time      = e.dates?.start?.localTime ? e.dates.start.localTime.slice(0,5) : '';
@@ -1274,7 +1290,12 @@
         const _awinDate = e._eventDate || '';
         const _awinName = e._eventName || e.name;
         const _awinSlug = _awinDate ? `${_awinDate}-${_awinName}` : _awinName;
-        const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent(_awinSlug)}`;
+        // Phase 1.4B: dated events get an indexable SSR page; dateless
+        // events keep the legacy hash route (no stable slug possible).
+        const _ssrSlug   = tsEventSlug('concert', _awinDate, _awinName);
+        const compareUrl = _ssrSlug
+          ? `/event/${_ssrSlug}`
+          : `${window.location.origin}/#/event/awin-${encodeURIComponent(_awinSlug)}`;
         return `
           <a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">
@@ -1287,7 +1308,7 @@
 
       // TM events link to the comparison page
       return `
-        <a class="event-list-item" href="${window.location.origin}/#/event/${e.id}">
+        <a class="event-list-item" href="${(function(){ var s = tsEventSlug('concert', e.dates?.start?.localDate || '', e.name); return s ? '/event/' + s : window.location.origin + '/#/event/' + e.id; })()}">
           <div class="event-list-left">
             <div class="event-list-name">${e.name}</div>
             <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>

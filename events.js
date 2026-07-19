@@ -480,6 +480,13 @@ async function showEventDetail(rawEventId) {
   // Decode URL encoding that may be present in the hash fragment
   const eventId = decodeURIComponent(rawId);
 
+  // Phase 1.4B note: legacy /#/event/ hash IDs deliberately stay on this
+  // client-rendered view rather than redirecting to /event/{slug} — the ID
+  // formats don't carry a category (and SE365 spans football/rugby/F1/
+  // concerts, so it can't be assumed), and a wrong-category redirect is
+  // worse than this still-working page. Hash URLs were never crawlable, so
+  // no SEO equity is lost; all NEW links from the templates go straight to
+  // the SSR /event/ pages.
   document.getElementById('results-title').textContent = 'Event details';
   setBreadcrumb(`<a href="javascript:history.back()">← Back to results</a>`);
 

@@ -377,6 +377,18 @@ async function refreshCache(env) {
       cachedAt: new Date().toISOString()
     }), { expirationTtl: CACHE_TTL });
 
+    // ── Phase 1.4B: bulk event registry sync (once per ~20h) ──────────────
+    // Registers every dated Awin row in the D1 events registry so
+    // /event/{slug} pages and the event sitemap have full Awin coverage
+    // without waiting for organic traffic. Gated to once daily (the cron
+    // runs 4x/day) to stay well inside D1's 100k row-writes/day free tier.
+    try {
+      const eventSyncResult = await tsBulkSyncAwinEvents(env, kv, rows);
+      if (eventSyncResult) console.log('Awin event registry sync:', JSON.stringify(eventSyncResult));
+    } catch (e) {
+      console.error('Awin event registry sync failed (non-fatal):', e);
+    }
+
     // Write newly discovered artists/venues to pending queue for commit job
     if (newArtists.length > 0 || newVenues.length > 0) {
       // Merge with any existing pending items from other sources
@@ -677,4 +689,136 @@ function jsonResp(body, status) {
   return new Response(JSON.stringify(body, null, 2), {
     status, headers: { 'Content-Type': 'application/json' }
   });
+}
+
+
+// ===========================
+// Phase 1.4B — bulk Awin event registry sync
+// tsEventSlug/tsRegisterEvents are the shared registry block — identical
+// copies live in ticketmaster.js / sportsevents365.js / awin-events.js,
+// and tsEventSlug has a client copy in compare.js. FROZEN v1 slug format.
+// ===========================
+
+const EVENT_SYNC_GATE_KEY = 'event:sync:awin:last';
+const EVENT_SYNC_MIN_GAP  = 20 * 60 * 60 * 1000; // 20h — once per day despite 4 daily crons
+
+async function tsBulkSyncAwinEvents(env, kv, rows) {
+  if (!env.PRICE_DB) return { skipped: 'no PRICE_DB binding' };
+
+  // Once-daily gate (1 KV read + 1 KV write per actual sync)
+  try {
+    const last = await kv.get(EVENT_SYNC_GATE_KEY);
+    if (last && (Date.now() - Date.parse(last)) < EVENT_SYNC_MIN_GAP) {
+      return { skipped: 'ran within last 20h' };
+    }
+  } catch {}
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Build records: extract date/venue from the description field (same
+  // format awin-events.js reads at serve time), categorise via the
+  // existing genre router, dedupe by slug keeping the cheapest price.
+  const bySlug = new Map();
+  for (const row of rows) {
+    const desc = row.description || '';
+    const dateMatch = desc.match(/Date:\s*(\d{4}-\d{2}-\d{2})/i);
+    const date = dateMatch ? dateMatch[1] : '';
+    if (!date || date < today) continue; // dateless/past rows can't have stable pages
+
+    const category = genreToCategory(awinGenre(row.merchant_category, row.category_name));
+    const slug = tsEventSlug(category, date, row.product_name);
+    if (!slug) continue;
+
+    const venueMatch = desc.match(/Venue:\s*([^,]+)/i);
+    const rec = {
+      slug, category, name: row.product_name, date,
+      venue: venueMatch ? venueMatch[1].trim() : null,
+      city: null,
+      price: row.price ? Math.round(row.price) : null,
+      currency: row.currency || 'GBP',
+      tmUrl: null,
+      image: row.image_url || null,
+      source: 'awin:' + (row.merchant_name || 'awin')
+    };
+    const existing = bySlug.get(slug);
+    if (!existing || (rec.price && (!existing.price || rec.price < existing.price))) {
+      bySlug.set(slug, rec);
+    }
+  }
+
+  const records = [...bySlug.values()];
+
+  // Upsert in batches of 400 (tsRegisterEvents caps per call)
+  let written = 0;
+  for (let i = 0; i < records.length; i += 400) {
+    await tsRegisterEvents(env, records.slice(i, i + 400));
+    written += Math.min(400, records.length - i);
+  }
+
+  // Prune long-past events so the table and sitemap query stay lean
+  let pruned = 0;
+  try {
+    const res = await env.PRICE_DB
+      .prepare("DELETE FROM event_pages WHERE event_date < date('now', '-2 day')")
+      .run();
+    pruned = res?.meta?.changes || 0;
+  } catch {}
+
+  try { await kv.put(EVENT_SYNC_GATE_KEY, new Date().toISOString()); } catch {}
+
+  return { totalRows: rows.length, uniqueEvents: records.length, upserted: written, pruned };
+}
+
+// {category}-{yyyy-mm-dd}-{normalised-name} — MUST MATCH all other copies.
+function tsEventSlug(category, date, name) {
+  if (!category || !date || !name) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const norm = String(name).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80).replace(/-+$/g, '');
+  return norm ? category + '-' + date + '-' + norm : null;
+}
+
+// Batched D1 upsert. updated_at only bumps when content actually changed —
+// the sitemap uses it as lastmod, and fake lastmod trains Google to ignore it.
+async function tsRegisterEvents(env, records) {
+  const db = env.PRICE_DB;
+  if (!db || !records || !records.length) return;
+  const now = new Date().toISOString();
+  const stmt = db.prepare(
+    'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) ' +
+    'VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ' +
+    'ON CONFLICT(slug) DO UPDATE SET ' +
+    'name=excluded.name, ' +
+    'venue=COALESCE(excluded.venue, event_pages.venue), ' +
+    'city=COALESCE(excluded.city, event_pages.city), ' +
+    'price=COALESCE(excluded.price, event_pages.price), ' +
+    'currency=COALESCE(excluded.currency, events.currency), ' +
+    'tm_url=COALESCE(excluded.tm_url, events.tm_url), ' +
+    'image=COALESCE(excluded.image, events.image), ' +
+    'source=excluded.source, ' +
+    'updated_at=CASE WHEN event_pages.name IS NOT excluded.name ' +
+    'OR event_pages.venue IS NOT COALESCE(excluded.venue, event_pages.venue) ' +
+    'OR event_pages.city IS NOT COALESCE(excluded.city, event_pages.city) ' +
+    'OR event_pages.price IS NOT COALESCE(excluded.price, event_pages.price) ' +
+    'THEN excluded.updated_at ELSE events.updated_at END'
+  );
+  const seen = new Set();
+  const batch = [];
+  for (const r of records) {
+    if (!r || !r.slug || seen.has(r.slug)) continue;
+    seen.add(r.slug);
+    batch.push(stmt.bind(
+      r.slug, r.category, r.name, r.date,
+      r.venue || null, r.city || null,
+      r.price || null, r.currency || null,
+      r.tmUrl || null, r.image || null,
+      r.source || null, now
+    ));
+    if (batch.length >= 400) break; // per-call safety cap
+  }
+  if (batch.length) await db.batch(batch);
 }

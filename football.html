@@ -787,8 +787,8 @@
           attractionId
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
             : Promise.resolve(null),
-          fetch(`/api/awin-events?name=${searchName}&size=50`).then(safeJson).catch(() => null),
-          fetch(`/api/sportsevents365?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
+          fetch(`/api/awin-events?name=${searchName}&size=50&cat=football`).then(safeJson).catch(() => null),
+          fetch(`/api/sportsevents365?q=${searchName}&mode=list&cat=football`).then(safeJson).catch(() => null),
           fetch(`/api/vividseats?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
           fetch(`/api/ticombo?q=${searchName}`).then(safeJson).catch(() => null),
           fetch(`/api/ticketnetwork?q=${searchName}&mode=list`).then(safeJson).catch(() => null)
@@ -1180,6 +1180,22 @@
       document.getElementById('events-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    // Phase 1.4B — event slug builder. MUST MATCH the copies in compare.js
+    // and the server capture files. FROZEN v1 — never change without
+    // migrating every indexed /event/ URL. Returns null when no stable
+    // slug is possible → caller falls back to the legacy hash route.
+    function tsEventSlug(category, date, name) {
+      if (!category || !date || !name) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      var norm = String(name).toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80).replace(/-+$/g, '');
+      return norm ? category + '-' + date + '-' + norm : null;
+    }
+
     function buildEventRow(e) {
       const date      = formatDate(e.dates?.start?.localDate);
       const time      = e.dates?.start?.localTime ? e.dates.start.localTime.slice(0,5) : '';
@@ -1197,7 +1213,12 @@
           .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
         const venueParam = evVenue ? '&venue=' + encodeURIComponent(evVenue) : '';
         const cityParam  = evCity  ? '&city='  + encodeURIComponent(evCity)  : '';
-        const compareUrl = `${window.location.origin}/#/event/${e.id || compareSlug}?date=${eventDate}${venueParam}${cityParam}`;
+        // Phase 1.4B: dated events get an indexable SSR page; the legacy
+        // hash route (with venue/city params) remains the fallback.
+        const _ssrSlug   = tsEventSlug('football', eventDate, e.name || '');
+        const compareUrl = _ssrSlug
+          ? `/event/${_ssrSlug}`
+          : `${window.location.origin}/#/event/${e.id || compareSlug}?date=${eventDate}${venueParam}${cityParam}`;
         const meta = [location, date].filter(Boolean).join(' · ');
         return `<a class="event-list-item" href="${compareUrl}">
             <div class="event-list-left">
@@ -1209,7 +1230,10 @@
       }
       // Awin events: route through compare page
       if (e._awin) {
-        const compareUrl = `${window.location.origin}/#/event/awin-${encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name))}`;
+        const _awSsrSlug = tsEventSlug('football', e._eventDate || '', e._eventName || e.name);
+        const compareUrl = _awSsrSlug
+          ? `/event/${_awSsrSlug}`
+          : `${window.location.origin}/#/event/awin-${encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name))}`;
         const badge = e._merchant ? `<span style="font-size:10px;color:#888;margin-left:6px;">via ${e._merchant}</span>` : '';
         const meta  = [location, date].filter(Boolean).join(' · ');
         return `<a class="event-list-item" href="${compareUrl}">
@@ -1222,7 +1246,7 @@
       }
 
       return `
-        <a class="event-list-item" href="${window.location.origin}/#/event/${e.id}">
+        <a class="event-list-item" href="${(function(){ var s = tsEventSlug('football', e.dates?.start?.localDate || '', e.name); return s ? '/event/' + s : window.location.origin + '/#/event/' + e.id; })()}">
           <div class="event-list-left">
             <div class="event-list-name">${e.name}</div>
             <div class="event-list-meta">${location}${location && date ? ' · ' : ''}${date}${time ? ' · ' + time : ''}</div>

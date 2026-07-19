@@ -732,3 +732,25 @@ function highlightBestPrice() {
 function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
 }
+
+
+// ===========================
+// Phase 1.4B — client copy of the event slug builder
+// MUST MATCH the server copies in functions/api/ticketmaster.js,
+// sportsevents365.js, awin-events.js, awin-category-cache.js and the
+// parser in functions/event/[slug].js. FROZEN v1 — never change without
+// migrating every indexed /event/ URL.
+// Returns null when no stable slug is possible (missing/invalid date or
+// empty name) — callers fall back to the legacy /#/event/ hash route.
+// ===========================
+function tsEventSlug(category, date, name) {
+  if (!category || !date || !name) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  var norm = String(name).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80).replace(/-+$/g, '');
+  return norm ? category + '-' + date + '-' + norm : null;
+}

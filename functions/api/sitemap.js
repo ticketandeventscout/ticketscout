@@ -42,7 +42,7 @@ const STATIC_URLS = [
   '/terms'
 ];
 
-const SECTIONS = ['static', 'concert', 'football', 'theatre', 'venue'];
+const SECTIONS = ['static', 'concert', 'football', 'theatre', 'venue', 'event'];
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -68,6 +68,28 @@ export async function onRequestGet({ request, env }) {
     const entries = STATIC_URLS.map(p =>
       `  <url><loc>${HOST}${p}</loc><lastmod>${STATIC_LASTMOD}</lastmod></url>`).join('\n');
     return xml(urlset(entries));
+  }
+
+  // ── Event section (Phase 1.4B) — read from the D1 events registry ──────
+  // Individual fixtures/shows served by functions/event/[slug].js.
+  // Only upcoming events are listed; lastmod is the row's updated_at,
+  // which only moves on real content change (never render time).
+  if (sec === 'event') {
+    const db = env.PRICE_DB;
+    if (!db) return xml('<e>Missing PRICE_DB binding</e>', 503);
+    try {
+      const { results } = await db.prepare(
+        "SELECT slug, updated_at FROM event_pages WHERE event_date >= date('now') ORDER BY slug LIMIT 45000"
+      ).all();
+      const entries = (results || []).map(r =>
+        `  <url><loc>${HOST}/event/${r.slug}</loc><lastmod>${String(r.updated_at || '').slice(0, 10)}</lastmod></url>`
+      ).join('\n');
+      return xml(urlset(entries));
+    } catch (e) {
+      // Table not created yet / D1 hiccup — return an empty urlset rather
+      // than an error so GSC never sees a broken section sitemap.
+      return xml(urlset(''));
+    }
   }
 
   // ── Entity sections — read from the registry ────────────────────────────

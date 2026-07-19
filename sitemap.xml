@@ -9,4 +9,5 @@
   <sitemap><loc>https://ticketscout.co.uk/api/sitemap?sec=football</loc></sitemap>
   <sitemap><loc>https://ticketscout.co.uk/api/sitemap?sec=theatre</loc></sitemap>
   <sitemap><loc>https://ticketscout.co.uk/api/sitemap?sec=venue</loc></sitemap>
+  <sitemap><loc>https://ticketscout.co.uk/api/sitemap?sec=event</loc></sitemap>
 </sitemapindex>
