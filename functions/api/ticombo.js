@@ -77,6 +77,7 @@ export async function onRequestGet({ request, env }) {
     for (const item of index) {
       const normName = normaliseName(item.n);
       let score = 0;
+      let nameScore = 0;
 
       if (normName === normQ)                        score = 100;
       else if (normName.startsWith(normQ + ' '))     score = 80;
@@ -86,6 +87,7 @@ export async function onRequestGet({ request, env }) {
         if (words.length > 0 && words.every(w => normName.includes(w))) score = 40;
       }
       if (score === 0) continue;
+      nameScore = score; // preserve the pure name-match strength before boosts
 
       if (item.d && new Date(item.d) < today) continue;
 
@@ -105,9 +107,10 @@ export async function onRequestGet({ request, env }) {
       }
 
       // City boost — strongly prefer events in the right city
-      if (city && item.t && item.t.toLowerCase().includes(city)) score += 40;
+      let cityMatch = false;
+      if (city && item.t && item.t.toLowerCase().includes(city)) { score += 40; cityMatch = true; }
 
-      scored.push({ item, score });
+      scored.push({ item, score, nameScore, cityMatch });
     }
 
     // Debug: log scoring results
@@ -124,34 +127,51 @@ export async function onRequestGet({ request, env }) {
     if (scored.length === 0) return jsonResponse({ match: fallbackMatch }, 200);
 
     scored.sort((a, b) => b.score - a.score);
-    const best = scored[0].item;
+    const best = scored[0];
 
-    // If a specific date was requested but matched event has no date,
-    // we cannot confirm it's the right fixture — use search fallback instead
-    // This prevents "Arsenal vs Aston Villa Apr 2027" showing for "Arsenal Nov 2026"
-    if (targetMs && !best.d) {
-      console.log('[Ticombo] Date requested but matched event has no date — using search fallback');
+    // This feed carries NO date column, so matched items have no date. Rather
+    // than suppress every price (the feed would then never show one), gate on
+    // NAME-MATCH CONFIDENCE — but account for the fact that some categories are
+    // RECURRING (a football team name repeats across dozens of fixtures, so a
+    // strong name match alone can't pin the right date/price), while others are
+    // effectively UNIQUE (a specific concert/tour/show name).
+    //   • Unique-name categories (concerts, shows): a strong name match
+    //     (nameScore >= 80) is enough to show the price.
+    //   • Recurring categories (football/sport): a name match is NOT enough on
+    //     its own — require a city match to corroborate, otherwise keep the
+    //     click-through fallback (no misleading arbitrary-fixture price).
+    const RECURRING = /(football|soccer|sport|rugby|cricket|tennis|basketball|nfl|nba|f1|formula|motogp|golf)/i;
+    const isRecurring = RECURRING.test(best.item.g || '') || RECURRING.test(q);
+    const dateConfident = !targetMs || !!best.item.d;   // a real date match, if any
+    const nameConfident = isRecurring
+      ? (best.nameScore >= 60 && best.cityMatch)         // recurring: need city corroboration
+      : (best.nameScore >= 80 || (best.nameScore >= 60 && best.cityMatch)); // unique: strong name is enough
+    if (!dateConfident && !nameConfident) {
+      console.log('[Ticombo] No date + insufficient confidence (' +
+        (isRecurring ? 'recurring' : 'unique') + ', nameScore=' + best.nameScore +
+        ', city=' + best.cityMatch + ') — using search fallback');
       return jsonResponse({ match: fallbackMatch }, 200);
     }
+    const bestItem = best.item;
 
     // The cached URL is already a complete Partnerize affiliate link (prf.hn) with
     // the feed's regional camref baked in. Use it directly — do NOT re-wrap.
     // If for any reason it is a bare ticombo.com URL, wrap it once.
-    const affiliateUrl = best.u.includes('prf.hn')
-      ? best.u
-      : `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(best.u)}`;
+    const affiliateUrl = bestItem.u.includes('prf.hn')
+      ? bestItem.u
+      : `https://ticombo.prf.hn/click/camref:${camref}/destination:${encodeURIComponent(bestItem.u)}`;
 
     return jsonResponse({
       match: {
-        name:     best.n,
+        name:     bestItem.n,
         url:      affiliateUrl,
-        price:    best.p ? Math.round(best.p) : null,
-        currency: best.c || 'EUR',
-        date:     best.d || null,
-        venue:    best.v || null,
-        city:     best.t || null,
-        category: best.g || null,
-        region:   best.r || null
+        price:    bestItem.p ? Math.round(bestItem.p) : null,
+        currency: bestItem.c || 'EUR',
+        date:     bestItem.d || null,
+        venue:    bestItem.v || null,
+        city:     bestItem.t || null,
+        category: bestItem.g || null,
+        region:   bestItem.r || null
       }
     }, 200);
 

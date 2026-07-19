@@ -20,8 +20,6 @@
 // TicketNetwork tracking: use their direct affiliate URL format
 // Publisher 7443544, tracked via aff_id param on ticketnetwork.com
 const TN_AFF_PARAMS = 'aff_id=1000&aff_sub=7443544&utm_source=impact&utm_medium=affiliate';
-const TRACKING_BASE  = 'https://www.ticketnetwork.com';  // base domain
-const TRACKING_BASE2 = 'https://www.ticketnetwork.com';
 const KV_INDEX       = 'tn:catalog:index';
 
 export async function onRequestGet({ request, env }) {
@@ -99,27 +97,16 @@ export async function onRequestGet({ request, env }) {
 
     scored.sort((a, b) => b.score - a.score);
 
-    // Clean the stored TN URL — strip broken clickId/afsrc params, keep just the path
-    // and append our affiliate tracking params instead
-    const cleanTnUrl = (rawUrl) => {
-      try {
-        const u = new URL(rawUrl);
-        if (u.hostname.includes('ticketnetwork.com')) {
-          // Keep just the path (e.g. /tickets/london-eye-tickets/...)
-          const clean = new URL(u.pathname, 'https://www.ticketnetwork.com');
-          // If it's a search page, preserve the q param
-          if (u.searchParams.get('q')) clean.searchParams.set('q', u.searchParams.get('q'));
-          // Append affiliate tracking
-          const sep = clean.search ? '&' : '?';
-          return clean.toString() + sep + TN_AFF_PARAMS;
-        }
-      } catch(e) {}
-      return rawUrl;
-    };
-
+    // The stored item.u is ALREADY a complete, working Impact deep-link, e.g.
+    //   https://goto.ticketnetwork.com/c/7443544/132208/2322?prodsku=...&u=<encoded product URL>&intsrc=CATF_896
+    // Use it directly — exactly like the Vivid Seats adapter uses its raw
+    // Impact link. (A previous cleanTnUrl() helper stripped this to just the
+    // /c/... path and forced it onto www.ticketnetwork.com, discarding the
+    // goto. tracking subdomain and the encoded destination — which produced
+    // a broken "page not found" link. Removed.)
     const buildMatch = (item) => ({
       name:     item.n,
-      url:      cleanTnUrl(item.u || fallbackUrl),
+      url:      item.u || fallbackUrl,
       price:    item.p ? Math.round(item.p) : null,
       currency: item.c || 'USD',
       date:     item.d || null,
