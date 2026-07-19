@@ -858,10 +858,30 @@
         };
 
         // ── Fuzzy dedup helper ────────────────────────────────────────────────
+        // Collapses the SAME fixture arriving from different feeds under name
+        // variants, e.g. "Arsenal v Real Betis" / "Club Friendly: Arsenal FC
+        // vs. Real Betis" / "Real Betis vs Arsenal" → one key. Steps:
+        //  1. strip a leading competition/round prefix ("Club Friendly:", …)
+        //  2. normalise v / vs / vs. / versus to a single ' vs ' token
+        //  3. strip club suffixes (FC, CF, …)
+        //  4. split on ' vs ', sort the words within each side and sort the
+        //     two sides, so home/away order never affects the key.
+        // A bare team name ("Arsenal FC" → "arsenal") deliberately does NOT
+        // collapse into a specific fixture — that would be guessing which
+        // fixture it refers to. Used symmetrically for both dedup and price
+        // matching, so the transform is applied to both sides being compared.
         const stripClubSuffix = s => (s || '')
           .toLowerCase()
-          .replace(/\b(fc|cf|afc|sc|rc|ac|bc|ud|rcd|ssc|ss|as|vfb|fsv|vfl|tsv|rb|bv|sv)\b/g, '')
-          .replace(/[^a-z0-9]/g, '');
+          .replace(/^[^:]*(?:friendly|cup|league|trophy|championship|qualifier|final|semi[- ]?final|quarter[- ]?final|round|matchday|group [a-z]|pre[- ]?season|international|test match|play[- ]?off)[^:]*:\s*/i, '')
+          .replace(/\b(versus|vs\.?|v\.?)\b/g, ' vs ')
+          .replace(/\b(fc|cf|afc|sc|rc|ac|bc|ud|rcd|ssc|ss|as|vfb|fsv|vfl|tsv|rb|bv|sv)\b/g, ' ')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .trim()
+          .split(/\s+vs\s+/)
+          .map(side => side.trim().split(/\s+/).filter(Boolean).sort().join(''))
+          .filter(Boolean)
+          .sort()
+          .join('|');
 
         // ── Vivid Seats: all matching events filtered to correct team ────────
         const vsEventCards = (vsData?.matches || (vsData?.match ? [vsData.match] : []))
@@ -919,7 +939,13 @@
 
         // ── Global dedup: merge all, sort by date, remove duplicates ─────────
         const allRaw = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tnEventCards, ...tcEvents];
-        const seenDedup = new Map();
+        const venueKey = e => ((e._embedded?.venues?.[0]?.name) || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        // A fuzzy key like "arsenal|betisreal" describes a two-sided fixture;
+        // "arsenal" alone is a bare single-team listing. This returns the set
+        // of sides so we can tell whether a bare name is one side of a kept
+        // fixture (used only for the same-date+venue collapse below).
+        const fuzzySides = e => stripClubSuffix(e.name).split('|').filter(Boolean);
+        const kept = [];
         const allEvents = allRaw
           .sort((a, b) => {
             const da = a.dates?.start?.localDate || '9999-99-99';
@@ -929,14 +955,33 @@
           .filter(e => {
             const eName  = (e.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
             const eFuzzy = stripClubSuffix(e.name);
+            const eSides = fuzzySides(e);
             const eDate  = e.dates?.start?.localDate || '';
-            for (const [key, keptDate] of seenDedup) {
-              const diffDays = eDate && keptDate
-                ? Math.abs(new Date(eDate) - new Date(keptDate)) / 86400000 : 0;
-              if (diffDays <= 2 && (key === eName || key === eFuzzy)) return false;
+            const eVenue = venueKey(e);
+            for (const k of kept) {
+              const diffDays = eDate && k.date
+                ? Math.abs(new Date(eDate) - new Date(k.date)) / 86400000 : 0;
+              // (a) exact / fuzzy name match within ±2 days — same fixture
+              if (diffDays <= 2 && (k.name === eName || k.fuzzy === eFuzzy)) return false;
+              // (b) bare single-team card collapses into a full fixture ONLY
+              //     when date AND venue match exactly and the bare name is one
+              //     side of that fixture (or vice-versa). Both guards required,
+              //     so it never merges across different venues or dates.
+              const sameSlot = eDate && k.date && eDate === k.date && eVenue && k.venue && eVenue === k.venue;
+              if (sameSlot) {
+                const eIsBare = eSides.length === 1;
+                const kIsBare = k.sides.length === 1;
+                if (eIsBare && !kIsBare && k.sides.includes(eSides[0])) return false; // drop bare e, keep full k
+                if (kIsBare && !eIsBare && eSides.includes(k.sides[0])) {
+                  // the already-kept card is the bare one — replace it with
+                  // this fuller fixture so the richer name/label survives
+                  k.name = eName; k.fuzzy = eFuzzy; k.sides = eSides; k.event.name = e.name;
+                  Object.assign(k.event, { _replacedBare: true });
+                  return false;
+                }
+              }
             }
-            seenDedup.set(eName, eDate);
-            seenDedup.set(eFuzzy, eDate);
+            kept.push({ name: eName, fuzzy: eFuzzy, sides: eSides, date: eDate, venue: eVenue, event: e });
             return true;
           });
 
@@ -968,7 +1013,7 @@
           }
         });
 
-        updateMeta(team, tmEvents, tmImage);
+        updateMeta(team, allEvents, tmImage); // GSC fix: price-enriched merged list so priced events emit offers
 
         if (allEvents.length > 0) {
           renderEvents(allEvents, team, slug);

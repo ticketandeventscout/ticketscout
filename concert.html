@@ -1024,7 +1024,7 @@
           if (minGbp !== null) kept.priceRanges = [{ min: minGbp, currency: 'GBP' }];
         });
 
-        updateMeta(artist, tmEvents, tmImage); // use TM events for schema
+        updateMeta(artist, allEvents, tmImage); // Phase 1.4B-adjacent GSC fix: use the price-enriched merged list so events with a resale price emit a valid offers block (was tmEvents — raw TM events often lack priceRanges, causing 'Missing field offers')
         if (allEvents.length > 0) {
           renderEvents(allEvents, artist, slug);
         } else {

@@ -858,7 +858,7 @@
           }
         }
 
-        updateMeta(show, tmEvents, tmImage);
+        updateMeta(show, allEvents, tmImage); // GSC fix: price-enriched merged list so priced events emit offers
 
         if (allEvents.length > 0) {
           renderEvents(allEvents, show, slug);
