@@ -194,7 +194,12 @@ async function runSearch(keyword) {
         fetch(`/api/concert?slug=${encodeURIComponent(slug)}`).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       const isRichFootball = (footballResp?.team?.description?.length || 0) > 150;
-      const isRichTheatre  = (theatreResp?.show?.description?.length || 0) > 150;
+      const isRichConcert  = (concertResp?.artist?.description?.length || 0) > 150;
+      // A rich concert match (hardcoded artist or real KV data) beats a theatre
+      // match: the theatre API's Awin fallback synthesises a "rich" description
+      // for ANY name Awin has events for (e.g. Coldplay), mislabelled as Theatre,
+      // which otherwise mis-routed music artists to a non-existent /theatre/ page.
+      const isRichTheatre  = (theatreResp?.show?.description?.length || 0) > 150 && !isRichConcert;
       if (isRichFootball) { window.location.href = `/football/${slug}`; return; }
       if (isRichTheatre)  { window.location.href = `/theatre/${slug}`; return; }
       if (concertResp)    { window.location.href = `/concert/${slug}`; return; }
@@ -351,7 +356,9 @@ async function showArtistEvents(attractionId, name) {
         // (hardcoded entry or KV data — description > 80 chars means it's real, not synthesised)
         // This prevents generic words like "grease" or "oliver" routing to football
         const isRichFootball = footballResp?.team?.description?.length > 150;
-        const isRichTheatre  = theatreResp?.show?.description?.length > 150;
+        const isRichConcert  = concertResp?.artist?.description?.length > 150;
+        // Concert wins over a theatre Awin-fallback synthesis (see runSearch note)
+        const isRichTheatre  = theatreResp?.show?.description?.length > 150 && !isRichConcert;
 
         if (isRichFootball) { window.location.href = `/football/${slug}`; return; }
         if (isRichTheatre)  { window.location.href = `/theatre/${slug}`; return; }
