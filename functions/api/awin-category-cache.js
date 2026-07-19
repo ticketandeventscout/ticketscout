@@ -150,10 +150,60 @@ function extractApiKey(baseUrl) {
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
+
+  // ── Diagnostic: search the LIVE cached chunks by name (before trigger gate
+  //    so ?find=arsenal works standalone with no refresh) ───────────────────
+  // ?find=arsenal                                   — product_name OR description
+  // ?find=arsenal&merchant=Football TicketNet UK    — also filter by merchant
+  {
+    const findTerm = (url.searchParams.get('find') || '').toLowerCase().trim();
+    if (findTerm) {
+      const kv = env.GIGSBERG_KV;
+      if (!kv) return jsonResp({ error: 'Missing GIGSBERG_KV binding' }, 500);
+      const index = await kv.get(`${CACHE_KEY}:index`, { type: 'json' });
+      if (!index?.chunks) return jsonResp({ error: 'No cache index — run ?trigger=1 first' }, 200);
+      const merchantFilter = (url.searchParams.get('merchant') || '').toLowerCase().trim();
+      const hits = [];
+      const merchantTally = {};
+      let scanned = 0;
+      for (let i = 0; i < index.chunks; i++) {
+        const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
+        if (!chunk) continue;
+        for (const row of chunk) {
+          scanned++;
+          const pn = (row.product_name || '').toLowerCase();
+          const ds = (row.description  || '').toLowerCase();
+          const inName = pn.includes(findTerm);
+          const inDesc = ds.includes(findTerm);
+          if (!inName && !inDesc) continue;
+          if (merchantFilter && !(row.merchant_name || '').toLowerCase().includes(merchantFilter)) continue;
+          merchantTally[row.merchant_name] = (merchantTally[row.merchant_name] || 0) + 1;
+          if (hits.length < 25) hits.push({
+            product_name: row.product_name,
+            merchant: row.merchant_name,
+            matchedIn: inName ? (inDesc ? 'name+desc' : 'name') : 'desc',
+            price: row.price,
+            category: row.merchant_category || row.category_name,
+            descPreview: (row.description || '').slice(0, 120)
+          });
+        }
+      }
+      return jsonResp({
+        query: findTerm,
+        merchantFilter: merchantFilter || null,
+        rowsScanned: scanned,
+        totalMatches: Object.values(merchantTally).reduce((a, b) => a + b, 0),
+        matchesByMerchant: merchantTally,
+        sample: hits
+      }, 200);
+    }
+  }
+
   if (url.searchParams.get('trigger') !== '1') {
     return new Response(
       'Add ?trigger=1 to manually run the cache refresh.\n' +
       'Add ?trigger=1&debug=1 to inspect raw column positions.\n' +
+      'Add ?find=NAME to search the live cache by event name (no refresh).\n' +
       'Feed management:\n' +
       '  ?trigger=1&feeds=discover        — list all feeds available on your Awin account\n' +
       '  ?trigger=1&feeds=list            — show enabled feed IDs\n' +
