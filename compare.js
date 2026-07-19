@@ -318,6 +318,34 @@ const ADAPTERS = [
     }
   },
 
+  // ── Soldout.com — CJ deep link only (no product feed) ───────────────────
+  // CJ advertiser link 17268238 (publisher 101816942). Builds a Soldout
+  // performer-page URL (/performer/{slug}-tickets) wrapped in the CJ click
+  // link — no API price. Renders as "Search Soldout" in the compare table.
+  // The /api/soldout endpoint already performer-slugs the name; compare.js
+  // additionally passes the performer-stripped name, so tour subtitles are
+  // handled. Compare-table only — never added to event LIST fetches.
+  {
+    source: 'Soldout',
+
+    buildUrl(eventName, venueCity, eventDate, venueName) {
+      return `/api/soldout?q=${encodeURIComponent(eventName)}`;
+    },
+
+    normalise(data, eventName) {
+      const match = data?.match;
+      if (!match || !match.url) return null;
+      return {
+        source:     'Soldout',
+        price:      null,           // deep link only — no price
+        currency:   'GBP',
+        url:        match.url,
+        available:  true,
+        isFallback: true            // renders as "Search Soldout" not a price
+      };
+    }
+  },
+
   // ── Future adapters go here ───────────────────────────────────────────────
 ];
 
@@ -383,7 +411,8 @@ const MERCHANT_IDS = {
   'Vivid Seats': 'vividseats', 'SportsEvents365': 'se365', 'Skiddle': 'skiddle',
   'SeatGeek': 'seatgeek', 'Theatre Tickets Direct': 'ttd',
   'Football TicketNet UK': 'ftn', 'Ticombo': 'ticombo',
-  'TicketNetwork': 'ticketnetwork', 'Eventim': 'eventim_uk', 'Eventim PL': 'eventim_pl'
+  'TicketNetwork': 'ticketnetwork', 'Eventim': 'eventim_uk', 'Eventim PL': 'eventim_pl',
+  'Soldout': 'soldout'
 };
 
 // Route outbound affiliate links through /api/go for attribution, the
@@ -653,6 +682,7 @@ const SOURCE_STYLES = {
   'TicketNetwork':         { logo: fav('ticketnetwork.com'),           bg: '#c0392b', color: '#fff', abbr: 'TN' },
   'Eventim':               { logo: fav('eventim.co.uk'),               bg: '#e8252a', color: '#fff', abbr: 'EV' },
   'Eventim PL':            { logo: fav('eventim.pl'),                  bg: '#003399', color: '#fff', abbr: 'EP' },
+  'Soldout':               { logo: fav('soldout.com'),                 bg: '#1a2b49', color: '#fff', abbr: 'SO' },
 };
 function fav(domain) { return 'https://www.google.com/s2/favicons?domain=' + domain + '&sz=64'; }
 

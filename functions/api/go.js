@@ -42,7 +42,7 @@ const ALLOWED_HOSTS = [
   'ticketmaster.co.uk', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
   'eventim.co.uk', 'eventim.pl', 'theatreticketsdirect.co.uk',
   'ticketnetwork.com', 'vividseats.com', 'skiddle.com', 'seatgeek.com',
-  'hotels.com', 'trivago.co.uk',
+  'hotels.com', 'trivago.co.uk', 'soldout.com',
   // Awin
   'awin1.com',
   // Partnerize
@@ -67,7 +67,8 @@ const SOURCE_TO_MERCHANT = {
   'Ticombo':                 'ticombo',
   'TicketNetwork':           'ticketnetwork',
   'Eventim':                 'eventim_uk',
-  'Eventim PL':              'eventim_pl'
+  'Eventim PL':              'eventim_pl',
+  'Soldout':                 'soldout'
 };
 
 export async function onRequestGet(context) {
