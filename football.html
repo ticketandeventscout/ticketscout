@@ -872,9 +872,19 @@
         // matching, so the transform is applied to both sides being compared.
         const stripClubSuffix = s => (s || '')
           .toLowerCase()
-          .replace(/^[^:]*(?:friendly|cup|league|trophy|championship|qualifier|final|semi[- ]?final|quarter[- ]?final|round|matchday|group [a-z]|pre[- ]?season|international|test match|play[- ]?off)[^:]*:\s*/i, '')
+          // Collapse dotted abbreviations first: "f.c." → "fc", "a.f.c." → "afc"
+          // (otherwise the dots survive as separate tokens and mangle the key).
+          .replace(/\b([a-z])\.(?=[a-z]\.)/g, '$1')
+          .replace(/\b([a-z]{1,4})\./g, '$1')
+          // Strip a leading competition/round prefix ending in ':' OR ' - '
+          // (feeds use both, e.g. "FA Community Shield: X" and
+          // "International Friendly - X"). Keyword list extended.
+          .replace(/^.*?(?:friendly|cup|league|trophy|championship|qualifier|final|semi[- ]?final|quarter[- ]?final|round|matchday|group [a-z]|pre[- ]?season|international|test match|play[- ]?off|community shield|super cup|charity shield|exhibition|tournament)\b.*?(?::|\s-\s)\s*/i, '')
           .replace(/\b(versus|vs\.?|v\.?)\b/g, ' vs ')
           .replace(/\b(fc|cf|afc|sc|rc|ac|bc|ud|rcd|ssc|ss|as|vfb|fsv|vfl|tsv|rb|bv|sv)\b/g, ' ')
+          // Drop founding-year tokens some feeds append ("Como 1907") so the
+          // same club matches whether or not the year is present.
+          .replace(/\b(18|19|20)\d{2}\b/g, ' ')
           .replace(/[^a-z0-9]+/g, ' ')
           .trim()
           .split(/\s+vs\s+/)
