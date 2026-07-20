@@ -21,6 +21,28 @@ export async function onRequestGet({ request, env }) {
   const owner = env.GITHUB_OWNER;
   const repo  = env.GITHUB_REPO;
 
+  // ── Diagnostic: search live cached chunks by name (before trigger gate) ──
+  // ?find=chelsea  → matches with their category (g) field.
+  {
+    const findTerm = (url.searchParams.get('find') || '').toLowerCase().trim();
+    if (findTerm) {
+      if (!kv) return json({ error: 'Missing GIGSBERG_KV' }, 500);
+      const cntRaw = await kv.get('tn:catalog:chunks');
+      if (!cntRaw) return json({ error: 'No catalog — run ?trigger=1 first' }, 200);
+      const n = parseInt(cntRaw, 10);
+      const raws = await Promise.all(Array.from({ length: n }, (_, i) => kv.get(`tn:catalog:chunk:${i}`)));
+      const index = raws.flatMap(r => r ? JSON.parse(r) : []);
+      const hits = index.filter(it => (it.n || '').toLowerCase().includes(findTerm));
+      const byCat = {};
+      hits.forEach(h => { byCat[h.g || '(none)'] = (byCat[h.g || '(none)'] || 0) + 1; });
+      return json({
+        query: findTerm, total: index.length, matchCount: hits.length,
+        categories: byCat,
+        sample: hits.slice(0, 25).map(h => ({ name: h.n, category: h.g, date: h.d, venue: h.v, city: h.t }))
+      }, 200);
+    }
+  }
+
   if (url.searchParams.get('trigger') !== '1') {
     const updated = await kv?.get('tn:catalog:updated').catch(() => null);
     const stats   = await kv?.get('tn:catalog:stats').catch(() => null);
