@@ -289,7 +289,7 @@ function renderPage(d) {
     </div>
   </footer>
 
-  <script src="/compare.js?v=20260719f"></script>
+  <script src="/compare.js?v=20260719g"></script>
   <script>
     (function () {
       var EV = ${hydrate};

@@ -584,9 +584,16 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     </div>
   `;
 
-  comparePrices(eventName, venueCity, eventDate, venueName, category).then(results => {
+  // Kick off the FX rate fetch in parallel with the adapter calls so it's
+  // ready by the time results arrive (falls back silently if it fails).
+  loadFxRates();
+
+  comparePrices(eventName, venueCity, eventDate, venueName, category).then(async results => {
     const slot = document.getElementById('adapter-prices');
     if (!slot) return;
+
+    // Ensure live rates are loaded before normalising (no-op if already done).
+    await loadFxRates();
 
     // ── Currency normalisation → GBP ────────────────────────────────────
     // Sellers report in their own currency (VS/TN in USD, Ticombo in EUR,
@@ -722,12 +729,32 @@ function buildLogoEl(style) {
 const CURRENCY_SYMBOLS = { GBP: '£', USD: '$', EUR: '€', PLN: 'zł', CHF: 'CHF ', CAD: 'C$', AUD: 'A$', SGD: 'S$' };
 
 // ── Currency → GBP conversion ─────────────────────────────────────────────
-// Static approximate rates (units of currency per 1 GBP). Refreshed manually
-// for now; these only affect ranking/badge/display, not what the seller
-// charges (the affiliate link goes to the seller's own checkout in their
-// currency). When internationalising, replace with live rates and make the
-// target currency configurable instead of hard-GBP.
-const FX_PER_GBP = { GBP: 1, USD: 1.27, EUR: 1.17, PLN: 5.0, CHF: 1.12, CAD: 1.73, AUD: 1.93, SGD: 1.71 };
+// Rates are "units of currency per 1 GBP". Live rates come from /api/fx
+// (ECB via Frankfurter, lazily refreshed daily, KV-cached). The hardcoded
+// table below is the fallback used before the first fetch resolves or if the
+// endpoint is unavailable — the comparison never breaks on a rates failure.
+// These only affect ranking/badge/display, never what the seller charges
+// (the affiliate link goes to the seller's own checkout in their currency).
+let FX_PER_GBP = { GBP: 1, USD: 1.27, EUR: 1.17, PLN: 5.0, CHF: 1.12, CAD: 1.73, AUD: 1.93, SGD: 1.71 };
+let fxPromise = null;
+
+// Fetch live rates once per page load; merge over the fallback so any missing
+// symbol keeps its fallback value. Returns the same in-flight promise on
+// repeated calls so callers can await the actual fetch completing.
+function loadFxRates() {
+  if (fxPromise) return fxPromise;
+  fxPromise = (async () => {
+    try {
+      const resp = await fetch('/api/fx');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data && data.rates && data.rates.GBP === 1) {
+        FX_PER_GBP = { ...FX_PER_GBP, ...data.rates };
+      }
+    } catch { /* keep fallback rates */ }
+  })();
+  return fxPromise;
+}
 
 function toGbp(amount, currency) {
   const cur = (currency || 'GBP').toUpperCase();
@@ -735,6 +762,7 @@ function toGbp(amount, currency) {
   if (!rate || !amount) return Math.round(amount || 0);   // unknown currency → leave as-is
   return Math.round(amount / rate);
 }
+
 
 
 function buildRow(source, price, url, currency, implausible) {
