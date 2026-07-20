@@ -588,6 +588,22 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     const slot = document.getElementById('adapter-prices');
     if (!slot) return;
 
+    // ── Currency normalisation → GBP ────────────────────────────────────
+    // Sellers report in their own currency (VS/TN in USD, Ticombo in EUR,
+    // etc.). Comparing raw numbers made a cheap $67 look dearer than €177
+    // and even tripped the plausibility gate. Convert every price to GBP up
+    // front so sort, the E2 gate, the Best Price badge and the display all
+    // operate on one currency. (Static rates — refreshed manually for now;
+    // when we internationalise, this is the single hook to swap the base
+    // currency and plug in live rates + geo-detected display currency.)
+    results.forEach(r => {
+      if (r.price) {
+        const gbp = toGbp(r.price, r.currency);
+        r.price = gbp;
+        r.currency = 'GBP';
+      }
+    });
+
     // Include VS and other sources even without price — affiliate click still earns commission
     const withPrices = results
       .filter(r => r.available && (r.price || r.source === 'Vivid Seats' || r.source === 'Ticombo' || r.source === 'TicketNetwork' || r.source === 'Eventim' || r.source === 'Soldout'))
@@ -704,6 +720,22 @@ function buildLogoEl(style) {
 }
 
 const CURRENCY_SYMBOLS = { GBP: '£', USD: '$', EUR: '€', PLN: 'zł', CHF: 'CHF ', CAD: 'C$', AUD: 'A$', SGD: 'S$' };
+
+// ── Currency → GBP conversion ─────────────────────────────────────────────
+// Static approximate rates (units of currency per 1 GBP). Refreshed manually
+// for now; these only affect ranking/badge/display, not what the seller
+// charges (the affiliate link goes to the seller's own checkout in their
+// currency). When internationalising, replace with live rates and make the
+// target currency configurable instead of hard-GBP.
+const FX_PER_GBP = { GBP: 1, USD: 1.27, EUR: 1.17, PLN: 5.0, CHF: 1.12, CAD: 1.73, AUD: 1.93, SGD: 1.71 };
+
+function toGbp(amount, currency) {
+  const cur = (currency || 'GBP').toUpperCase();
+  const rate = FX_PER_GBP[cur];
+  if (!rate || !amount) return Math.round(amount || 0);   // unknown currency → leave as-is
+  return Math.round(amount / rate);
+}
+
 
 function buildRow(source, price, url, currency, implausible) {
   const symbol    = CURRENCY_SYMBOLS[(currency || 'GBP').toUpperCase()] || (currency + ' ');

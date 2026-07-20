@@ -26,6 +26,25 @@ export async function onRequestGet(ctx) {
       return jsonResponse({ error: 'name is required (min 2 chars)' }, 400);
     }
 
+    // When the caller declares a category, only return rows that actually
+    // belong to it. Without this, a pure name substring match pulls in wrong-
+    // category events — e.g. comedian "Chelsea Handler" or "Liverpool Legends"
+    // (a tribute act) onto the Chelsea / Liverpool FOOTBALL pages.
+    const catMatchers = {
+      football: /\b(football|soccer|sport)\b/i,
+      concert:  /\b(concert|music|gig|live music|tour)\b/i,
+      theatre:  /\b(theatre|theater|musical|play|west end|show)\b/i
+    };
+    const wantCat = catMatchers[cat] || null;
+    const rowInCategory = (row) => {
+      if (!wantCat) return true; // no category declared → no filter (back-compat)
+      const hay = `${row.merchant_category || ''} ${row.category_name || ''}`;
+      if (wantCat.test(hay)) return true;
+      // Fall back to the "Event Type: X" marker embedded in the description
+      const m = (row.description || '').match(/Event Type:\s*([^,\n]+)/i);
+      return m ? wantCat.test(m[1]) : false;
+    };
+
     const matches = [];
     for (let i = 0; i < index.chunks; i++) {
       const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
@@ -34,6 +53,7 @@ export async function onRequestGet(ctx) {
         const productName = (row.product_name || '').toLowerCase();
         const description = (row.description || '').toLowerCase();
         if (!productName.includes(name) && !description.includes(name)) continue;
+        if (!rowInCategory(row)) continue;   // wrong-category guard
         matches.push({
           id:           `awin-${row.merchant_id}-${encodeURIComponent(row.aw_deep_link).slice(-20)}`,
           name:         row.product_name,
