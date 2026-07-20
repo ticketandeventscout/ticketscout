@@ -167,10 +167,11 @@ const ADAPTERS = [
     // Commission tracked via Impact: vivid-seats.pxf.io/c/7443544/952533/12730
     source: 'Vivid Seats',
 
-    buildUrl(eventName, venueCity, eventDate, venueName) {
+    buildUrl(eventName, venueCity, eventDate, venueName, category) {
       const params = new URLSearchParams({ q: eventName });
       if (eventDate) params.set('date', eventDate);
       if (venueCity) params.set('city', venueCity);
+      if (category)  params.set('cat', category);   // drops wrong-category noise
       return `/api/vividseats?${params.toString()}`;
     },
 
@@ -226,10 +227,11 @@ const ADAPTERS = [
     // Impact Publisher: 7443544, Campaign: 2322
     source: 'TicketNetwork',
 
-    buildUrl(eventName, venueCity, eventDate, venueName) {
+    buildUrl(eventName, venueCity, eventDate, venueName, category) {
       const params = new URLSearchParams({ q: eventName });
       if (eventDate) params.set('date', eventDate);
       if (venueCity) params.set('city', venueCity);
+      if (category)  params.set('cat', category);   // drops wrong-category noise
       return `/api/ticketnetwork?${params.toString()}`;
     },
 

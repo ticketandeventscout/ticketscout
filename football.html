@@ -789,9 +789,9 @@
             : Promise.resolve(null),
           fetch(`/api/awin-events?name=${searchName}&size=50&cat=football`).then(safeJson).catch(() => null),
           fetch(`/api/sportsevents365?q=${searchName}&mode=list&cat=football`).then(safeJson).catch(() => null),
-          fetch(`/api/vividseats?q=${searchName}&mode=list`).then(safeJson).catch(() => null),
+          fetch(`/api/vividseats?q=${searchName}&mode=list&cat=football`).then(safeJson).catch(() => null),
           fetch(`/api/ticombo?q=${searchName}`).then(safeJson).catch(() => null),
-          fetch(`/api/ticketnetwork?q=${searchName}&mode=list`).then(safeJson).catch(() => null)
+          fetch(`/api/ticketnetwork?q=${searchName}&mode=list&cat=football`).then(safeJson).catch(() => null)
         ]);
 
         const tmEvents   = tmData?._embedded?.events || [];

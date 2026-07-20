@@ -17,6 +17,14 @@ export async function onRequestGet({ request, env }) {
   const date = url.searchParams.get('date') || '';
   const city = (url.searchParams.get('city') || '').toLowerCase().trim();
   const mode = url.searchParams.get('mode') || 'single'; // 'list' returns all matches
+  // Category hint from the calling page. When 'football', keep only real
+  // football rows (VS category 'Soccer') and drop same-name noise like
+  // comedian "Chelsea Handler" (Comedy) or musician "Chelsea Wolfe"
+  // (Alternative). Verified VS category strings via ?find= diagnostic.
+  const cat  = (url.searchParams.get('cat') || '').trim().toLowerCase();
+  const catAllow = { football: ['soccer'], concert: ['concert', 'alternative', 'pop', 'rock', 'rap', 'hip hop', 'country', 'music'], theatre: ['theatre', 'theater', 'musical', 'play'] };
+  const allowCats = catAllow[cat] || null;
+  const inCat = (item) => !allowCats || allowCats.includes((item.g || '').toLowerCase());
 
   if (!q || q.length < 2) return jsonResponse({ error: 'q is required' }, 400);
 
@@ -101,13 +109,15 @@ export async function onRequestGet({ request, env }) {
     if (mode === 'list') {
       // Return all matches above score threshold 40, capped at 50
       const matches = scored
-        .filter(s => s.score >= 40)
+        .filter(s => s.score >= 40 && inCat(s.item))   // category guard
         .slice(0, 50)
         .map(s => buildMatch(s.item));
       return jsonResponse({ matches }, 200);
     }
 
-    return jsonResponse({ match: buildMatch(scored[0].item) }, 200);
+    // Single mode — prefer a category-matching result when a cat was declared
+    const best = allowCats ? (scored.find(s => inCat(s.item)) || scored[0]) : scored[0];
+    return jsonResponse({ match: buildMatch(best.item) }, 200);
 
   } catch (err) {
     console.error('VS adapter error:', err);
