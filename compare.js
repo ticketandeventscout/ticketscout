@@ -328,8 +328,12 @@ const ADAPTERS = [
   {
     source: 'Soldout',
 
-    buildUrl(eventName, venueCity, eventDate, venueName) {
-      return `/api/soldout?q=${encodeURIComponent(eventName)}`;
+    buildUrl(eventName, venueCity, eventDate, venueName, category) {
+      // Soldout lists UK football clubs as "{Name} FC" (arsenal-fc-tickets),
+      // but concerts/theatre/foreign clubs keep their plain name. Pass the
+      // category so the endpoint can append 'fc' only for football.
+      const catParam = category === 'football' ? '&cat=football' : '';
+      return `/api/soldout?q=${encodeURIComponent(eventName)}${catParam}`;
     },
 
     normalise(data, eventName) {
@@ -463,7 +467,7 @@ async function loadMerchantStatus() {
   return MERCHANT_STATUS;
 }
 
-async function comparePrices(eventName, venueCity, eventDate, venueName) {
+async function comparePrices(eventName, venueCity, eventDate, venueName, category) {
   // Use performer name (stripped of subtitles) for adapter searches
   const performerName = extractPerformerName(eventName);
 
@@ -476,8 +480,10 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
 
   const settled = await Promise.allSettled(
     activeAdapters.map(async adapter => {
-      // Pass performerName for search queries, but keep full eventName for normalise matching
-      const url = adapter.buildUrl(performerName, venueCity, eventDate, venueName);
+      // Pass performerName for search queries, but keep full eventName for normalise matching.
+      // category (optional) lets an adapter tailor its URL — e.g. Soldout appends
+      // 'fc' for UK football clubs. Undefined for callers that don't supply it.
+      const url = adapter.buildUrl(performerName, venueCity, eventDate, venueName, category);
 
       // Adapters with a custom fetch() method (e.g. deep-link adapters that
       // don't make network calls) bypass the standard JSON fetch path
@@ -526,7 +532,7 @@ async function comparePrices(eventName, venueCity, eventDate, venueName) {
 // (TM data comes from the event detail fetch, not a separate adapter call)
 // ===========================
 
-function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, eventDate, venueName) {
+function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, eventDate, venueName, category) {
   if (!container) return;
 
   // Render the shell immediately with a loading state — TM row is NOT
@@ -578,7 +584,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     </div>
   `;
 
-  comparePrices(eventName, venueCity, eventDate, venueName).then(results => {
+  comparePrices(eventName, venueCity, eventDate, venueName, category).then(results => {
     const slot = document.getElementById('adapter-prices');
     if (!slot) return;
 

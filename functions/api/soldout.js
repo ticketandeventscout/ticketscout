@@ -40,11 +40,22 @@ export async function onRequestGet(ctx) {
   const { request } = ctx;
   const url  = new URL(request.url);
   const q    = (url.searchParams.get('q') || '').trim();
+  const cat  = (url.searchParams.get('cat') || '').trim().toLowerCase();
   const mode = url.searchParams.get('mode') || 'single'; // 'list' | 'single'
 
   if (!q) return jsonResponse({ error: 'q (performer/event name) is required.' }, 400);
 
-  const slug = soldoutSlug(q);
+  // Soldout lists UK football clubs as "{Club} FC" (e.g. arsenal-fc-tickets).
+  // Append 'fc' for football, UNLESS the name already ends in a club suffix
+  // (fc/cf) — foreign clubs like "FC Barcelona"/"Real Madrid CF" keep their
+  // own name and are passed through plain (cat won't be 'football' for those
+  // via the football pages, but this guards manual/edge calls too).
+  let performer = q;
+  if (cat === 'football' && !/\b(fc|cf)\b/i.test(q)) {
+    performer = `${q} FC`;
+  }
+
+  const slug = soldoutSlug(performer);
   if (!slug) return jsonResponse(mode === 'list' ? { matches: [] } : { match: null }, 200);
 
   const performerUrl = `${SOLDOUT_BASE}/${slug}-tickets`;

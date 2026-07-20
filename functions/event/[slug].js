@@ -170,7 +170,7 @@ function renderPage(d) {
   // string-interpolated raw (XSS safety for D1-sourced strings).
   const hydrate = JSON.stringify({
     name: d.name, tmPrice: d.tmPrice, tmUrl: d.tmUrl || '#',
-    city: d.city, date: d.eventDate, venue: d.venue
+    city: d.city, date: d.eventDate, venue: d.venue, category: d.category
   }).replace(/</g, '\\u003c');
 
   return `<!DOCTYPE html>
@@ -262,7 +262,7 @@ function renderPage(d) {
     </div>
   </footer>
 
-  <script src="/compare.js?v=20260719c"></script>
+  <script src="/compare.js?v=20260719d"></script>
   <script>
     (function () {
       var EV = ${hydrate};
@@ -270,7 +270,7 @@ function renderPage(d) {
       if (typeof renderComparePrices === 'function') {
         renderComparePrices(
           document.getElementById('detail-compare'),
-          EV.name, EV.tmPrice, EV.tmUrl, EV.city, EV.date, EV.venue
+          EV.name, EV.tmPrice, EV.tmUrl, EV.city, EV.date, EV.venue, EV.category
         );
       }
       // Hotel card (inline copy of events.js renderHotelCard — events.js
