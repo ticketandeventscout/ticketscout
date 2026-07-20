@@ -131,11 +131,37 @@ function renderPage(d) {
 
   // ── JSON-LD — location ALWAYS populated (GSC schema fix rule), offers
   //    only when a real fresh price exists ────────────────────────────────
+  // GSC non-critical enrichments (all from real data, nothing fabricated):
+  //  - description: the same human description shown in the meta tag
+  //  - endDate: same day as start (our events are single-day; we hold a
+  //    date only, so a same-day endDate is honest, not invented)
+  //  - performer (MusicEvent/TheaterEvent): the act itself
+  //  - competitor (SportsEvent): the two sides parsed from "A vs B"
+  //  - organizer (concert/theatre only): the act; skipped for football where
+  //    the true organiser is genuinely unknown
+  const performerName = extractActName(d.name);
+  const isSport = d.cat.schemaType === 'SportsEvent';
+
+  let performerBlock = {};
+  if (isSport) {
+    const sides = splitFixture(d.name);
+    if (sides.length === 2) {
+      performerBlock = { competitor: sides.map(s => ({ '@type': 'SportsTeam', name: s })) };
+    }
+  } else if (performerName) {
+    performerBlock = {
+      performer: { '@type': 'PerformingGroup', name: performerName },
+      organizer: { '@type': 'Organization', name: performerName, url: canonical }
+    };
+  }
+
   const eventLd = {
     '@context': 'https://schema.org',
     '@type': d.cat.schemaType,
     name: d.name,
+    description: description,
     startDate: d.eventDate,
+    endDate: d.eventDate,
     eventStatus: 'https://schema.org/EventScheduled',
     eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
     location: {
@@ -143,6 +169,7 @@ function renderPage(d) {
       name: d.venue || 'Venue to be announced',
       ...(d.city ? { address: { '@type': 'PostalAddress', addressLocality: d.city } } : {})
     },
+    ...performerBlock,
     ...(d.image ? { image: [d.image] } : {}),
     url: canonical,
     ...(d.price && !d.isPast ? {
@@ -262,7 +289,7 @@ function renderPage(d) {
     </div>
   </footer>
 
-  <script src="/compare.js?v=20260719d"></script>
+  <script src="/compare.js?v=20260719e"></script>
   <script>
     (function () {
       var EV = ${hydrate};
@@ -312,6 +339,26 @@ function renderPage(d) {
 // ===========================
 // Helpers
 // ===========================
+
+// Strips a tour/subtitle to get the act name for JSON-LD performer/organizer.
+// "Metallica: Life Burns Faster" -> "Metallica". Mirrors the compare.js
+// extractPerformerName intent, kept local to the route.
+function extractActName(fullName) {
+  if (!fullName) return '';
+  const colon = fullName.indexOf(':');
+  if (colon > 0) return fullName.slice(0, colon).trim();
+  const dash = fullName.indexOf(' - ');
+  if (dash > 0) return fullName.slice(0, dash).trim();
+  return fullName.trim();
+}
+
+// Splits a fixture name into its two sides for SportsEvent competitor[].
+// "Arsenal vs Borussia Dortmund" -> ["Arsenal", "Borussia Dortmund"].
+// Returns [] when it isn't a two-sided fixture.
+function splitFixture(name) {
+  const m = String(name || '').split(/\s+(?:vs?\.?|v)\s+/i);
+  return m.length === 2 ? m.map(s => s.trim()).filter(Boolean) : [];
+}
 
 function esc(s) {
   return String(s == null ? '' : s)
