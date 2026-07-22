@@ -743,8 +743,17 @@
       document.getElementById('tw-image') && document.getElementById('tw-image').setAttribute('content', image);
 
       // Event schema (JSON-LD)
-      if (events.length > 0) {
-        const schemaEvents = events.slice(0, 5).map(e => {
+      // Only real, DATED events belong in Event schema. Synthetic seller
+      // cards (the Ticombo search deep-link, the VS fallback card) carry
+      // localDate:'' and previously emitted startDate:"" / endDate:"" —
+      // the GSC critical "Missing field 'startDate'". They stay in the
+      // rendered event list (they earn clicks), they just leave the graph.
+      const schemaSource = events.filter(e => {
+        const d = e.dates?.start?.dateTime || e.dates?.start?.localDate;
+        return typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d);
+      });
+      if (schemaSource.length > 0) {
+        const schemaEvents = schemaSource.slice(0, 5).map(e => {
           const venue    = e._embedded?.venues?.[0];
           const minPrice = e.priceRanges?.[0]?.min;
           const startISO = e.dates?.start?.dateTime || e.dates?.start?.localDate;
