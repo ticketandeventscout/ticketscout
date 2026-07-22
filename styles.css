@@ -741,3 +741,28 @@ a:hover {
   color: #999;
   line-height: 1.5;
 }
+
+/* ── Price history component (event pages; entity pages later) ─────────── */
+.ts-pricehist {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 18px 20px 14px;
+  margin-bottom: 24px;
+}
+.ts-ph-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 2px; }
+.ts-ph-title { font-size: 15px; font-weight: 600; color: #0c2d5a; margin: 0; }
+.ts-ph-scope { font-size: 12px; color: #888; font-weight: 400; }
+.ts-ph-figs { display: flex; align-items: baseline; gap: 16px; margin: 10px 0 14px; flex-wrap: wrap; }
+.ts-ph-current { font-size: 26px; font-weight: 700; color: #0c2d5a; line-height: 1; letter-spacing: -0.5px; }
+.ts-ph-current .cur { font-size: 16px; font-weight: 600; vertical-align: 2px; margin-right: 1px; }
+.ts-ph-trend { font-size: 13px; font-weight: 600; padding: 3px 9px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px; }
+.ts-ph-trend.up   { background: #fdecea; color: #c0392b; }
+.ts-ph-trend.down { background: #e8f6ee; color: #1e8449; }
+.ts-ph-trend.flat { background: #eef1f4; color: #5a6b7b; }
+.ts-ph-low { font-size: 13px; color: #666; }
+.ts-ph-low b { color: #0c2d5a; font-weight: 600; }
+.ts-ph-chart { width: 100%; display: block; height: auto; }
+.ts-ph-foot { font-size: 11.5px; color: #9aa4ae; margin-top: 8px; line-height: 1.5; }
+.ts-ph-foot .anchor { color: #666; }
+.ts-ph-sparse .ts-ph-current { font-size: 22px; }

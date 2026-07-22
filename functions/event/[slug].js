@@ -195,9 +195,23 @@ function renderPage(d) {
 
   // Values handed to the client hydration script — JSON-encoded, never
   // string-interpolated raw (XSS safety for D1-sourced strings).
+  // Entity slug candidate for the price-history chart. The event_pages row
+  // carries no entity reference, so we derive it here from the same name the
+  // sampler matches on: football → home side of the fixture; concert/theatre
+  // → the act (subtitle stripped). The chart probes /api/price-history with
+  // this and silently renders nothing on a miss, so a wrong guess is harmless.
+  let entitySlug = '';
+  if (d.category === 'football') {
+    const sides = splitFixture(d.name);
+    entitySlug = toEntitySlug(sides.length ? sides[0] : d.name);
+  } else {
+    entitySlug = toEntitySlug(extractActName(d.name));
+  }
+
   const hydrate = JSON.stringify({
     name: d.name, tmPrice: d.tmPrice, tmUrl: d.tmUrl || '#',
-    city: d.city, date: d.eventDate, venue: d.venue, category: d.category
+    city: d.city, date: d.eventDate, venue: d.venue, category: d.category,
+    entitySlug: entitySlug, eventDate: d.eventDate
   }).replace(/</g, '\\u003c');
 
   return `<!DOCTYPE html>
@@ -269,6 +283,7 @@ function renderPage(d) {
           ${d.isPast ? `<div class="detail-meta" style="margin-top:8px; color:#b00;">This event has taken place. <a href="${esc(d.cat.hub)}">Browse upcoming ${esc(d.cat.label.toLowerCase())} →</a></div>` : ''}
         </div>
       </div>
+      <div id="detail-pricehist"></div>
       <div id="detail-compare"><div class="loading">Loading live prices…</div></div>
       <div id="detail-hotels"></div>
     </div>
@@ -299,6 +314,23 @@ function renderPage(d) {
           document.getElementById('detail-compare'),
           EV.name, EV.tmPrice, EV.tmUrl, EV.city, EV.date, EV.venue, EV.category
         );
+      }
+      // Price history — event-scoped (this fixture/show on this date), so the
+      // cited price is unambiguously about the event on screen. Fails silent:
+      // no entity slug, no data, or a fetch error → the card simply doesn't
+      // appear. Never blocks the compare table above.
+      if (EV.entitySlug && EV.eventDate) {
+        (function () {
+          var box = document.getElementById('detail-pricehist');
+          if (!box) return;
+          var qs = '?slug=' + encodeURIComponent(EV.entitySlug) + '&date=' + encodeURIComponent(EV.eventDate);
+          fetch('/api/price-history' + qs)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+              if (data && !data.error) renderPriceHistory(box, data, { entityName: EV.name });
+            })
+            .catch(function () { /* supplementary — silent */ });
+        })();
       }
       // Hotel card (inline copy of events.js renderHotelCard — events.js
       // itself can't load here: its router expects the homepage DOM)
@@ -332,6 +364,94 @@ function renderPage(d) {
       }
     })();
   </script>
+  <script>
+  // ── Price-history renderer (inline SVG, zero dependencies) ──────────────
+  // Kept self-contained on the page rather than in compare.js: it's only used
+  // here, and inlining avoids a compare.js version bump for a display-only
+  // addition. If entity pages adopt it later, promote this to a shared file.
+  function renderPriceHistory(container, data, opts) {
+    opts = opts || {};
+    if (!container) return;
+    var series = (data && Array.isArray(data.series)) ? data.series.filter(function (p) { return p && typeof p.min === 'number'; }) : [];
+    if (series.length === 0) { container.innerHTML = ''; return; }
+
+    var summary = data.summary || {};
+    var scope   = data.scope || 'entity';
+    var money   = function (n) { return '\u00a3' + (Math.round(n * 100) / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 }); };
+
+    var anchorLine, scopeTag;
+    if (scope === 'event' && data.event) {
+      var dd = data.event.date ? new Date(data.event.date + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+      anchorLine = 'Get-in price for this ' + (data.event.name || 'event') + (dd ? ' on ' + dd : '') + (data.event.venue ? ', ' + data.event.venue : '');
+      scopeTag = 'this event';
+    } else {
+      anchorLine = 'Cheapest ticket across all ' + (opts.entityName || 'upcoming') + ' dates' + (summary.upcomingEvents ? ' (' + summary.upcomingEvents + ' events)' : '');
+      scopeTag = 'all dates';
+    }
+
+    var current = summary.current != null ? summary.current : series[series.length - 1].min;
+    var low     = summary.low30d  != null ? summary.low30d  : series.reduce(function (m, p) { return p.min < m ? p.min : m; }, series[0].min);
+    var trend   = summary.trend || 'flat';
+    var trendTxt = { up: 'trending up', down: 'trending down', flat: 'holding steady' }[trend] || 'holding steady';
+    var trendArrow = { up: '\u25b2', down: '\u25bc', flat: '\u25ac' }[trend] || '';
+
+    if (series.length < 4) {
+      container.innerHTML =
+        '<div class="ts-pricehist ts-ph-sparse">' +
+          '<div class="ts-ph-head"><h3 class="ts-ph-title">Price history</h3>' +
+            '<span class="ts-ph-scope">' + phEsc(scopeTag) + '</span></div>' +
+          '<div class="ts-ph-figs"><span class="ts-ph-current"><span class="cur">\u00a3</span>' + phNum(current) + '</span></div>' +
+          '<div class="ts-ph-foot"><span class="anchor">' + phEsc(anchorLine) + '.</span> ' +
+            'We\\'ve only been tracking this ' + (scope === 'event' ? 'event' : 'act') + ' for ' + series.length + ' day' + (series.length === 1 ? '' : 's') + ' \u2014 a price trend will appear once we have more history.</div>' +
+        '</div>';
+      return;
+    }
+
+    container.innerHTML =
+      '<div class="ts-pricehist">' +
+        '<div class="ts-ph-head">' +
+          '<h3 class="ts-ph-title">Price history</h3>' +
+          '<span class="ts-ph-scope">last ' + series.length + ' days \u00b7 ' + phEsc(scopeTag) + '</span>' +
+        '</div>' +
+        '<div class="ts-ph-figs">' +
+          '<span class="ts-ph-current"><span class="cur">\u00a3</span>' + phNum(current) + '</span>' +
+          '<span class="ts-ph-trend ' + phEsc(trend) + '">' + trendArrow + ' ' + phEsc(trendTxt) + '</span>' +
+          '<span class="ts-ph-low">30-day low <b>' + money(low) + '</b></span>' +
+        '</div>' +
+        phSvg(series, trend) +
+        '<div class="ts-ph-foot"><span class="anchor">' + phEsc(anchorLine) + '.</span> ' +
+          'Cheapest available ticket per day, all sellers, in GBP. Not a purchase price \u2014 confirm on the seller\\'s site.</div>' +
+      '</div>';
+  }
+
+  function phSvg(series, trend) {
+    var W = 640, H = 140, padL = 10, padR = 10, padT = 14, padB = 26;
+    var iw = W - padL - padR, ih = H - padT - padB;
+    var mins = series.map(function (p) { return p.min; });
+    var lo = Math.min.apply(null, mins), hi = Math.max.apply(null, mins);
+    if (hi === lo) { hi = lo + 1; lo = lo - 1; }
+    var pad = (hi - lo) * 0.15; lo -= pad; hi += pad;
+    var x = function (i) { return padL + (series.length === 1 ? iw / 2 : (i / (series.length - 1)) * iw); };
+    var y = function (v) { return padT + ih - ((v - lo) / (hi - lo)) * ih; };
+    var stroke = trend === 'up' ? '#c0392b' : trend === 'down' ? '#1e8449' : '#1a6fc4';
+    var fill   = trend === 'up' ? 'rgba(192,57,43,0.08)' : trend === 'down' ? 'rgba(30,132,73,0.08)' : 'rgba(26,111,196,0.08)';
+    var line = series.map(function (p, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.min).toFixed(1); }).join(' ');
+    var area = 'M' + x(0).toFixed(1) + ' ' + (padT + ih) + ' ' + line.replace(/^M/, 'L') + ' L' + x(series.length - 1).toFixed(1) + ' ' + (padT + ih) + ' Z';
+    var d0 = phDay(series[0].day), d1 = phDay(series[series.length - 1].day);
+    var lx = x(series.length - 1), ly = y(series[series.length - 1].min);
+    return '<svg class="ts-ph-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cheapest daily ticket price over the tracked period">' +
+      '<path d="' + area + '" fill="' + fill + '" />' +
+      '<path d="' + line + '" fill="none" stroke="' + stroke + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />' +
+      '<circle cx="' + lx.toFixed(1) + '" cy="' + ly.toFixed(1) + '" r="3.5" fill="' + stroke + '" />' +
+      '<text x="' + padL + '" y="' + (H - 8) + '" font-size="12" fill="#9aa4ae" font-family="Inter,sans-serif">' + d0 + '</text>' +
+      '<text x="' + (W - padR) + '" y="' + (H - 8) + '" font-size="12" fill="#9aa4ae" text-anchor="end" font-family="Inter,sans-serif">' + d1 + '</text>' +
+    '</svg>';
+  }
+
+  function phDay(iso) { var d = new Date(iso + 'T00:00:00Z'); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); }
+  function phNum(n) { n = Math.round(n * 100) / 100; return (n % 1 === 0) ? String(n) : n.toFixed(2); }
+  function phEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  </script>
 </body>
 </html>`;
 }
@@ -354,10 +474,34 @@ function extractActName(fullName) {
 
 // Splits a fixture name into its two sides for SportsEvent competitor[].
 // "Arsenal vs Borussia Dortmund" -> ["Arsenal", "Borussia Dortmund"].
-// Returns [] when it isn't a two-sided fixture.
+// Handles all three separators the feeds use — "vs"/"v", " - ", and " at " —
+// mirroring price-sampler.js matchEntity so the home side we derive matches
+// the entity the sampler recorded prices under. Returns [] when it isn't a
+// recognisable two-sided fixture.
 function splitFixture(name) {
-  const m = String(name || '').split(/\s+(?:vs?\.?|v)\s+/i);
+  const m = String(name || '').split(/\s+(?:vs?\.?|v)\s+|\s+-\s+|\s+at\s+/i);
   return m.length === 2 ? m.map(s => s.trim()).filter(Boolean) : [];
+}
+
+// Derive an entity slug from a name, mirroring discover-pages.js toSlug()
+// (same diacritic transliteration) + the sampler's club-suffix strip, so the
+// result matches the `entities.slug` the price-history API queries. Football
+// entities are stored bare ("arsenal", not "arsenal-fc"), so the suffix strip
+// is essential; for concert/theatre it's a no-op on normal act names.
+// MUST MATCH: discover-pages.js toSlug + price-sampler.js matchEntity strip.
+function toEntitySlug(name) {
+  const base = String(name || '')
+    .replace(/\s*\([^)]*\)\s*/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ß/g, 'ss').replace(/ø/g, 'o').replace(/Ø/g, 'o')
+    .replace(/æ/g, 'ae').replace(/Æ/g, 'ae').replace(/đ/g, 'd').replace(/Đ/g, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 60);
+  return base.replace(/-(fc|cf|afc|sc|ac|club)$/, '');
 }
 
 function esc(s) {
