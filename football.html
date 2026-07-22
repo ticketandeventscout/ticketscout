@@ -885,6 +885,10 @@
           // Drop founding-year tokens some feeds append ("Como 1907") so the
           // same club matches whether or not the year is present.
           .replace(/\b(18|19|20)\d{2}\b/g, ' ')
+          // Normalise ampersand and the word "and" away, so "Brighton & Hove"
+          // and "Brighton and Hove Albion" reduce to the same key.
+          .replace(/&/g, ' ')
+          .replace(/\band\b/g, ' ')
           .replace(/[^a-z0-9]+/g, ' ')
           .trim()
           .split(/\s+vs\s+/)
