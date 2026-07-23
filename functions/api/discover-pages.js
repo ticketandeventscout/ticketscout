@@ -75,6 +75,7 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&source=vividseats    — discover from Vivid Seats catalog, queue to KV',
       '  ?trigger=1&source=ticombo       — discover from Ticombo via Partnerize API, queue to KV',
       '  ?trigger=1&phase=commit         — commit queued pages to GitHub',
+      '  ?trigger=1&phase=fix-categories — find/move entities in the wrong section (dry by default)',
       '  ?trigger=1&phase=backfill       — write KV data for already-committed pages',
       '  ?trigger=1&phase=build-registry — build sitemap:registry from the GitHub tree (one-time)',
       '  ?trigger=1&phase=recheck-deferred — re-check liquidity-gated entities, requeue liquid ones',
@@ -376,6 +377,127 @@ export async function onRequestGet({ request, env }) {
   // entity KV records, or any committed pages.
   // Usage: ?trigger=1&phase=clear-queue
   // Add &confirm=yes to actually clear (dry-run by default).
+  // ── FIX-CATEGORIES PHASE ────────────────────────────────────────────────
+  // Repairs entities committed into the WRONG category folder.
+  //
+  // Why this exists: when /sports/ shipped, the commit path's `byCategory`
+  // object had no 'sports' key, and its fallback is `: 'concert'`. Sports
+  // entities were therefore written to concert/{slug}.html and
+  // concert:artist:{slug} instead of the sports equivalents. The bug is
+  // fixed, but the already-committed pages need moving.
+  //
+  // Detection is by GENRE on the stored KV record — the same field the
+  // router uses — so it can never disagree with genreToCategory().
+  //
+  // Usage: ?trigger=1&phase=fix-categories            — dry run (default)
+  //        ?trigger=1&phase=fix-categories&confirm=yes — apply
+  //        &limit=N  (default 100, max 300)
+  if (phase === 'fix-categories') {
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    const limit   = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 300);
+
+    let registry = null;
+    try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
+    if (!registry || !registry.sections) {
+      return json({ error: 'sitemap:registry not built — run ?phase=build-registry first' }, 503);
+    }
+
+    // Scan every category we hold and re-derive where each entity BELONGS.
+    const misfiled = [];
+    let scanned = 0;
+    for (const fromCat of ['concert', 'football', 'theatre', 'sports']) {
+      const slugs = Object.keys(registry.sections[fromCat] || {});
+      for (const slug of slugs) {
+        if (misfiled.length >= limit) break;
+        scanned++;
+        let rec = null;
+        try {
+          const raw = await kv.get(categoryToKvPrefix(fromCat) + slug);
+          if (raw) rec = JSON.parse(raw);
+        } catch {}
+        if (!rec || !rec.genre) continue;          // no genre = no evidence = leave alone
+        const shouldBe = genreToCategory(rec.genre);
+        if (shouldBe !== fromCat) {
+          misfiled.push({ slug, from: fromCat, to: shouldBe, genre: rec.genre, name: rec.name || slug });
+        }
+      }
+      if (misfiled.length >= limit) break;
+    }
+
+    if (!misfiled.length) {
+      return json({ message: 'No mis-categorised entities found.', scanned }, 200);
+    }
+    if (!confirm) {
+      return json({
+        dryRun: true, scanned, found: misfiled.length,
+        message: 'Add &confirm=yes to move these. Old URLs will 404 afterwards — see note.',
+        note: 'Pages committed today are unlikely to be indexed yet. If any ARE indexed, ' +
+              'add explicit 301s to _redirects for those slugs before applying.',
+        entities: misfiled.slice(0, 50),
+        truncatedSample: misfiled.length > 50
+      }, 200);
+    }
+    if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
+
+    // One atomic commit: write the new path, delete the old one.
+    const files = [];
+    for (const m of misfiled) {
+      const gen = categoryToHtmlGenerator(m.to);
+      let enrich = null;
+      try {
+        const meta = await kv.get(`entity:meta:${m.to}:${m.slug}`);
+        if (meta) enrich = JSON.parse(meta);
+      } catch {}
+      files.push({ path: `${m.to}/${m.slug}.html`, content: gen(m.slug, enrich || { name: m.name }) });
+      files.push({ path: `${m.from}/${m.slug}.html`, content: null });   // null = delete
+    }
+
+    const github = new GitHubAPI(githubToken, owner, repo, branch);
+    let commitSha = null;
+    try {
+      commitSha = await github.commitFilesBatch(files,
+        `Fix category: move ${misfiled.length} entities to correct sections`);
+    } catch (err) {
+      return json({ error: 'Move commit failed — nothing changed in KV.', detail: String(err) }, 500);
+    }
+
+    // Only after the commit succeeds do we touch KV, so a failed commit
+    // can never leave the registry pointing at files that don't exist.
+    const today = new Date().toISOString().slice(0, 10);
+    const moved = [];
+    for (const m of misfiled) {
+      try {
+        const oldKey = categoryToKvPrefix(m.from) + m.slug;
+        const raw = await kv.get(oldKey);
+        if (raw) {
+          const rec = JSON.parse(raw);
+          rec.category = m.to;
+          await kv.put(categoryToKvPrefix(m.to) + m.slug, JSON.stringify(rec));
+          await kv.delete(oldKey);
+        }
+        if (registry.sections[m.from]) delete registry.sections[m.from][m.slug];
+        if (!registry.sections[m.to]) registry.sections[m.to] = {};
+        registry.sections[m.to][m.slug] = today;
+        moved.push(`${m.from}/${m.slug} -> ${m.to}/${m.slug}`);
+      } catch (err) {
+        // Reported, not thrown — one bad record shouldn't abort the rest.
+        moved.push(`ERROR ${m.slug}: ${err}`);
+      }
+    }
+    registry.updated = new Date().toISOString();
+    await kv.put(REGISTRY_KEY, JSON.stringify(registry));
+
+    return json({
+      message: 'Mis-categorised entities moved.',
+      commitSha, movedCount: misfiled.length,
+      filesChanged: files.length,
+      sample: moved.slice(0, 20),
+      next: misfiled.length >= limit
+        ? '?trigger=1&phase=fix-categories&confirm=yes — more may remain, re-run'
+        : null
+    }, 200);
+  }
+
   if (phase === 'clear-queue') {
     const confirm = url.searchParams.get('confirm') === 'yes';
     const pendingRaw = await kv.get(PENDING_KEY);
@@ -1352,7 +1474,7 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
   }
 
   const github = new GitHubAPI(githubToken, owner, repo, branch);
-  const committed = { concert: [], football: [], theatre: [], venues: [], errors: [] };
+  const committed = { concert: [], football: [], theatre: [], sports: [], venues: [], errors: [] };
 
   let knownArtists = new Set();
   let knownVenues  = new Set();
@@ -1360,7 +1482,12 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
   try { const k = await kv.get(KNOWN_VENUES_KEY); if (k) knownVenues  = new Set(JSON.parse(k)); } catch {}
 
   // Bucket artists by category
-  const byCategory = { concert: [], football: [], theatre: [] };
+  // 'sports' MUST be listed here. It was missing when the section shipped,
+  // and because the fallback is `: 'concert'`, every sports entity was
+  // silently committed as a /concert/ page — the exact mis-categorisation
+  // the section exists to prevent. Any new category must be added here too
+  // or it fails the same silent way.
+  const byCategory = { concert: [], football: [], theatre: [], sports: [] };
   for (const artist of artists) {
     const cat = artist.category || genreToCategory(artist.genre || '');
     const bucket = byCategory[cat] ? cat : 'concert';
@@ -1507,7 +1634,12 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, 
   try { const k = await kv.get(KNOWN_VENUES_KEY); if (k) knownVenues  = new Set(JSON.parse(k)); } catch {}
 
   // Bucket artists by category
-  const byCategory = { concert: [], football: [], theatre: [] };
+  // 'sports' MUST be listed here. It was missing when the section shipped,
+  // and because the fallback is `: 'concert'`, every sports entity was
+  // silently committed as a /concert/ page — the exact mis-categorisation
+  // the section exists to prevent. Any new category must be added here too
+  // or it fails the same silent way.
+  const byCategory = { concert: [], football: [], theatre: [], sports: [] };
   for (const artist of artists) {
     const cat = artist.category || genreToCategory(artist.genre || '');
     const bucket = byCategory[cat] ? cat : 'concert';
@@ -1773,7 +1905,12 @@ class GitHubAPI {
     // 3. New tree with all files (content inline — GitHub encodes it)
     const tree = await this.request('POST', `/repos/${this.owner}/${this.repo}/git/trees`, {
       base_tree: baseTreeSha,
-      tree: files.map(f => ({ path: f.path, mode: '100644', type: 'blob', content: f.content }))
+      // content === null means DELETE: the Git Trees API removes a path when
+      // its sha is null. Needed to move a page between categories in one
+      // atomic commit (delete old path + create new path).
+      tree: files.map(f => (f.content === null
+        ? { path: f.path, mode: '100644', type: 'blob', sha: null }
+        : { path: f.path, mode: '100644', type: 'blob', content: f.content }))
     });
     // 4. Commit pointing at the new tree
     const commit = await this.request('POST', `/repos/${this.owner}/${this.repo}/git/commits`, {
