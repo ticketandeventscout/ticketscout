@@ -137,20 +137,25 @@ async function fetchEvents(keyword = '', segmentName = '', genreId = '', subGenr
   grid.innerHTML = '<div class="loading">Loading events…</div>';
 
   try {
-    // Over-fetch so that filtering and deduping still leave a full grid.
-    // Same single TM call, same quota cost, same 10-min edge cache.
+    // Filtering, deduping and segment blending all happen server-side in
+    // /api/trending. Doing it here meant shipping up to 4 MB of raw TM JSON
+    // to every visitor; the endpoint returns ~5 KB of the same shape.
     //
-    // sort=relevance,desc is requested here rather than changed as the proxy
-    // default, because artist and venue pages must stay chronological —
-    // a fan opening /concert/metallica wants dates in order, not by relevance.
-    // Live A/B 23 Jul: date,asc filtered out 24 of 40 as attractions and
-    // returned only same-night local shows; relevance,desc filtered out 0
-    // of 40 and surfaced NFL London, JAY-Z and West End runs.
-    const params = new URLSearchParams({ size: '40', sort: 'relevance,desc' });
-    if (keyword) params.set('keyword', keyword);
-    if (segmentName) params.set('segmentName', segmentName);
+    // IMPORTANT: do NOT re-run dedupePerformances() on this response. The
+    // endpoint strips _embedded.attractions to keep the payload small, so the
+    // client would fall back to name matching and could wrongly collapse two
+    // distinct productions that share a name. The server has already deduped.
+    const params = new URLSearchParams();
+    if (segmentName) params.set('segment', segmentName);
 
-    const response = await fetch(`/api/ticketmaster?${params.toString()}`);
+    // A keyword search is a different intent from a trending grid, so it
+    // still goes to the raw proxy and keeps its own client-side filtering.
+    const useTrending = !keyword;
+    const url = useTrending
+      ? `/api/trending${params.toString() ? '?' + params.toString() : ''}`
+      : `/api/ticketmaster?keyword=${encodeURIComponent(keyword)}&size=40`;
+
+    const response = await fetch(url);
     const data = await response.json();
 
     if (data.error || !data._embedded || !data._embedded.events) {
@@ -158,9 +163,9 @@ async function fetchEvents(keyword = '', segmentName = '', genreId = '', subGenr
       return;
     }
 
-    const events = dedupePerformances(
-      data._embedded.events.filter(isRealEvent)
-    ).slice(0, 12);
+    const events = useTrending
+      ? data._embedded.events.slice(0, 12)
+      : dedupePerformances(data._embedded.events.filter(isRealEvent)).slice(0, 12);
 
     if (!events.length) {
       grid.innerHTML = '<div class="error-msg">No events found. Try a different search.</div>';
