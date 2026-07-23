@@ -16,6 +16,36 @@ const CATEGORY_MAP = {
 // excluded from the homepage. Confirmed 23 Jul against the live TM payload.
 const TRENDING_SEGMENTS = new Set(['Music', 'Sports', 'Arts & Theatre']);
 
+// Collapse repeat performances of the same production. A West End run puts
+// the same show on consecutive nights, and relevance,desc surfaces all of
+// them — live evidence 23 Jul had Harry Potter in slots 3, 4, 5 and 6.
+// TM's own attraction id is the identity where present; the normalised name
+// is the fallback for events TM ships without an attraction link.
+function performanceKey(e) {
+  const attr = e && e._embedded && e._embedded.attractions && e._embedded.attractions[0];
+  if (attr && attr.id) return 'a:' + attr.id;
+  const name = String((e && e.name) || '')
+    .toLowerCase()
+    .replace(/\b(mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b/g, ' ')
+    .replace(/\b\d{1,2}[:.]\d{2}\b/g, ' ')      // 14:00
+    .replace(/\b\d{1,2}\s*(am|pm)\b/g, ' ')     // 7pm
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return 'n:' + name;
+}
+
+function dedupePerformances(events) {
+  const seen = new Set();
+  const out = [];
+  for (const e of events) {
+    const k = performanceKey(e);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  return out;
+}
+
 function isRealEvent(e) {
   const c = (e && e.classifications && e.classifications[0]) || null;
   if (!c) return false;
@@ -107,9 +137,16 @@ async function fetchEvents(keyword = '', segmentName = '', genreId = '', subGenr
   grid.innerHTML = '<div class="loading">Loading events…</div>';
 
   try {
-    // Over-fetch so that filtering attractions out still leaves a full grid.
+    // Over-fetch so that filtering and deduping still leave a full grid.
     // Same single TM call, same quota cost, same 10-min edge cache.
-    const params = new URLSearchParams({ size: '40' });
+    //
+    // sort=relevance,desc is requested here rather than changed as the proxy
+    // default, because artist and venue pages must stay chronological —
+    // a fan opening /concert/metallica wants dates in order, not by relevance.
+    // Live A/B 23 Jul: date,asc filtered out 24 of 40 as attractions and
+    // returned only same-night local shows; relevance,desc filtered out 0
+    // of 40 and surfaced NFL London, JAY-Z and West End runs.
+    const params = new URLSearchParams({ size: '40', sort: 'relevance,desc' });
     if (keyword) params.set('keyword', keyword);
     if (segmentName) params.set('segmentName', segmentName);
 
@@ -121,7 +158,9 @@ async function fetchEvents(keyword = '', segmentName = '', genreId = '', subGenr
       return;
     }
 
-    const events = data._embedded.events.filter(isRealEvent).slice(0, 12);
+    const events = dedupePerformances(
+      data._embedded.events.filter(isRealEvent)
+    ).slice(0, 12);
 
     if (!events.length) {
       grid.innerHTML = '<div class="error-msg">No events found. Try a different search.</div>';
