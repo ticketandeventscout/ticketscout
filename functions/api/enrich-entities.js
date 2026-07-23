@@ -188,6 +188,17 @@ async function enrichOne(category, slug, name, genre) {
 // genre we already believe. A mismatch means we matched the wrong QID —
 // "Anaheim Ducks" the hockey team vs some unrelated item — and we discard
 // everything rather than publish another entity's venue as fact.
+// wikibase:label falls back to the bare QID ("Q1215892") when an item has no
+// label in the requested language. That leaked into live copy as "compete in
+// the Q1215892". Any value shaped like a QID is an identifier, not a name, so
+// we drop the fact entirely rather than print an internal ID at a reader.
+function wdLabel(v) {
+  const s = v && v.value ? String(v.value).trim() : '';
+  if (!s) return null;
+  if (/^Q\d+$/.test(s)) return null;
+  return s;
+}
+
 const SPORT_ALIASES = {
   'basketball':        ['basketball'],
   'mma':               ['mixed martial arts', 'martial arts', 'combat sport'],
@@ -271,15 +282,21 @@ async function wikidataSportsFacts(name, genre) {
   if (!row) return {};
 
   const facts = { entityType: row.kind?.value === 'person' ? 'Person' : 'Team' };
-  if (row.sportLabel?.value)       facts.sport    = row.sportLabel.value;
-  if (row.leagueLabel?.value)      facts.league   = row.leagueLabel.value;
-  if (row.venueLabel?.value)       facts.venue    = row.venueLabel.value;
-  if (row.capacity?.value)         facts.capacity = parseInt(row.capacity.value, 10) || undefined;
-  if (row.cityLabel?.value)        facts.city     = row.cityLabel.value;
-  if (row.founded?.value)          facts.founded  = row.founded.value.slice(0, 4);
-  if (row.countryLabel?.value)     facts.country  = row.countryLabel.value;
-  if (row.citizenshipLabel?.value) facts.nationality = row.citizenshipLabel.value;
-  if (row.born?.value)             facts.born     = row.born.value.slice(0, 4);
+  const sport = wdLabel(row.sportLabel);
+  if (sport)                   facts.sport       = sport;
+  const league = wdLabel(row.leagueLabel);
+  if (league)                  facts.league      = league;
+  const venue = wdLabel(row.venueLabel);
+  if (venue)                   facts.venue       = venue;
+  if (row.capacity?.value)     facts.capacity    = parseInt(row.capacity.value, 10) || undefined;
+  const city = wdLabel(row.cityLabel);
+  if (city)                    facts.city        = city;
+  if (row.founded?.value)      facts.founded     = row.founded.value.slice(0, 4);
+  const country = wdLabel(row.countryLabel);
+  if (country)                 facts.country     = country;
+  const nat = wdLabel(row.citizenshipLabel);
+  if (nat)                     facts.nationality = nat;
+  if (row.born?.value)         facts.born        = row.born.value.slice(0, 4);
   facts.wikidataId = row.item.value.split('/').pop();
 
   // A "team" with a birth year, or a "person" with a stadium, means the
@@ -332,7 +349,8 @@ async function wikidataClubFacts(name) {
   if (!row) row = rows[0];
 
   const facts = {};
-  if (row.stadiumLabel?.value) facts.stadium  = row.stadiumLabel.value;
+  const _stadium = wdLabel(row.stadiumLabel);
+  if (_stadium) facts.stadium = _stadium;
   // Normalise city: Wikidata often returns "London Borough of Islington" etc.
   const LONDON_DISTRICTS = new Set([
     'Islington','Camden','Hackney','Tower Hamlets','Southwark','Lambeth',
@@ -353,10 +371,13 @@ async function wikidataClubFacts(name) {
     return c;
   };
   if (row.capacity?.value)     facts.capacity = parseInt(row.capacity.value, 10) || undefined;
-  if (row.cityLabel?.value)    facts.city     = normaliseCity(row.cityLabel.value);
-  if (row.leagueLabel?.value)  facts.league   = row.leagueLabel.value;
+  const _city = wdLabel(row.cityLabel);
+  if (_city)    facts.city = normaliseCity(_city);
+  const _league = wdLabel(row.leagueLabel);
+  if (_league)  facts.league = _league;
   if (row.founded?.value)      facts.founded  = row.founded.value.slice(0, 4);
-  if (row.countryLabel?.value) facts.country  = row.countryLabel.value;
+  const _country = wdLabel(row.countryLabel);
+  if (_country) facts.country = _country;
   facts.wikidataId = row.item.value.split('/').pop();
   return facts;
 }

@@ -198,9 +198,17 @@
         return;
       }
 
-      // Head + hero
+      // Head + hero.
+      // Stub pages (/sports/{slug}) load only the BODY of this template into
+      // a page that already has its own <head>. So every element that lives
+      // in THIS file's head — page-title, canonical, the og:* tags — is null
+      // there. Writing to it unguarded threw before init finished and left
+      // the page stuck on "LOADING...". setAttr already guards; the title
+      // needs the same treatment, and document.title works either way.
       var title = entity.name + ' Tickets | TicketScout';
-      document.getElementById('page-title').textContent = title;
+      document.title = title;
+      var _pt = document.getElementById('page-title');
+      if (_pt) _pt.textContent = title;
       document.getElementById('artist-name').textContent = entity.name + ' Tickets';
       document.getElementById('genre-badge').textContent = entity.genre || 'Sport';
       document.getElementById('about-heading').textContent = 'About ' + entity.name;

@@ -520,6 +520,7 @@ export async function onRequestGet({ request, env }) {
     }
     registry.updated = new Date().toISOString();
     await kv.put(REGISTRY_KEY, JSON.stringify(registry));
+    await kv.delete('sports:hub:index').catch(() => {});   // hub list changed
 
     return json({
       message: 'Mis-categorised entities moved.',
@@ -1609,6 +1610,12 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
     for (const venue of venues) registry.sections.venue[venue.slug] = today;
     registry.updated = new Date().toISOString();
     await kv.put(REGISTRY_KEY, JSON.stringify(registry));
+    // The sports hub serves a 6h-cached index. Drop it here so entities
+    // committed by the daily job appear on /sports immediately instead of
+    // lagging the sitemap by up to six hours.
+    if (byCategory.sports && byCategory.sports.length) {
+      await kv.delete('sports:hub:index').catch(() => {});
+    }
   } catch (err) {
     committed.errors.push({ type: 'sitemap-registry', error: String(err) });
   }
