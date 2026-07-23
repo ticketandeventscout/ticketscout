@@ -1861,6 +1861,10 @@ function stubHeadEnrichment(category, slug, enrich) {
   let fragment = '';
   if (category === 'football' && facts.stadium) {
     fragment = ` Home matches at ${facts.stadium}${facts.city ? `, ${facts.city}` : ''}.`;
+  } else if (category === 'sports' && (facts.venue || facts.league)) {
+    fragment = facts.venue
+      ? ` Home events at ${facts.venue}${facts.city ? `, ${facts.city}` : ''}.`
+      : ` Competing in the ${facts.league}.`;
   } else if (category === 'concert' && facts.origin) {
     fragment = `${facts.genres && facts.genres.length ? ` ${facts.genres[0].replace(/\b\w/g, c => c.toUpperCase())} from ${facts.origin}.` : ` Touring artist from ${facts.origin}.`}`;
   }

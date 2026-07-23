@@ -406,12 +406,23 @@ const SE365_TYPE_MAP = {
 //   1011 (1)   "eliki-swimming-test" — SE365 test record
 //   null (17)  no eventTypeId at all; mixed music acts and football clubs
 
-// Which genres we are willing to CREATE PAGES for. genreToCategory() in
-// discover-pages.js only knows football / theatre / concert, so every other
-// genre would land a basketball team or an MMA fighter on a /concert/ page.
-// Rather than publish a mis-categorised page we skip it: correctly labelled
-// data, no page, until a general sports category exists.
-const SE365_QUEUEABLE_GENRES = new Set(['Football', 'Concert']);
+// Genres we can give a correctly-categorised page.
+//
+// !! MUST MATCH the identical Set in functions/api/discover-pages.js !!
+// These two files each run their own SE365 discovery pass. When only one was
+// updated to include the sports genres, ?trigger=1 silently skipped 1,211
+// participants while the other path would have queued them. The trigger
+// response reports `queueableGenres` specifically so this drift is visible
+// in a dry run instead of being discovered weeks later.
+//
+// /sports/{slug} now exists, so mapped sports genres route there rather than
+// being dumped on /concert/. A null genre (unmapped eventTypeId) is still
+// skipped entirely.
+const SE365_QUEUEABLE_GENRES = new Set([
+  'Football', 'Concert',
+  'Basketball', 'MMA', 'Ice Hockey', 'Rugby', 'Handball', 'American Football',
+  'Baseball', 'Boxing', 'Tennis', 'Cricket', 'Motorsport', 'Golf', 'Wrestling'
+]);
 
 // Returns null for unmapped types. Callers MUST treat null as "don't queue" —
 // the old behaviour returned 'Sports' for anything unknown, which is how 909

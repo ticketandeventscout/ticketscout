@@ -7,6 +7,8 @@
 //
 //   football → Wikidata (CC0): stadium, capacity, city, league, founded
 //   concert  → MusicBrainz (core data CC0): type, origin, active-since, genres
+//   sports   → Wikidata (CC0): sport, league, venue, capacity, city, founded
+//              (clubs) or sport, citizenship, born (individual athletes)
 //   theatre  → no reliable open source yet — minimal record written so the
 //              cursor completes; copy framework still produces a paragraph
 //              from name alone (short, honest, non-templated ordering)
@@ -35,7 +37,7 @@
 const CURSOR_KEY = 'enrich:cursor';         // { category, offset }
 const META_PREFIX = 'entity:meta:';
 const UA = 'TicketScoutBot/1.0 (https://ticketscout.co.uk; contact@ticketscout.co.uk)';
-const CATEGORIES = ['football', 'concert', 'theatre'];
+const CATEGORIES = ['football', 'concert', 'theatre', 'sports'];
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
@@ -61,9 +63,9 @@ export async function onRequestGet({ request, env }) {
 
   // ── Single-entity debug path ──────────────────────────────────────────
   if (oneSlug) {
-    if (!CATEGORIES.includes(oneCat)) return json({ error: 'category must be football|concert|theatre' }, 400);
-    const name = await entityDisplayName(kv, oneCat, oneSlug);
-    const result = await enrichOne(oneCat, oneSlug, name);
+    if (!CATEGORIES.includes(oneCat)) return json({ error: 'category must be football|concert|theatre|sports' }, 400);
+    const rec = await entityRecord(kv, oneCat, oneSlug);
+    const result = await enrichOne(oneCat, oneSlug, rec.name, rec.genre);
     if (!dryRun && result.meta) await kv.put(META_PREFIX + `${oneCat}:${oneSlug}`, JSON.stringify(result.meta));
     return json({ ...result, dryRun }, 200);
   }
@@ -100,9 +102,9 @@ export async function onRequestGet({ request, env }) {
       try { if (await kv.get(META_PREFIX + `${cursor.category}:${slug}`)) { skipped.push(slug); continue; } } catch {}
     }
 
-    const name = await entityDisplayName(kv, cursor.category, slug);
+    const rec = await entityRecord(kv, cursor.category, slug);
     try {
-      const result = await enrichOne(cursor.category, slug, name);
+      const result = await enrichOne(cursor.category, slug, rec.name, rec.genre);
       if (result.meta) {
         if (!dryRun) await kv.put(META_PREFIX + `${cursor.category}:${slug}`, JSON.stringify(result.meta));
         processed.push({ slug, category: cursor.category, factCount: Object.keys(result.meta.facts).length });
@@ -127,18 +129,30 @@ export async function onRequestGet({ request, env }) {
   }, 200);
 }
 
-// ── Entity name lookup (KV record → fallback to de-slugged) ─────────────
-async function entityDisplayName(kv, category, slug) {
-  const prefixes = { football: 'football:team:', concert: 'concert:artist:', theatre: 'theatre:show:' };
+// ── Entity record lookup (KV record → fallback to de-slugged name) ──────
+// Returns { name, genre }. Sports enrichment needs the genre: it tells us
+// which sport the Wikidata match MUST agree with, so a wrong QID can be
+// rejected instead of publishing another entity's stadium.
+async function entityRecord(kv, category, slug) {
+  const prefixes = {
+    football: 'football:team:', concert: 'concert:artist:',
+    theatre: 'theatre:show:',   sports:  'sports:team:'
+  };
   try {
     const raw = await kv.get(prefixes[category] + slug);
-    if (raw) { const d = JSON.parse(raw); if (d.name) return d.name; }
+    if (raw) {
+      const d = JSON.parse(raw);
+      if (d.name) return { name: d.name, genre: d.genre || '' };
+    }
   } catch {}
-  return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return {
+    name: slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    genre: ''
+  };
 }
 
 // ── Per-category enrichment ──────────────────────────────────────────────
-async function enrichOne(category, slug, name) {
+async function enrichOne(category, slug, name, genre) {
   let facts = {}, source = 'none', licence = 'n/a';
   if (category === 'football') {
     facts = await wikidataClubFacts(name);
@@ -146,6 +160,9 @@ async function enrichOne(category, slug, name) {
   } else if (category === 'concert') {
     facts = await musicbrainzArtistFacts(name);
     source = 'musicbrainz'; licence = 'CC0';
+  } else if (category === 'sports') {
+    facts = await wikidataSportsFacts(name, genre);
+    source = 'wikidata'; licence = 'CC0';
   }
   facts = facts || {};
   // For UK clubs, country is implicit — suppress so it doesn't
@@ -161,6 +178,117 @@ async function enrichOne(category, slug, name) {
       fetchedAt: new Date().toISOString()
     }
   };
+}
+
+// ── Wikidata: sports entity facts (clubs AND individual athletes) ───────
+// Football has its own function because it can hard-filter on "association
+// football club". A sports entity might be a basketball franchise, an ice
+// hockey club, or a single fighter, so this accepts either a sports team or
+// a person with an athlete occupation, then VERIFIES the sport matches the
+// genre we already believe. A mismatch means we matched the wrong QID —
+// "Anaheim Ducks" the hockey team vs some unrelated item — and we discard
+// everything rather than publish another entity's venue as fact.
+const SPORT_ALIASES = {
+  'basketball':        ['basketball'],
+  'mma':               ['mixed martial arts', 'martial arts', 'combat sport'],
+  'ice hockey':        ['ice hockey', 'hockey'],
+  'rugby':             ['rugby', 'rugby union', 'rugby league', 'rugby football'],
+  'handball':          ['handball'],
+  'american football': ['american football', 'gridiron'],
+  'baseball':          ['baseball'],
+  'boxing':            ['boxing'],
+  'tennis':            ['tennis'],
+  'cricket':           ['cricket'],
+  'motorsport':        ['motorsport', 'auto racing', 'motorsports', 'formula one', 'racing'],
+  'golf':              ['golf'],
+  'wrestling':         ['wrestling', 'professional wrestling', 'sumo']
+};
+
+function sportMatchesGenre(sportLabel, genre) {
+  // No genre to check against, or Wikidata gave no sport: can't disprove,
+  // so allow it. We only reject on POSITIVE evidence of a mismatch.
+  if (!genre || !sportLabel) return true;
+  const aliases = SPORT_ALIASES[String(genre).toLowerCase().trim()];
+  if (!aliases) return true;
+  const s = String(sportLabel).toLowerCase();
+  return aliases.some(a => s.includes(a) || a.includes(s));
+}
+
+async function wikidataSportsFacts(name, genre) {
+  const searchUrl = 'https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json' +
+    `&language=en&type=item&limit=5&search=${encodeURIComponent(name)}`;
+  const sr = await fetch(searchUrl, { headers: { 'User-Agent': UA } });
+  if (!sr.ok) return {};
+  const sd = await sr.json();
+  const qids = (sd.search || []).map(x => x.id);
+  if (!qids.length) return {};
+
+  const values = qids.map(q => `wd:${q}`).join(' ');
+  const sparql = `
+    SELECT ?item ?kind ?sportLabel ?leagueLabel ?venueLabel ?capacity ?cityLabel
+           ?founded ?countryLabel ?citizenshipLabel ?born WHERE {
+      VALUES ?item { ${values} }
+      {
+        ?item wdt:P31/wdt:P279* wd:Q12973014 .
+        BIND("team" AS ?kind)
+      } UNION {
+        ?item wdt:P106/wdt:P279* wd:Q2066131 .
+        BIND("person" AS ?kind)
+      }
+      OPTIONAL { ?item wdt:P641 ?sport . }
+      OPTIONAL { ?item wdt:P118 ?league . }
+      OPTIONAL { ?item wdt:P115 ?venue .
+                 OPTIONAL { ?venue wdt:P1083 ?capacity . }
+                 OPTIONAL { ?venue wdt:P131 ?city . } }
+      OPTIONAL { ?item wdt:P571 ?founded . }
+      OPTIONAL { ?item wdt:P17  ?country . }
+      OPTIONAL { ?item wdt:P27  ?citizenship . }
+      OPTIONAL { ?item wdt:P569 ?born . }
+      SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+    } LIMIT 10`;
+
+  const qr = await fetch('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(sparql),
+    { headers: { 'User-Agent': UA, 'Accept': 'application/sparql-results+json' } });
+  if (!qr.ok) return {};
+  const qd = await qr.json();
+  const rows = qd.results?.bindings || [];
+  if (!rows.length) return {};
+
+  // Prefer, in order: a candidate whose sport agrees with our genre, keeping
+  // the label-search ranking. Only if none agree do we give up — we do NOT
+  // fall back to rows[0], because an unverified match is what produces
+  // confidently wrong pages.
+  const byQid = new Map();
+  for (const r of rows) {
+    const q = r.item.value.split('/').pop();
+    if (!byQid.has(q)) byQid.set(q, r);
+  }
+  let row = null;
+  for (const q of qids) {
+    const r = byQid.get(q);
+    if (r && sportMatchesGenre(r.sportLabel?.value, genre)) { row = r; break; }
+  }
+  if (!row) return {};
+
+  const facts = { entityType: row.kind?.value === 'person' ? 'Person' : 'Team' };
+  if (row.sportLabel?.value)       facts.sport    = row.sportLabel.value;
+  if (row.leagueLabel?.value)      facts.league   = row.leagueLabel.value;
+  if (row.venueLabel?.value)       facts.venue    = row.venueLabel.value;
+  if (row.capacity?.value)         facts.capacity = parseInt(row.capacity.value, 10) || undefined;
+  if (row.cityLabel?.value)        facts.city     = row.cityLabel.value;
+  if (row.founded?.value)          facts.founded  = row.founded.value.slice(0, 4);
+  if (row.countryLabel?.value)     facts.country  = row.countryLabel.value;
+  if (row.citizenshipLabel?.value) facts.nationality = row.citizenshipLabel.value;
+  if (row.born?.value)             facts.born     = row.born.value.slice(0, 4);
+  facts.wikidataId = row.item.value.split('/').pop();
+
+  // A "team" with a birth year, or a "person" with a stadium, means the
+  // union matched oddly — drop the contradictory fields rather than render
+  // "founded in 1991" about a boxer.
+  if (facts.entityType === 'Person') { delete facts.capacity; delete facts.founded; }
+  else { delete facts.born; delete facts.nationality; }
+
+  return facts;
 }
 
 // ── Wikidata: football club facts (2 calls: entity search + SPARQL) ─────
@@ -300,6 +428,34 @@ const POOLS = {
       f => `Tickets for ${f.name} are often listed at very different prices across marketplaces for the same seats, so comparing verified sellers before checkout is the quickest way to find the genuine cheapest option.`,
       f => `Resale prices for ${f.name} shows can vary widely between platforms — a side-by-side comparison of verified sellers routinely surfaces cheaper tickets for identical sections.`,
       f => `Because each resale marketplace holds different ${f.name} inventory, checking several at once gives a truer picture of the real get-in price than any single site.`
+    ]
+  },
+  // Sports covers both clubs and individual competitors, so every sentence
+  // checks entityType before asserting anything. A variant that can't be
+  // written truthfully from the facts returns null and the renderer falls
+  // through to the next one — no sentence is ever filled with a guess.
+  sports: {
+    intro: [
+      f => f.entityType === 'Team' && f.venue && f.city
+        ? `${f.name} play their home ${f.sport ? f.sport.toLowerCase() + ' ' : ''}fixtures at ${f.venue}${f.capacity ? ` (capacity ${nf(f.capacity)})` : ''} in ${f.city}.` : null,
+      f => f.entityType === 'Person' && f.sport
+        ? `${f.name} competes in ${f.sport.toLowerCase()}${f.nationality ? `, representing ${f.nationality}` : ''}.` : null,
+      f => f.entityType === 'Team' && f.venue
+        ? `Home events for ${f.name} take place at ${f.capacity ? `the ${nf(f.capacity)}-capacity ` : ''}${f.venue}${f.city ? `, ${f.city}` : ''}.` : null,
+      f => f.sport ? `${f.name} appear on the ${f.sport.toLowerCase()} calendar throughout the season.` : null
+    ],
+    history: [
+      f => f.entityType === 'Team' && f.founded
+        ? `Founded in ${f.founded}, ${f.name} ${f.league ? `compete in the ${f.league}` : 'have a long competitive record'}.` : null,
+      f => f.entityType === 'Person' && f.born
+        ? `Born in ${f.born}${f.nationality ? ` in ${f.nationality}` : ''}, ${f.name} draws a strong live following.` : null,
+      f => f.league ? `${f.name} compete in the ${f.league}.` : null,
+      f => f.country ? `${f.name} are based in ${f.country}.` : null
+    ],
+    buying: [
+      f => `Prices for ${f.name} tickets differ between resale marketplaces for the same seats, so comparing verified sellers side by side is the most reliable way to find the real get-in price.`,
+      f => `Because each marketplace holds separate ${f.name} inventory, checking several at once gives a truer picture of the cheapest available ticket than any single site.`,
+      f => `Demand for ${f.name} varies sharply by opponent and round, which is why a side-by-side comparison of verified sellers is worth doing before booking.`
     ]
   },
   theatre: {

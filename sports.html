@@ -36,6 +36,9 @@
     .event-list-right { text-align: right; white-space: nowrap; }
     .event-list-price { font-size: 16px; font-weight: 700; color: #0c2d5a; }
     .event-list-cta { font-size: 13px; color: #1a6fc4; font-weight: 600; }
+    .hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+    .hub-item { display: block; background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #0c2d5a; font-size: 14px; font-weight: 600; transition: border-color .15s, box-shadow .15s; }
+    .hub-item:hover { border-color: #1a6fc4; box-shadow: 0 2px 8px rgba(12,45,90,.08); }
     .about-section { margin-top: 34px; }
     .about-section h2 { font-size: 20px; color: #0c2d5a; margin-bottom: 10px; }
     .about-section p { font-size: 15px; line-height: 1.65; color: #444; }
@@ -47,18 +50,38 @@
   </style>
 </head>
 <body>
-  <header class="site-header">
-    <a class="logo" href="/">
-      <span class="logo-mark">🎟️</span>
-      <span class="logo-text">TicketScout<small>compare. save. enjoy.</small></span>
-    </a>
-    <nav class="site-nav">
-      <a href="/concert">Concerts</a>
-      <a href="/football/">Football</a>
-      <a href="/sports">Sports</a>
-      <a href="/theatre">Theatre</a>
-    </nav>
-  </header>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="/" style="text-decoration:none; display:flex; align-items:center; gap:10px;">
+        <svg width="36" height="36" viewBox="0 40 248 200" xmlns="http://www.w3.org/2000/svg">
+          <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
+          <circle cx="40" cy="140" r="16" fill="#ffffff"/>
+          <circle cx="208" cy="140" r="16" fill="#ffffff"/>
+          <line x1="40" y1="140" x2="208" y2="140" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 5" opacity="0.5"/>
+          <rect x="62" y="92" width="88" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+          <rect x="62" y="106" width="60" height="6" rx="3" fill="#ffffff" opacity="0.6"/>
+          <g transform="translate(168, 112)">
+            <polygon points="0,-14 3.5,-5 13,-5 5.5,1 8.5,11 0,5.5 -8.5,11 -5.5,1 -13,-5 -3.5,-5" fill="#ffffff" opacity="0.95"/>
+          </g>
+          <rect x="62" y="158" width="50" height="5" rx="2.5" fill="#ffffff" opacity="0.5"/>
+          <rect x="62" y="170" width="72" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
+          <rect x="62" y="182" width="40" height="5" rx="2.5" fill="#ffffff" opacity="0.25"/>
+        </svg>
+        <div style="display:flex; flex-direction:column; justify-content:center; line-height:1.2;">
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:700; font-size:22px; color:#0c2d5a; letter-spacing:-0.5px;">TicketScout</span>
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:400; font-size:11px; color:#1a6fc4; letter-spacing:2px;">compare. save. enjoy.</span>
+        </div>
+      </a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/?cat=music">Concerts</a>
+        <a href="/theatre">Theatre</a>
+        <a href="/sports">Sports</a>
+        <a href="/?cat=comedy">Comedy</a>
+        <a href="/football">Football</a>
+      </div>
+    </div>
+  </nav>
 
   <section class="artist-hero">
     <div class="artist-hero-inner">
@@ -125,10 +148,36 @@
     }
 
     async function init() {
+      // Hub mode (/sports with no slug): list the sports entities we hold,
+      // so the section is browsable and internally linked rather than a
+      // dead end that Google sees as a thin page.
       if (!slug) {
         document.getElementById('genre-badge').textContent = 'Sports';
-        document.getElementById('events-container').innerHTML =
-          '<div class="events-loading">Browse sports events from the home page.</div>';
+        document.getElementById('artist-name').textContent = 'Sports Tickets';
+        document.getElementById('events-heading').textContent = 'Browse by team or competitor';
+        document.getElementById('about-heading').textContent = 'About sports tickets on TicketScout';
+        document.getElementById('about-text').textContent =
+          'We compare ticket prices for basketball, ice hockey, boxing, MMA, tennis, ' +
+          'rugby, cricket and more across verified resale sellers, so you can see the ' +
+          'real get-in price for an event before you buy. Football has its own section.';
+        document.getElementById('breadcrumb').innerHTML =
+          '<a href="/">Home</a> › Sports';
+        var box = document.getElementById('events-container');
+        try {
+          var lr = await fetch('/api/sports?list=1');
+          var ld = await lr.json();
+          if (ld && ld.entities && ld.entities.length) {
+            box.innerHTML = '<div class="hub-grid">' + ld.entities.map(function (e) {
+              return '<a class="hub-item" href="' + e.url + '">' + esc(e.name) + '</a>';
+            }).join('') + '</div>';
+          } else {
+            box.innerHTML = '<div class="events-loading">Sports pages are being added — ' +
+              'check back shortly, or <a href="/">search from the home page</a>.</div>';
+          }
+        } catch (e) {
+          box.innerHTML = '<div class="events-loading">Couldn\'t load the sports list. ' +
+            '<a href="/">Search from the home page</a>.</div>';
+        }
         return;
       }
 

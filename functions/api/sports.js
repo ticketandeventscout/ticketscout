@@ -30,6 +30,29 @@ export async function onRequestGet({ request, env }) {
   const url  = new URL(request.url);
   const slug = (url.searchParams.get('slug') || '').trim().toLowerCase();
 
+  // Hub listing: /api/sports?list=1 — powers the /sports index so it isn't a
+  // dead end. Reads the sitemap registry (already maintained by
+  // discover-pages build-registry) rather than scanning KV, so it costs one
+  // read and can never disagree with what's in the sitemap.
+  if (url.searchParams.get('list') === '1') {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 500);
+    try {
+      const raw = env.GIGSBERG_KV ? await env.GIGSBERG_KV.get('sitemap:registry') : null;
+      const reg = raw ? JSON.parse(raw) : null;
+      const slugs = Object.keys((reg && reg.sections && reg.sections.sports) || {}).sort();
+      return json({
+        count: slugs.length,
+        entities: slugs.slice(0, limit).map(s => ({
+          slug: s,
+          name: toTitleCase(s.replace(/-/g, ' ')),
+          url: '/sports/' + s
+        }))
+      }, 200);
+    } catch (err) {
+      return json({ count: 0, entities: [], error: String(err) }, 200);
+    }
+  }
+
   if (!slug) return json({ error: 'slug is required' }, 400);
 
   // Deliberately NO football-style suffix stripping here. Football slugs need
@@ -47,6 +70,23 @@ export async function onRequestGet({ request, env }) {
   }
 
   if (entity) {
+    // Merge Wikidata enrichment (written by /api/enrich-entities) the same way
+    // football.js does: the generated Mad Libs prose replaces the generic
+    // discovery description, but never overwrites hand-written copy.
+    let facts = null;
+    try {
+      if (kv) {
+        const m = await kv.get(`entity:meta:sports:${entity.slug || slug}`);
+        if (m) {
+          const meta = JSON.parse(m);
+          facts = meta.facts || null;
+          const generic = !entity.description ||
+            /^Compare .{0,80} ticket prices (across|for)/.test(entity.description);
+          if (meta.aboutText && generic) entity.description = meta.aboutText;
+        }
+      }
+    } catch { /* enrichment is additive — never fail the page for it */ }
+
     return json({
       slug:        entity.slug || slug,
       name:        entity.name || toTitleCase(slug.replace(/-/g, ' ')),
@@ -54,6 +94,7 @@ export async function onRequestGet({ request, env }) {
       tmSearch:    entity.tmSearch || entity.search || entity.name || '',
       genre:       SPORTS_GENRES.has(entity.genre) ? entity.genre : 'Sport',
       description: entity.description || '',
+      facts,
       found:       true
     }, 200);
   }
