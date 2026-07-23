@@ -17,6 +17,67 @@ const TM_SORTS = new Set([
 export async function onRequestGet(ctx) {
   const { request, env } = ctx;
 
+  // ── Permanent diagnostic: /api/ticketmaster?diag=1 ──────────────────────
+  // Answers the one question the 503 cannot: is the circuit breaker open,
+  // is the key present, and what does TM actually say right now? Runs above
+  // the edge cache so it is never served a stale answer. Costs one TM call
+  // with size=1. The API key is never echoed.
+  if (new URL(request.url).searchParams.get('diag') === '1') {
+    const out = {
+      checkedAt: new Date().toISOString(),
+      hasApiKey: !!env.TM_API_KEY,
+      apiKeyLength: env.TM_API_KEY ? env.TM_API_KEY.length : 0,
+      hasKv: !!env.GIGSBERG_KV,
+      quotaBreaker: null,
+      liveCall: null,
+      lastGoodHomepage: null
+    };
+
+    try {
+      if (env.GIGSBERG_KV) {
+        const flag = await env.GIGSBERG_KV.get('tm:quota:exhausted');
+        out.quotaBreaker = flag
+          ? { open: true, setAt: flag }
+          : { open: false };
+      }
+    } catch (e) { out.quotaBreaker = { error: String(e) }; }
+
+    if (env.TM_API_KEY) {
+      try {
+        const probe = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
+        probe.searchParams.set('apikey', env.TM_API_KEY);
+        probe.searchParams.set('countryCode', 'GB');
+        probe.searchParams.set('size', '1');
+        const r = await fetch(probe.toString());
+        const body = await r.text();
+        out.liveCall = {
+          status: r.status,
+          ok: r.ok,
+          // TM returns a { fault: { faultstring, detail } } object on quota
+          // and auth errors — that string is the actual answer we need.
+          bodySnippet: body.slice(0, 400)
+        };
+      } catch (e) {
+        out.liveCall = { error: String(e) };
+      }
+    }
+
+    try {
+      if (env.GIGSBERG_KV) {
+        // lastGoodKey is built from INCOMING params, not the outbound TM URL.
+        // The homepage sends only size=40, so this is its exact key.
+        const k = 'tm:lastgood:/api/ticketmaster?size=40';
+        const hit = await env.GIGSBERG_KV.get(k);
+        out.lastGoodHomepage = { key: k, exists: !!hit, bytes: hit ? hit.length : 0 };
+      }
+    } catch (e) { out.lastGoodHomepage = { error: String(e) }; }
+
+    return new Response(JSON.stringify(out, null, 2), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+    });
+  }
+
   // ── Edge cache: identical queries answered from the Cloudflare colo ──
   // for 10 minutes instead of hitting TM's API (5k calls/day quota).
   // One viral event page = at most ~6 TM calls/colo/hour instead of
