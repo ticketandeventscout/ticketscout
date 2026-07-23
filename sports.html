@@ -332,8 +332,12 @@
     function renderEvents(events, entity) {
       var box = document.getElementById('events-container');
       if (!events.length) {
-        box.innerHTML = '<div class="events-loading">No upcoming ' + esc(entity.name) +
-          ' events listed right now. Check back soon — we update daily.</div>';
+        // No "updated daily" claim here. For an entity with nothing listed we
+        // aren't refreshing anything, and promising a cadence we don't meet
+        // is the sort of small inaccuracy that undermines trust in the prices.
+        box.innerHTML = '<div class="events-loading">We don\'t have any ' + esc(entity.name) +
+          ' events listed at the moment. Try the <a href="/sports">sports section</a> ' +
+          'for teams and competitors with tickets on sale now.</div>';
         updateSchema([], entity);
         // An entity with zero listed events has nothing to compare, so asking
         // Google to index it invites exactly the thin-content problem the

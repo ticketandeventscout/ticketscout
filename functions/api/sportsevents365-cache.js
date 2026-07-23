@@ -464,11 +464,11 @@ function generateDescription(name, genre) {
   if (g === 'football')
     return `${name} fixtures listed with live pricing. Compare ${name} ticket prices across verified sellers on TicketScout.`;
   if (g === 'concert')
-    return `Compare ${name} ticket prices for upcoming live shows across verified sellers on TicketScout. Updated daily.`;
+    return `Compare ${name} ticket prices for upcoming live shows across verified sellers on TicketScout.`;
   if (g)
-    return `Compare ${name} ticket prices for upcoming ${genre} events across verified sellers on TicketScout. Updated daily.`;
+    return `Compare ${name} ticket prices for upcoming ${genre} events across verified sellers on TicketScout.`;
   // No genre = unmapped type. These aren't queued, so this is a safety net.
-  return `Compare ${name} ticket prices for upcoming events across verified sellers on TicketScout. Updated daily.`;
+  return `Compare ${name} ticket prices for upcoming events across verified sellers on TicketScout.`;
 }
 
 function sleep(ms) {

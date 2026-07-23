@@ -280,7 +280,13 @@ function renderPage(d) {
         <div class="detail-body">
           <h1 class="detail-name" style="font-size:24px; margin:0 0 6px;">${esc(d.name)}</h1>
           <div class="detail-meta">${esc(metaBits) || 'Details to be confirmed'}</div>
-          ${d.price && !d.isPast ? `<div class="detail-meta" style="margin-top:8px; font-weight:600; color:#0c2d5a;">Tickets from £${d.price}</div>` : ''}
+          <!-- The "Tickets from £X" line was removed deliberately. It came
+               from the event_pages row — one seller's cached price, usually
+               SE365 — and routinely disagreed with the cheapest row in the
+               compare table below (£92 above a £69.52 best price). Two
+               different "from" prices on one page is worse than none, and the
+               price-history card below already shows a current figure that IS
+               reconciled against the live table. -->
           ${d.isPast ? `<div class="detail-meta" style="margin-top:8px; color:#b00;">This event has taken place. <a href="${esc(d.cat.hub)}">Browse upcoming ${esc(d.cat.label.toLowerCase())} →</a></div>` : ''}
         </div>
       </div>
@@ -521,7 +527,7 @@ function renderPage(d) {
         phSvg(series, trend) +
         '<div class="ts-ph-foot"><span class="anchor">' + phEsc(anchorLine) + '.</span> ' +
           (data._reconciled ? 'Current figure reflects the cheapest live seller price now; the line shows our tracked daily history. ' : '') +
-          'Cheapest available ticket per day, all sellers, in GBP. Not a purchase price \u2014 confirm on the seller\\'s site.</div>' +
+          'Cheapest ticket price we found per day, in GBP. Always confirm the final price on the seller\\'s site before purchasing.</div>' +
       '</div>';
   }
 
