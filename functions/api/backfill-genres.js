@@ -219,6 +219,63 @@ export async function onRequestGet({ request, env }) {
     return json({ section, reset: true, totalRegistered: slugs.length });
   }
 
+  // ── Set a manual override: ?override=slug:Genre&section=theatre&trigger=1
+  // Overrides always win and are applied immediately. This is the escape
+  // hatch for cases automation cannot resolve — 'Back To The Future' matches
+  // a real Arts & Theatre attraction classified Classical (the film-score
+  // concert), so there is no signal that distinguishes it from the musical.
+  const setOverride = url.searchParams.get('override');
+  if (setOverride && url.searchParams.get('trigger') === '1') {
+    const idx = setOverride.lastIndexOf(':');
+    if (idx < 1) return json({ error: 'Use ?override=slug:Genre' }, 400);
+    const oSlug = setOverride.slice(0, idx).trim();
+    const oGenre = setOverride.slice(idx + 1).trim();
+    if (!oSlug || !oGenre) return json({ error: 'Use ?override=slug:Genre' }, 400);
+
+    let map = {};
+    try { map = (await kv.get(OVERRIDE_KEY(section), 'json')) || {}; } catch {}
+    map[oSlug] = oGenre;
+    await kv.put(OVERRIDE_KEY(section), JSON.stringify(map));
+
+    let applied = false;
+    try {
+      const raw = await kv.get(cfg.prefix + oSlug);
+      if (raw) {
+        const rec = JSON.parse(raw);
+        const before = rec.genre;
+        rec.genre = oGenre;
+        if (before && typeof rec.description === 'string' && rec.description.includes(before)) {
+          rec.description = rec.description.split(before).join(oGenre);
+        }
+        await kv.put(cfg.prefix + oSlug, JSON.stringify(rec));
+        applied = true;
+      }
+    } catch {}
+
+    try { await kv.delete(section + ':hub:index'); } catch {}
+    return json({ section, override: { slug: oSlug, genre: oGenre }, appliedToRecord: applied,
+                  totalOverrides: Object.keys(map).length });
+  }
+
+  // ── Review dump: every entity with its current genre, grouped.
+  // 161 theatre entries is small enough to eyeball, which is the only
+  // reliable way to catch a wrong-but-plausible classification.
+  if (url.searchParams.get('dump') === '1') {
+    const groups = {};
+    for (const s of slugs) {
+      let g = '<<no record>>';
+      try {
+        const raw = await kv.get(cfg.prefix + s);
+        if (raw) { const r = JSON.parse(raw); g = r.genre || '<<empty>>'; }
+      } catch {}
+      (groups[g] = groups[g] || []).push(s);
+    }
+    const summary = Object.entries(groups)
+      .map(([genre, list]) => ({ genre, count: list.length, slugs: list }))
+      .sort((a, b) => b.count - a.count);
+    return json({ section, totalRegistered: slugs.length, distinctGenres: summary.length, groups: summary });
+  }
+
   if (url.searchParams.get('status') === '1') {
     let report = null, misfiled = null, review = null, overridesNow = null;
     try { report       = await kv.get(REPORT_KEY(section), 'json'); } catch {}
