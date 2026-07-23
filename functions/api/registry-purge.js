@@ -36,23 +36,36 @@ const LOG_KEY = s => 'registry:purged:' + s;
 
 // Heuristics for SUGGESTING junk. Deliberately suggestion-only — nothing is
 // ever removed on the strength of a pattern match alone.
+// PRECISION OVER RECALL. An earlier, looser version flagged 'Bowling For Soup'
+// (a band) via /bowling/, 'Hells Kitchen' via /kitchen/, and 'Trial By Jury &
+// The Zoo - English National Opera' via /zoo/ — 5 false positives out of 7 on
+// the concert section. Single generic nouns are unusable here: band and show
+// titles are made of exactly those words. Every pattern below must be either
+// a specific brand or a multi-word phrase that cannot plausibly be a title.
 const JUNK_PATTERNS = [
-  ['reserved-slug',  /^(index|home|default|test|null|undefined)$/i],
-  ['restaurant',     /\b(brasserie|bistro|trattoria|osteria|grill|kitchen|dining|restaurant|cafe|bar and|tapas)\b/i],
-  ['known-chain',    /\b(bella italia|masala zone|las iguanas|gaucho|cabana|inamo|banana tree|the delaunay|manzis|wagamama|nandos|zizzi|pizza express|cote)\b/i],
-  ['attraction',     /\b(zipline|wheel|viewing deck|observation|tomb|aquarium|dungeon|madame tussauds|sea life|zoo|museum)\b/i],
-  ['experience',     /\b(petanque|ptanque|crazy golf|bowling|escape room|mini golf)\b/i]
+  ['reserved-slug', /^(index|home|default|test|null|undefined|untitled)$/i],
+  ['known-chain',   /\b(bella italia|masala zone|las iguanas|gaucho|cabana|inamo|banana tree|the delaunay|manzi'?s|wagamama|nando'?s|zizzi|pizza express|brasserie|cote brasserie|the ivy|dishoom|hawksmoor)\b/i],
+  ['attraction',    /\b(zipline|viewing deck|observation (deck|wheel)|big wheel|high roller wheel|madame tussauds|sea life|aquarium|the dungeon|viewing platform|rooftop bar)\b/i],
+  ['experience',    /\b(petanque|ptanque|crazy golf|mini golf|escape room|axe throwing|go karting)\b/i]
 ];
+
+// Veto list. If a name carries any of these, it is a performance and must not
+// be flagged however else it reads — this is what protects the ENO opera and
+// the festival-session listings.
+const PERFORMANCE_MARKERS =
+  /\b(opera|musical|the musical|ballet|orchestra|symphony|philharmonic|quartet|tour|touring|sessions|festival|presents|live on stage|in concert|on stage|national theatre|english national|royal shakespeare|west end|broadway)\b/i;
 
 function junkReasons(slug, name) {
   const hay = (name || '') + ' ' + (slug || '').replace(/-/g, ' ');
   const hits = [];
   for (const [label, re] of JUNK_PATTERNS) {
-    // Reserved slugs are anchored patterns, so they must be tested against
-    // the bare slug — testing them against the combined haystack never
-    // matches, which is how 'index' slipped through.
+    // Reserved slugs are anchored, so they must be tested against the bare
+    // slug — testing them against the combined haystack never matches.
     const subject = label === 'reserved-slug' ? String(slug || '') : hay;
-    if (re.test(subject)) hits.push(label);
+    if (!re.test(subject)) continue;
+    // A reserved slug is structural and cannot be vetoed. Everything else is.
+    if (label !== 'reserved-slug' && PERFORMANCE_MARKERS.test(hay)) continue;
+    hits.push(label);
   }
   return hits;
 }
@@ -107,6 +120,7 @@ export async function onRequestGet({ request, env }) {
   // ── Junk suggestions ───────────────────────────────────────────────────
   if (url.searchParams.get('junk') === '1') {
     const suggestions = [];
+    const orphans = [];
     for (const slug of slugs) {
       let name = slug.replace(/-/g, ' ');
       let hasRecord = false;
@@ -116,17 +130,25 @@ export async function onRequestGet({ request, env }) {
       } catch {}
 
       const reasons = junkReasons(slug, name);
-      if (!hasRecord) reasons.push('no-kv-record');
+      // A missing KV record means the record was LOST, not that the entity is
+      // junk — 'cats' is a real West End show whose record went missing.
+      // Reported separately so it can be repaired rather than deleted.
+      if (!hasRecord) { orphans.push({ slug, name }); continue; }
       if (reasons.length) suggestions.push({ slug, name, reasons });
     }
     return json({
       section,
       totalRegistered: slugs.length,
       suggestedCount: suggestions.length,
-      note: 'Suggestions only. Review before removing — nothing here has been changed.',
-      removeUrl: '/api/registry-purge?section=' + section + '&dry=1&remove=' +
-                 suggestions.map(s => s.slug).join(','),
-      suggestions
+      orphanCount: orphans.length,
+      note: 'Suggestions only. Nothing has been changed. Orphans are registry ' +
+            'entries whose KV record is missing — repair these, do not remove them.',
+      removeUrl: suggestions.length
+        ? '/api/registry-purge?section=' + section + '&dry=1&remove=' +
+          suggestions.map(s => s.slug).join(',')
+        : null,
+      suggestions,
+      orphans
     });
   }
 
