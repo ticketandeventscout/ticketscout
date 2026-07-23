@@ -126,15 +126,15 @@ export async function onRequestGet({ request, env }) {
       return json({ error: 'GitHub tree fetch failed', detail: String(err) }, 500);
     }
 
-    let registry = { updated: null, sections: { concert: {}, football: {}, theatre: {}, venue: {} } };
+    let registry = { updated: null, sections: { concert: {}, football: {}, theatre: {}, sports: {}, venue: {} } };
     try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
-    for (const cat of ['concert', 'football', 'theatre', 'venue']) {
+    for (const cat of ['concert', 'football', 'theatre', 'sports', 'venue']) {
       if (!registry.sections[cat]) registry.sections[cat] = {};
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const counts = { concert: 0, football: 0, theatre: 0, venue: 0, skipped: 0 };
-    const re = /^(concert|football|theatre|venue)\/([a-z0-9-]+)\.html$/;
+    const counts = { concert: 0, football: 0, theatre: 0, sports: 0, venue: 0, skipped: 0 };
+    const re = /^(concert|football|theatre|sports|venue)\/([a-z0-9-]+)\.html$/;
     for (const node of (tree.tree || [])) {
       if (node.type !== 'blob') continue;
       const m = re.exec(node.path);
@@ -224,8 +224,8 @@ export async function onRequestGet({ request, env }) {
   if (phase === 'regenerate') {
     if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
     const category = url.searchParams.get('category');
-    if (!['football', 'concert', 'theatre'].includes(category)) {
-      return json({ error: 'category is required: football | concert | theatre' }, 400);
+    if (!['football', 'concert', 'theatre', 'sports'].includes(category)) {
+      return json({ error: 'category is required: football | concert | theatre | sports' }, 400);
     }
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 150);
 
@@ -1434,7 +1434,7 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
   // New pages appear in /api/sitemap on the same run that creates them.
   // lastmod = commit date (a real content change, not render time).
   try {
-    let registry = { updated: null, sections: { concert: {}, football: {}, theatre: {}, venue: {} } };
+    let registry = { updated: null, sections: { concert: {}, football: {}, theatre: {}, sports: {}, venue: {} } };
     try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
     const today = new Date().toISOString().slice(0, 10);
     for (const [category, items] of Object.entries(byCategory)) {
@@ -1869,7 +1869,7 @@ function stubHeadEnrichment(category, slug, enrich) {
 
   // JSON-LD @graph — nodes/fields self-omit when facts are missing
   const graph = [];
-  const catLabel = { football: 'Football', concert: 'Concerts', theatre: 'Theatre' }[category] || category;
+  const catLabel = { football: 'Football', concert: 'Concerts', theatre: 'Theatre', sports: 'Sports' }[category] || category;
   if (category === 'football') {
     const team = { '@type': 'SportsTeam', '@id': `${pageUrl}#team`, name, sport: 'Football' };
     if (facts.league)  team.memberOf = { '@type': 'SportsOrganization', name: facts.league };
@@ -1890,6 +1890,28 @@ function stubHeadEnrichment(category, slug, enrich) {
     if (facts.genres && facts.genres.length) artist.genre = facts.genres;
     if (facts.artistType !== 'Person' && facts.origin) artist.foundingLocation = { '@type': 'Place', name: facts.origin };
     graph.push(artist);
+  } else if (category === 'sports') {
+    // A sports entity is either a club or an individual competitor. Only
+    // claim SportsTeam when enrichment actually says so — asserting a boxer
+    // is a "team" is the same fabrication the SE365 descriptions used to make.
+    const isPerson = facts.entityType === 'Person' || facts.artistType === 'Person';
+    const node = isPerson
+      ? { '@type': 'Person', '@id': `${pageUrl}#athlete`, name }
+      : { '@type': 'SportsTeam', '@id': `${pageUrl}#team`, name };
+    if (facts.sport)   node.sport = facts.sport;
+    if (facts.league)  node.memberOf = { '@type': 'SportsOrganization', name: facts.league };
+    if (!isPerson && facts.founded) node.foundingDate = facts.founded;
+    if (facts.venue) {
+      node.location = { '@id': `${pageUrl}#venue` };
+      const venue = { '@type': 'StadiumOrArena', '@id': `${pageUrl}#venue`, name: facts.venue };
+      if (facts.capacity) venue.maximumAttendeeCapacity = facts.capacity;
+      if (facts.city) {
+        venue.address = { '@type': 'PostalAddress', addressLocality: facts.city };
+        if (facts.country) venue.address.addressCountry = facts.country;
+      }
+      graph.push(venue);
+    }
+    graph.push(node);
   }
   graph.push({
     '@type': 'BreadcrumbList',
@@ -1947,6 +1969,57 @@ function generateFootballPageHtml(slug, enrich) {
         document.body.appendChild(s); o.remove();
       });
     } catch(e) { console.error('Failed to load football template:', e); }
+  })();
+</script></body></html>`;
+}
+
+// Sports entity stub. Static file at sports/{slug}.html — deliberately NOT a
+// Pages Function. Creating functions/sports/[slug].js would collide with the
+// /sports/ static folder and produce Error 1101/522, the same trap documented
+// for football and theatre. Only concert, venue and event have safe dynamic
+// routes.
+function generateSportsPageHtml(slug, enrich) {
+  const { name: displayName, title, description, jsonLd } = stubHeadEnrichment('sports', slug, enrich);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escAttr(title)}</title>
+  <meta name="robots" content="index, follow" />
+  <meta name="description" content="${escAttr(description)}" />
+  <meta property="og:title" content="${escAttr(displayName)} Tickets | TicketScout" />
+  <meta property="og:description" content="${escAttr(description)}" />
+  <meta property="og:type" content="website" />
+  <link rel="canonical" href="https://ticketscout.co.uk/sports/${slug}" />
+  <script type="application/ld+json">${jsonLd}</script>
+  <script>window.__SPORTS_SLUG__ = '${slug}';</script>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
+</head>
+<body><script>
+  (async function() {
+    try {
+      const r = await fetch('/sports.html?v=${TEMPLATE_VERSION}');
+      const html = await r.text();
+      const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
+      if (headStyleMatch) {
+        const st = document.createElement('style');
+        st.textContent = headStyleMatch[1];
+        document.head.appendChild(st);
+      }
+      const m = html.match(/<body[^>]*>([\\s\\S]*)<\\/body>/i);
+      if (!m) return;
+      document.body.innerHTML = m[1];
+      document.body.querySelectorAll('script').forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) s.src = o.src; else s.textContent = o.textContent;
+        document.body.appendChild(s); o.remove();
+      });
+    } catch(e) { console.error('Failed to load sports template:', e); }
   })();
 </script></body></html>`;
 }
@@ -2056,12 +2129,21 @@ function generateBaseVenueJs() {
  * Maps a genre string to a page category folder.
  * football → 'football', theatre/musical → 'theatre', everything else → 'concert'
  */
+// Non-football sports genres get their own section. Before this existed
+// every one of them fell through to 'concert', which is how basketball
+// teams and MMA fighters ended up on /concert/ pages.
+// NOTE: 'american football' must be tested BEFORE the football check, or
+// includes('football') would route NFL teams to the soccer section.
+const SPORTS_GENRES = new Set([
+  'basketball', 'mma', 'ice hockey', 'rugby', 'handball', 'american football',
+  'baseball', 'boxing', 'tennis', 'cricket', 'motorsport', 'golf', 'wrestling'
+]);
+
 function genreToCategory(genre) {
-  const g = (genre || '').toLowerCase();
+  const g = (genre || '').toLowerCase().trim();
+  if (SPORTS_GENRES.has(g)) return 'sports';
   if (g.includes('football') || g.includes('soccer')) return 'football';
   if (g.includes('theatre') || g.includes('musical') || g.includes('opera') || g.includes('ballet')) return 'theatre';
-  // Sports from TM (non-football) → concert for now (we don't have a general sports page yet)
-  // Could route to dedicated sport page in future
   return 'concert';
 }
 
@@ -2071,6 +2153,7 @@ function genreToCategory(genre) {
 function categoryToKvPrefix(category) {
   if (category === 'football') return 'football:team:';
   if (category === 'theatre')  return 'theatre:show:';
+  if (category === 'sports')   return 'sports:team:';
   return 'concert:artist:';
 }
 
@@ -2080,6 +2163,7 @@ function categoryToKvPrefix(category) {
 function categoryToHtmlGenerator(category) {
   if (category === 'football') return generateFootballPageHtml;
   if (category === 'theatre')  return generateTheatrePageHtml;
+  if (category === 'sports')   return generateSportsPageHtml;
   return generateArtistPageHtml;
 }
 
@@ -2127,9 +2211,15 @@ const SE365_TYPE_MAP = {
   1033: 'Wrestling'
 };
 
-// genreToCategory() only knows football / theatre / concert, so any other
-// genre would publish a basketball team onto a /concert/ page. Skip instead.
-const SE365_QUEUEABLE_GENRES = new Set(['Football', 'Concert']);
+// Genres we can give a correctly-categorised page. Now that /sports/ exists,
+// the mapped sports genres are queueable too — they route to /sports/{slug}
+// rather than being dumped on /concert/. Anything with a null genre (unmapped
+// eventTypeId) is still skipped entirely.
+const SE365_QUEUEABLE_GENRES = new Set([
+  'Football', 'Concert',
+  'Basketball', 'MMA', 'Ice Hockey', 'Rugby', 'Handball', 'American Football',
+  'Baseball', 'Boxing', 'Tennis', 'Cricket', 'Motorsport', 'Golf', 'Wrestling'
+]);
 
 // Returns null for unmapped types — callers MUST treat null as "don't queue".
 function se365Genre(eventTypeId) {

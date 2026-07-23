@@ -37,7 +37,8 @@ const SLUG_RE = /^(football|concert|theatre)-(\d{4}-\d{2}-\d{2})-([a-z0-9][a-z0-
 const CATEGORY_META = {
   football: { label: 'Football',  hub: '/football/', schemaType: 'SportsEvent',  noun: 'match'  },
   concert:  { label: 'Concerts',  hub: '/concert',   schemaType: 'MusicEvent',   noun: 'show'   },
-  theatre:  { label: 'Theatre',   hub: '/theatre',   schemaType: 'TheaterEvent', noun: 'show'   }
+  theatre:  { label: 'Theatre',   hub: '/theatre',   schemaType: 'TheaterEvent', noun: 'show'   },
+  sports:   { label: 'Sports',    hub: '/sports' ,   schemaType: 'SportsEvent',  noun: 'event'  }
 };
 
 export async function onRequestGet(ctx) {

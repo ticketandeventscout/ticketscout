@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <meta name="description" id="meta-description" content="Compare ticket prices for upcoming sports events. Find the best deal across multiple verified sellers." />
+  <title id="page-title">Sports Tickets — Compare Prices | TicketScout</title>
+  <link rel="canonical" id="canonical" href="https://ticketscout.co.uk/sports/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="TicketScout" />
+  <meta property="og:title" id="og-title" content="Sports Tickets — Compare Prices | TicketScout" />
+  <meta property="og:description" id="og-description" content="Compare sports ticket prices across verified sellers. Find the best deal and buy direct." />
+  <meta property="og:url" id="og-url" content="https://ticketscout.co.uk/sports/" />
+  <meta property="og:image" id="og-image" content="https://ticketscout.co.uk/og-default.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
+  <!-- Event schema markup — populated by JS -->
+  <script type="application/ld+json" id="schema-org"></script>
+  <style>
+    .artist-hero { background: linear-gradient(135deg, #0c2d5a 0%, #1a6fc4 100%); padding: 52px 24px 44px; text-align: center; position: relative; overflow: visible; }
+    .artist-hero-inner { position: relative; z-index: 2; max-width: 700px; margin: 0 auto; }
+    .artist-hero h1 { color: #fff; font-size: 34px; font-weight: 600; margin: 10px 0 0; line-height: 1.25; }
+    .artist-genre-badge { display: inline-block; background: rgba(255,255,255,0.18); color: #fff; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 5px 12px; border-radius: 20px; }
+    .sports-wrap { max-width: 900px; margin: 0 auto; padding: 28px 16px 48px; }
+    .events-loading { padding: 28px; text-align: center; color: #666; }
+    .event-list-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; text-decoration: none; color: inherit; transition: border-color .15s, box-shadow .15s; }
+    .event-list-item:hover { border-color: #1a6fc4; box-shadow: 0 2px 10px rgba(12,45,90,.08); }
+    .event-list-name { font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
+    .event-list-meta { font-size: 13px; color: #666; }
+    .event-list-right { text-align: right; white-space: nowrap; }
+    .event-list-price { font-size: 16px; font-weight: 700; color: #0c2d5a; }
+    .event-list-cta { font-size: 13px; color: #1a6fc4; font-weight: 600; }
+    .about-section { margin-top: 34px; }
+    .about-section h2 { font-size: 20px; color: #0c2d5a; margin-bottom: 10px; }
+    .about-section p { font-size: 15px; line-height: 1.65; color: #444; }
+    @media (max-width: 600px) {
+      .artist-hero h1 { font-size: 26px; }
+      .event-list-item { flex-direction: column; align-items: flex-start; }
+      .event-list-right { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo" href="/">
+      <span class="logo-mark">🎟️</span>
+      <span class="logo-text">TicketScout<small>compare. save. enjoy.</small></span>
+    </a>
+    <nav class="site-nav">
+      <a href="/concert">Concerts</a>
+      <a href="/football/">Football</a>
+      <a href="/sports">Sports</a>
+      <a href="/theatre">Theatre</a>
+    </nav>
+  </header>
+
+  <section class="artist-hero">
+    <div class="artist-hero-inner">
+      <div class="artist-genre-badge" id="genre-badge">Loading…</div>
+      <h1 id="artist-name">Sports Tickets</h1>
+    </div>
+  </section>
+
+  <main class="sports-wrap">
+    <nav class="breadcrumb" id="breadcrumb" aria-label="Breadcrumb"></nav>
+
+    <h2 id="events-heading" style="font-size:20px;color:#0c2d5a;margin:18px 0 14px;">Upcoming events</h2>
+    <div id="events-container">
+      <div class="events-loading">Loading upcoming events…</div>
+    </div>
+
+    <div id="hotel-container"></div>
+
+    <section class="about-section">
+      <h2 id="about-heading">About</h2>
+      <p id="about-text"></p>
+    </section>
+  </main>
+
+  <script>
+  (function () {
+    'use strict';
+
+    var slug = window.__SPORTS_SLUG__ || '';
+
+    // Phase 1.4B — event slug builder. MUST MATCH the copies in compare.js,
+    // concert.html, football.html and the server capture files. FROZEN v1 —
+    // never change without migrating every indexed /event/ URL.
+    function tsEventSlug(category, date, name) {
+      if (!category || !date || !name) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      var norm = String(name).toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80).replace(/-+$/g, '');
+      return norm ? category + '-' + date + '-' + norm : null;
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+      });
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return '';
+      var d = new Date(iso + 'T00:00:00Z');
+      if (isNaN(d)) return '';
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function safeJson(r) {
+      if (!r || !r.ok) return null;
+      var ct = r.headers.get('content-type') || '';
+      if (ct.indexOf('application/json') === -1) return null;
+      return r.json().catch(function () { return null; });
+    }
+
+    async function init() {
+      if (!slug) {
+        document.getElementById('genre-badge').textContent = 'Sports';
+        document.getElementById('events-container').innerHTML =
+          '<div class="events-loading">Browse sports events from the home page.</div>';
+        return;
+      }
+
+      var entity;
+      try {
+        var r = await fetch('/api/sports?slug=' + encodeURIComponent(slug));
+        entity = await r.json();
+      } catch (e) {
+        document.getElementById('events-container').innerHTML =
+          '<div class="events-loading">Couldn\'t load this page. Please try again.</div>';
+        return;
+      }
+
+      // Head + hero
+      var title = entity.name + ' Tickets | TicketScout';
+      document.getElementById('page-title').textContent = title;
+      document.getElementById('artist-name').textContent = entity.name + ' Tickets';
+      document.getElementById('genre-badge').textContent = entity.genre || 'Sport';
+      document.getElementById('about-heading').textContent = 'About ' + entity.name;
+      document.getElementById('about-text').textContent = entity.description || '';
+      var canonical = 'https://ticketscout.co.uk/sports/' + slug;
+      setAttr('canonical', 'href', canonical);
+      setAttr('og-url', 'content', canonical);
+      setAttr('og-title', 'content', title);
+      if (entity.description) {
+        setAttr('meta-description', 'content', entity.description);
+        setAttr('og-description', 'content', entity.description);
+      }
+
+      // A page whose entity isn't registered is a thin page we can't vouch
+      // for — don't invite Google to index it.
+      if (entity.found === false) {
+        var m = document.createElement('meta');
+        m.name = 'robots'; m.content = 'noindex, follow';
+        document.head.appendChild(m);
+      }
+
+      document.getElementById('breadcrumb').innerHTML =
+        '<a href="/">Home</a> › <a href="/sports">Sports</a> › ' + esc(entity.name);
+
+      await loadEvents(entity);
+    }
+
+    function setAttr(id, attr, val) {
+      var el = document.getElementById(id);
+      if (el) el.setAttribute(attr, val);
+    }
+
+    async function loadEvents(entity) {
+      var q = encodeURIComponent(entity.search || entity.name);
+      var results = await Promise.all([
+        fetch('/api/ticketmaster?keyword=' + q + '&size=40').then(safeJson).catch(function () { return null; }),
+        fetch('/api/awin-events?name=' + q + '&size=40&cat=sports').then(safeJson).catch(function () { return null; }),
+        fetch('/api/sportsevents365?q=' + q + '&mode=list&cat=sports&slug=' + encodeURIComponent(entity.slug)).then(safeJson).catch(function () { return null; })
+      ]);
+
+      var tm = results[0], awin = results[1], se = results[2];
+      var events = [];
+
+      // Ticketmaster
+      var tmList = (tm && tm._embedded && tm._embedded.events) || [];
+      tmList.forEach(function (e) { events.push(normaliseTm(e)); });
+
+      // Awin
+      var awinList = (awin && awin.events) || [];
+      awinList.forEach(function (e) {
+        events.push({
+          name: e.name || e.eventName || '',
+          date: e.date || e.eventDate || '',
+          venue: e.venue || '', city: e.city || '',
+          price: e.price != null ? e.price : null,
+          merchant: e.merchant || 'Gigsberg', kind: 'awin'
+        });
+      });
+
+      // SportsEvents365
+      var seList = (se && se.matches) || (se && se.events) || [];
+      seList.forEach(function (e) {
+        var d = e.date || '';
+        // SE365 returns dd/mm/yyyy — normalise to ISO for the slug builder.
+        var parts = String(d).split('/');
+        var iso = parts.length === 3 ? parts[2] + '-' + parts[1] + '-' + parts[0] : d;
+        events.push({
+          name: e.name || '', date: iso,
+          venue: e.venue || '', city: e.city || '',
+          price: e.price != null ? e.price : null,
+          merchant: 'SportsEvents365', kind: 'se365'
+        });
+      });
+
+      renderEvents(dedupe(events), entity);
+    }
+
+    function normaliseTm(e) {
+      var v = e._embedded && e._embedded.venues && e._embedded.venues[0];
+      return {
+        name: e.name || '',
+        date: (e.dates && e.dates.start && e.dates.start.localDate) || '',
+        time: (e.dates && e.dates.start && e.dates.start.localTime) || '',
+        venue: (v && v.name) || '',
+        city: (v && v.city && v.city.name) || '',
+        price: (e.priceRanges && e.priceRanges[0] && e.priceRanges[0].min) != null
+          ? e.priceRanges[0].min : null,
+        merchant: '', kind: 'tm'
+      };
+    }
+
+    // Deliberately simpler than football.html's dedup: no fixture splitting or
+    // club-suffix stripping. Sports entities here are individuals (fighters,
+    // players) and single-name clubs, so the two-sided-fixture normalisation
+    // that football needs doesn't apply and would misfire on names like
+    // "Alex Pereira vs Jiri Prochazka" being genuinely distinct bouts.
+    function dedupe(list) {
+      var seen = {}, out = [];
+      list.forEach(function (e) {
+        if (!e.name) return;
+        var key = e.name.toLowerCase().replace(/[^a-z0-9]/g, '') + '|' + (e.date || '');
+        if (seen[key]) {
+          // Keep the cheaper of two identical listings.
+          var prev = out[seen[key].idx];
+          if (e.price != null && (prev.price == null || e.price < prev.price)) prev.price = e.price;
+          return;
+        }
+        seen[key] = { idx: out.length };
+        out.push(e);
+      });
+      return out.sort(function (a, b) {
+        return (a.date || '9999') < (b.date || '9999') ? -1 : (a.date || '9999') > (b.date || '9999') ? 1 : 0;
+      });
+    }
+
+    function renderEvents(events, entity) {
+      var box = document.getElementById('events-container');
+      if (!events.length) {
+        box.innerHTML = '<div class="events-loading">No upcoming ' + esc(entity.name) +
+          ' events listed right now. Check back soon — we update daily.</div>';
+        updateSchema([], entity);
+        return;
+      }
+
+      box.innerHTML = events.map(function (e) {
+        var loc = [e.venue, e.city].filter(Boolean).join(' · ');
+        var meta = [loc, fmtDate(e.date)].filter(Boolean).join(' · ');
+        var priceHtml = e.price != null
+          ? '<div class="event-list-price">From £' + Math.round(e.price) + '</div>' : '';
+        var ssr = tsEventSlug('sports', e.date, e.name);
+        var href = ssr ? '/event/' + ssr : '/#/event/sports-' + encodeURIComponent(e.name);
+        var via = e.merchant
+          ? ' <span style="font-size:10px;color:#888;margin-left:6px;">via ' + esc(e.merchant) + '</span>' : '';
+        return '<a class="event-list-item" href="' + href + '">' +
+            '<div class="event-list-left">' +
+              '<div class="event-list-name">' + esc(e.name) + via + '</div>' +
+              (meta ? '<div class="event-list-meta">' + esc(meta) + '</div>' : '') +
+            '</div>' +
+            '<div class="event-list-right">' + priceHtml +
+              '<span class="event-list-cta">Compare prices →</span></div>' +
+          '</a>';
+      }).join('');
+
+      updateSchema(events, entity);
+
+      // Hotel card, anchored on the soonest event with a city.
+      var first = events.filter(function (e) { return e.city && e.date; })[0];
+      if (first && typeof renderHotelCard === 'function') {
+        try { renderHotelCard(document.getElementById('hotel-container'), first.city, first.date, first.venue); } catch (e) {}
+      }
+    }
+
+    // Only DATED events go into the graph. Same guard as the other templates:
+    // a synthetic or dateless card previously emitted startDate:"" and tripped
+    // the GSC "Missing field 'startDate'" critical.
+    function updateSchema(events, entity) {
+      var dated = events.filter(function (e) { return /^\d{4}-\d{2}-\d{2}/.test(e.date || ''); });
+      var el = document.getElementById('schema-org');
+      if (!el) return;
+      if (!dated.length) { el.textContent = ''; return; }
+
+      var nodes = dated.slice(0, 5).map(function (e) {
+        var node = {
+          '@type': 'SportsEvent',
+          'name': e.name,
+          'startDate': e.date,
+          'eventStatus': 'https://schema.org/EventScheduled',
+          'eventAttendanceMode': 'https://schema.org/OfflineEventAttendanceMode',
+          'url': 'https://ticketscout.co.uk/sports/' + slug
+        };
+        if (e.venue) {
+          node.location = {
+            '@type': 'Place',
+            'name': e.venue,
+            'address': e.city ? { '@type': 'PostalAddress', 'addressLocality': e.city } : undefined
+          };
+        }
+        if (e.price != null) {
+          node.offers = {
+            '@type': 'Offer',
+            'price': Math.round(e.price),
+            'priceCurrency': 'GBP',
+            'availability': 'https://schema.org/InStock',
+            'url': 'https://ticketscout.co.uk/sports/' + slug
+          };
+        }
+        return node;
+      });
+
+      el.textContent = JSON.stringify({ '@context': 'https://schema.org', '@graph': nodes });
+    }
+
+    init();
+  })();
+  </script>
+  <script src="/events.js" defer></script>
+  <script src="/autocomplete.js" defer></script>
+</body>
+</html>

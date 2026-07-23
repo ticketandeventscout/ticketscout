@@ -9,6 +9,7 @@
 //   /api/sitemap?sec=concert   — all concert entity pages
 //   /api/sitemap?sec=football  — all football entity pages
 //   /api/sitemap?sec=theatre   — all theatre entity pages
+//   /api/sitemap?sec=sports    — all non-football sports entity pages
 //   /api/sitemap?sec=venue     — all venue pages
 //
 // URLs come from the KV key sitemap:registry, which is:
@@ -36,13 +37,14 @@ const STATIC_URLS = [
   '/concert',
   '/football',
   '/theatre',
+  '/sports',
   '/faq',
   '/contact',
   '/privacy',
   '/terms'
 ];
 
-const SECTIONS = ['static', 'concert', 'football', 'theatre', 'venue', 'event'];
+const SECTIONS = ['static', 'concert', 'football', 'theatre', 'sports', 'venue', 'event'];
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);

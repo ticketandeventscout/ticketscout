@@ -157,7 +157,7 @@ export async function onRequestGet(ctx) {
     // is worse than no page. When new category pages start calling this
     // adapter they declare their own cat and coverage grows for free.
     const regCategory =
-      (['football', 'concert', 'theatre'].includes(cat) && cat) ||
+      (['football', 'concert', 'theatre', 'sports'].includes(cat) && cat) ||
       (participant.eventTypeId === 1000 ? 'football' : null);
     if (regCategory) tsCaptureThrottled(env, (p) => ctx.waitUntil(p), 'se365:' + regCategory + ':' + participant.id, () => {
       const records = [];
