@@ -55,9 +55,60 @@ const VENUES = [
   { slug: 'sphere-las-vegas', name: 'The Sphere Las Vegas', city: 'Las Vegas', country: 'USA', venueId: null, description: 'The Sphere is Las Vegas\'s revolutionary entertainment venue, the world\'s largest spherical structure featuring an immersive 160,000 square foot LED screen.' },
 ];
 
+
+// ── Hub listing: /api/venue?list=1 ────────────────────────────────────────
+// Venues differ from the other sections: the data is the local VENUES array,
+// not KV, so there is nothing to cache or cap. The facet is a venue TYPE
+// derived from the name, because the records carry no type field. Derived
+// heuristically on purpose — if a real `type` field is added to VENUES later,
+// delete venueType() and read it directly.
+const VENUE_TYPE_RULES = [
+  ['Festival', /festival|fair/i],
+  ['Theatre',  /theatre|theater|palladium|opera house/i],
+  ['Arena',    /arena|hydro|\bo2\b|garden|sphere|co-op live/i],
+  ['Stadium',  /stadium|park|anfield|old trafford|san siro|camp nou|bernabeu|dragao|emirates|bridge/i]
+];
+
+function venueType(v) {
+  const hay = (v.name || '') + ' ' + (v.slug || '');
+  for (const [label, re] of VENUE_TYPE_RULES) if (re.test(hay)) return label;
+  return 'Other';
+}
+
+function listVenues() {
+  const entities = [];
+  const genreCounts = new Map();
+  for (const v of VENUES) {
+    const genre = venueType(v);
+    entities.push({
+      slug: v.slug,
+      name: v.name,
+      genre,
+      city: v.city || '',
+      country: v.country || '',
+      url: '/venue/' + v.slug
+    });
+    genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
+  }
+  entities.sort((a, b) => a.name.localeCompare(b.name));
+
+  return jsonResponse({
+    count: entities.length,
+    totalRegistered: entities.length,
+    truncated: false,
+    genres: [...genreCounts.entries()].map(([genre, count]) => ({ genre, count }))
+      .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
+    entities,
+    builtAt: new Date().toISOString()
+  }, 200);
+}
+
 export async function onRequestGet({ request, env }) {
   const url  = new URL(request.url);
   const slug = url.searchParams.get('slug');
+
+  if (url.searchParams.get('list') === '1') return listVenues();
+
   if (!slug) return jsonResponse({ error: 'slug is required' }, 400);
 
   const venue = VENUES.find(v => v.slug === slug.toLowerCase());

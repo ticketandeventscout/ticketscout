@@ -69,9 +69,84 @@ const SHOWS = [
   { slug: 'popovich-comedy-pet-theater', name: 'Popovich Comedy Pet Theater', search: 'Popovich Comedy Pet Theater', genre: 'Theatre', description: 'Compare Popovich Comedy Pet Theater ticket prices across verified sellers.' }
 ];
 
+
+// ── Hub listing: /api/theatre?list=1 ──────────────────────────────────────
+// Ported from sports.js. Also powers the Theatre pill on the home page:
+// Ticketmaster's Arts & Theatre segment returns a single production at any
+// page size (measured 23 Jul — 1 unique attraction from 100 rows, because a
+// West End run fills every slot), so the registry is the only usable source.
+const HUB_INDEX_KEY = 'theatre:hub:index';
+const HUB_INDEX_TTL = 6 * 60 * 60;
+const HUB_BUILD_CAP = 600;
+
+// Stored theatre genres are already clean ('West End Musical', 'Musical',
+// 'Play', 'Opera'), so unlike concerts they need only an allow-list.
+const THEATRE_GENRES = new Set([
+  'West End Musical', 'Musical', 'Play', 'Opera', 'Ballet',
+  'Dance', 'Comedy', 'Pantomime', 'Circus'
+]);
+
+function toTitleCase(str) {
+  return String(str || '').split(' ')
+    .map(w => w ? w.charAt(0).toUpperCase() + w.slice(1) : w).join(' ');
+}
+
+async function listEntities(env, url) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return jsonResponse({ count: 0, entities: [], genres: [] }, 200);
+
+  const rebuild = url.searchParams.get('rebuild') === '1';
+  if (!rebuild) {
+    try {
+      const cached = await kv.get(HUB_INDEX_KEY, 'json');
+      if (cached && Array.isArray(cached.entities)) {
+        return jsonResponse({ ...cached, cached: true }, 200);
+      }
+    } catch { /* fall through to a rebuild */ }
+  }
+
+  let slugs = [];
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    slugs = Object.keys((reg && reg.sections && reg.sections.theatre) || {}).sort();
+  } catch { /* empty registry — return an empty hub rather than erroring */ }
+
+  const entities = [];
+  const genreCounts = new Map();
+  for (const s of slugs.slice(0, HUB_BUILD_CAP)) {
+    let name = toTitleCase(s.replace(/-/g, ' '));
+    let genre = 'Other';
+    try {
+      const raw = await kv.get('theatre:show:' + s);
+      if (raw) {
+        const rec = JSON.parse(raw);
+        if (rec.name) name = rec.name;
+        if (THEATRE_GENRES.has(rec.genre)) genre = rec.genre;
+      }
+    } catch { /* keep the de-slugged fallback */ }
+    entities.push({ slug: s, name, genre, url: '/theatre/' + s });
+    genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
+  }
+
+  const payload = {
+    count: entities.length,
+    totalRegistered: slugs.length,
+    truncated: slugs.length > HUB_BUILD_CAP,
+    genres: [...genreCounts.entries()].map(([genre, count]) => ({ genre, count }))
+      .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
+    entities,
+    builtAt: new Date().toISOString()
+  };
+
+  try { await kv.put(HUB_INDEX_KEY, JSON.stringify(payload), { expirationTtl: HUB_INDEX_TTL }); } catch {}
+  return jsonResponse({ ...payload, cached: false }, 200);
+}
+
 export async function onRequestGet({ request, env }) {
   const url  = new URL(request.url);
   const slug = url.searchParams.get('slug');
+
+  if (url.searchParams.get('list') === '1') return listEntities(env, url);
 
   if (!slug) {
     return jsonResponse({ error: 'slug is required' }, 400);

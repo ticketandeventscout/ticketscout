@@ -7,7 +7,11 @@ const CATEGORY_MAP = {
   all:    { segment: '' },
   music:  { segment: 'Music' },
   sports: { segment: 'Sports' },
-  arts:   { segment: 'Arts & Theatre' }
+  // Theatre does NOT come from Ticketmaster. TM's Arts & Theatre segment
+  // returns a single production at any page size — measured 23 Jul, 1 unique
+  // attraction from 100 rows, because a West End run occupies every slot.
+  // The registry (161 shows) is the only source that can fill a grid.
+  arts:   { hub: '/api/theatre?list=1', label: 'show' }
 };
 
 // TM segments that represent real ticketed events. Everything else — notably
@@ -184,7 +188,54 @@ function filterCategory(pill, category) {
   pill.classList.add('active');
   navigate('/');
   const cat = CATEGORY_MAP[category] || {};
+  if (cat.hub) { fetchHubEntities(cat.hub, cat.label || 'item'); return; }
   fetchEvents(cat.keyword || '', cat.segment || '');
+}
+
+// Renders registry entities (shows, artists) rather than dated events.
+// These are browse links to entity pages, not individual performances, so
+// they deliberately carry no date or price — claiming either would be a lie.
+async function fetchHubEntities(endpoint, label) {
+  const grid = document.getElementById('events-grid');
+  const title = document.getElementById('results-title');
+  if (title) title.textContent = 'Browse ' + label + 's';
+  if (!grid) return;
+
+  grid.innerHTML = '<div class="loading">Loading…</div>';
+
+  try {
+    const response = await fetch(endpoint);
+    const data = await response.json();
+    const entities = (data && data.entities) || [];
+
+    if (!entities.length) {
+      grid.innerHTML = '<div class="error-msg">Nothing here yet.</div>';
+      return;
+    }
+
+    grid.innerHTML = '';
+    entities.slice(0, 24).forEach(ent => {
+      const card = document.createElement('a');
+      card.className = 'event-card';
+      card.href = ent.url;
+      card.innerHTML = `
+        <div class="event-img-placeholder">${CATEGORY_ICONS['Arts & Theatre'] || CATEGORY_ICONS.default}</div>
+        <div class="event-body">
+          <div class="event-name">${escapeHtml(ent.name)}</div>
+          <div class="event-meta">${escapeHtml(ent.genre || '')}</div>
+          <span class="compare-badge">Compare prices →</span>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+  } catch (err) {
+    grid.innerHTML = '<div class="error-msg">Couldn\'t load that list. Please try again.</div>';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, m =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 }
 
 // ===========================

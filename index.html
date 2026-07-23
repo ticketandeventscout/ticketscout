@@ -38,11 +38,10 @@
         </div>
       </a>
       <div class="nav-links">
-        <a href="/concert" onclick="event.preventDefault();var p=document.querySelectorAll('.cat-pill');filterCategory(p[1],'music')">Concerts</a>
+        <a href="/concert">Concerts</a>
         <a href="/football/">Football</a>
-        <a href="/theatre" onclick="event.preventDefault();var p=document.querySelectorAll('.cat-pill');filterCategory(p[3],'arts')">Theatre</a>
+        <a href="/theatre">Theatre</a>
         <a href="/sports">Sports</a>
-        <a href="#" onclick="event.preventDefault();var p=document.querySelectorAll('.cat-pill');filterCategory(p[4],'comedy')">Comedy</a>
       </div>
     </div>
   </nav>
@@ -63,7 +62,6 @@
         <button class="cat-pill" onclick="filterCategory(this, 'music')">Concerts</button>
         <button class="cat-pill" onclick="window.location.href='/football/'">Football</button>
         <button class="cat-pill" onclick="filterCategory(this, 'arts')">Theatre</button>
-        <button class="cat-pill" onclick="filterCategory(this, 'comedy')">Comedy</button>
       </div>
     </div>
   </section>

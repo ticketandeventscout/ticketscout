@@ -107,9 +107,109 @@ const ARTISTS = [
   { slug: 'rupauls-drag-race', name: 'Rupauls Drag Race', search: 'Rupauls Drag Race', genre: 'Live Events', description: 'Compare Rupauls Drag Race ticket prices across verified sellers.' }
 ];
 
+
+// ── Hub listing: /api/concert?list=1 ──────────────────────────────────────
+// Ported from sports.js. Reads the sitemap registry rather than scanning KV,
+// so it costs one read and can never disagree with the sitemap. The built
+// list is cached in KV for 6h; a rebuild costs one read per entity, capped.
+const HUB_INDEX_KEY = 'concert:hub:index';
+const HUB_INDEX_TTL = 6 * 60 * 60;
+const HUB_BUILD_CAP = 600;
+
+// Stored genres are freeform composites — 'Rock / Pop', 'Latin Trap /
+// Reggaeton', 'Psychedelic Rock / Electronic'. Rendered raw they would make
+// dozens of one-entity pills, so they are folded into a small canonical set.
+// Order matters: the first match wins, so the more specific terms come first.
+const GENRE_RULES = [
+  ['Metal',      /metal|hardcore/i],
+  ['Latin',      /latin|reggaeton|salsa|bachata/i],
+  ['Hip-Hop',    /hip.?hop|rap|grime|trap/i],
+  ['R&B / Soul', /r&b|rnb|soul|funk|motown/i],
+  ['Country',    /country|americana|bluegrass/i],
+  ['Electronic', /electronic|dance|house|techno|edm|drum.?and.?bass|dubstep/i],
+  ['Jazz',       /jazz|blues/i],
+  ['Classical',  /classical|orchestra|opera|symphony/i],
+  ['Folk',       /folk|acoustic|singer.?songwriter/i],
+  ['Indie',      /indie|alternative|emo|shoegaze/i],
+  ['Rock',       /rock|punk|grunge/i],
+  ['Pop',        /pop|k.?pop/i]
+];
+
+function canonicalGenre(raw) {
+  const s = String(raw || '');
+  if (!s.trim()) return 'Other';
+  // The stored value lists the PRIMARY genre first — 'Pop / R&B' is a pop
+  // act, 'R&B / Pop' is an R&B act. Match the first segment so the data's
+  // own ordering wins, rather than the order these rules happen to be in.
+  const primary = s.split('/')[0].trim() || s;
+  for (const [label, re] of GENRE_RULES) if (re.test(primary)) return label;
+  for (const [label, re] of GENRE_RULES) if (re.test(s)) return label;
+  return 'Other';
+}
+
+function toTitleCase(str) {
+  return String(str || '').split(' ')
+    .map(w => w ? w.charAt(0).toUpperCase() + w.slice(1) : w).join(' ');
+}
+
+async function listEntities(env, url) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return jsonResponse({ count: 0, entities: [], genres: [] }, 200);
+
+  const rebuild = url.searchParams.get('rebuild') === '1';
+  if (!rebuild) {
+    try {
+      const cached = await kv.get(HUB_INDEX_KEY, 'json');
+      if (cached && Array.isArray(cached.entities)) {
+        return jsonResponse({ ...cached, cached: true }, 200);
+      }
+    } catch { /* fall through to a rebuild */ }
+  }
+
+  let slugs = [];
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    slugs = Object.keys((reg && reg.sections && reg.sections.concert) || {}).sort();
+  } catch { /* empty registry — return an empty hub rather than erroring */ }
+
+  const entities = [];
+  const genreCounts = new Map();
+  for (const s of slugs.slice(0, HUB_BUILD_CAP)) {
+    let name = toTitleCase(s.replace(/-/g, ' '));
+    let genre = 'Other';
+    try {
+      const raw = await kv.get('concert:artist:' + s);
+      if (raw) {
+        const rec = JSON.parse(raw);
+        if (rec.name) name = rec.name;
+        genre = canonicalGenre(rec.genre);
+      }
+    } catch { /* keep the de-slugged fallback */ }
+    entities.push({ slug: s, name, genre, url: '/concert/' + s });
+    genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
+  }
+
+  const payload = {
+    count: entities.length,
+    totalRegistered: slugs.length,
+    truncated: slugs.length > HUB_BUILD_CAP,
+    genres: [...genreCounts.entries()].map(([genre, count]) => ({ genre, count }))
+      .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
+    entities,
+    builtAt: new Date().toISOString()
+  };
+
+  try { await kv.put(HUB_INDEX_KEY, JSON.stringify(payload), { expirationTtl: HUB_INDEX_TTL }); } catch {}
+  return jsonResponse({ ...payload, cached: false }, 200);
+}
+
 export async function onRequestGet({ request, env }) {
   const url  = new URL(request.url);
   const slug = url.searchParams.get('slug');
+
+  // Hub listing powers /concert so the section is browsable and internally
+  // linked rather than a dead end Google reads as a thin page.
+  if (url.searchParams.get('list') === '1') return listEntities(env, url);
 
   if (!slug) {
     return jsonResponse({ error: 'slug is required' }, 400);

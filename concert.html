@@ -426,6 +426,19 @@
       background: #1a6fc4;
       color: #ffffff;
     }
+    .genre-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+    .genre-pill { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #d8dde3; border-radius: 20px; padding: 7px 14px; font-size: 13px; font-weight: 600; color: #0c2d5a; cursor: pointer; font-family: inherit; transition: background .15s, border-color .15s, color .15s; }
+    .genre-pill:hover { border-color: #1a6fc4; }
+    .genre-pill.is-active { background: #1a6fc4; border-color: #1a6fc4; color: #fff; }
+    .genre-count { background: rgba(12,45,90,.09); border-radius: 10px; padding: 1px 7px; font-size: 11px; font-weight: 700; }
+    .genre-pill.is-active .genre-count { background: rgba(255,255,255,.24); color: #fff; }
+    .genre-heading { font-size: 15px; font-weight: 600; color: #0c2d5a; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+    .genre-count-inline { font-size: 11px; font-weight: 700; color: #7c8794; background: #eef1f4; border-radius: 10px; padding: 1px 7px; }
+    .hub-note { margin-top: 18px; font-size: 12px; color: #9aa4ae; }
+    .hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+    .hub-item { display: block; background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 12px 14px; text-decoration: none; color: #0c2d5a; font-size: 14px; font-weight: 600; transition: border-color .15s, box-shadow .15s; }
+    .hub-item:hover { border-color: #1a6fc4; box-shadow: 0 2px 8px rgba(12,45,90,.08); }
+    .hub-item-sub { display: block; font-size: 12px; font-weight: 500; color: #7c8794; margin-top: 3px; }
   </style>
 </head>
 <body>
@@ -455,10 +468,9 @@
       </a>
       <div class="nav-links">
         <a href="/">Home</a>
-        <a href="/?cat=music">Concerts</a>
+        <a href="/concert">Concerts</a>
         <a href="/theatre">Theatre</a>
         <a href="/sports">Sports</a>
-        <a href="/?cat=comedy">Comedy</a>
         <a href="/football">Football</a>
       </div>
     </div>
@@ -839,12 +851,17 @@
       console.log('Init with slug:', slug);
 
       if (!slug || slug === 'concert') {
-        // No slug — show generic concerts page rather than redirecting
+        // Hub mode: list the artists we hold so /concert is browsable and
+        // internally linked, rather than a dead end Google reads as thin.
         document.getElementById('genre-badge').textContent = 'Concerts';
         document.getElementById('artist-name').textContent = 'Concert Tickets';
         document.getElementById('artist-sub').textContent = 'Compare ticket prices across verified sellers';
-        document.getElementById('events-container').innerHTML =
-          '<div class="no-events"><p>Search for an artist above to compare ticket prices.</p></div>';
+        document.getElementById('events-heading').textContent = 'Browse by artist';
+        // These headings default to the single-entity wording. Without this
+        // the hub renders a bare "About the artist" with nothing under it.
+        document.getElementById('about-heading').textContent = 'About concert tickets on TicketScout';
+        document.getElementById('faq-heading').textContent = 'Frequently asked questions';
+        await loadHub('/api/concert?list=1', 'Concert');
         return;
       }
 
@@ -1328,6 +1345,102 @@
     }
 
     // Kick off
+
+    // ── Hub rendering (ported from sports.html) ───────────────────────────
+    // Genre pills filter the grid in place. Genres come from the API, which
+    // counts them from the real records, so a pill can never advertise a
+    // genre with nothing behind it. Self-contained helpers: this template
+    // has no shared esc().
+    function hubEsc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"]/g, function (m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m];
+      });
+    }
+    function hubAttr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+
+    var _hubData = null;
+    var _hubFilter = 'all';
+
+    function renderHub(box, data) {
+      _hubData = data;
+      var pills = '<div class="genre-pills">' +
+        '<button class="genre-pill is-active" data-g="all">All' +
+          '<span class="genre-count">' + data.count + '</span></button>' +
+        data.genres.map(function (g) {
+          return '<button class="genre-pill" data-g="' + hubAttr(g.genre) + '">' +
+            hubEsc(g.genre) + '<span class="genre-count">' + g.count + '</span></button>';
+        }).join('') + '</div>';
+
+      box.innerHTML = pills + '<div id="hub-results"></div>' +
+        (data.truncated
+          ? '<div class="hub-note">Showing the first ' + data.count + ' of ' +
+            data.totalRegistered + ' — the rest are in the sitemap.</div>'
+          : '');
+
+      box.querySelectorAll('.genre-pill').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          box.querySelectorAll('.genre-pill').forEach(function (b) { b.classList.remove('is-active'); });
+          btn.classList.add('is-active');
+          _hubFilter = btn.getAttribute('data-g');
+          paintHub();
+        });
+      });
+      paintHub();
+    }
+
+    function paintHub() {
+      var el = document.getElementById('hub-results');
+      if (!el || !_hubData) return;
+      var items = _hubFilter === 'all'
+        ? _hubData.entities
+        : _hubData.entities.filter(function (e) { return e.genre === _hubFilter; });
+
+      if (!items.length) { el.innerHTML = '<div class="no-events"><p>Nothing here yet.</p></div>'; return; }
+
+      // Grouped by genre when showing everything, flat when filtered —
+      // headings would be noise once a single genre is selected.
+      if (_hubFilter === 'all') {
+        var groups = {};
+        items.forEach(function (e) { (groups[e.genre] = groups[e.genre] || []).push(e); });
+        el.innerHTML = _hubData.genres.map(function (g) {
+          var list = groups[g.genre];
+          if (!list || !list.length) return '';
+          return '<h3 class="genre-heading">' + hubEsc(g.genre) +
+            ' <span class="genre-count-inline">' + list.length + '</span></h3>' + hubGrid(list);
+        }).join('');
+      } else {
+        el.innerHTML = hubGrid(items);
+      }
+    }
+
+    function hubGrid(list) {
+      return '<div class="hub-grid">' + list.map(function (e) {
+        // Venues carry a city; artists and shows do not.
+        var sub = e.city
+          ? '<span class="hub-item-sub">' + hubEsc([e.city, e.country].filter(Boolean).join(', ')) + '</span>'
+          : '';
+        return '<a class="hub-item" href="' + hubAttr(e.url) + '">' + hubEsc(e.name) + sub + '</a>';
+      }).join('') + '</div>';
+    }
+
+    async function loadHub(endpoint, emptyLabel) {
+      var box = document.getElementById('events-container');
+      try {
+        var lr = await fetch(endpoint);
+        var ld = await lr.json();
+        if (ld && ld.entities && ld.entities.length) {
+          renderHub(box, ld);
+        } else {
+          box.innerHTML = '<div class="no-events"><p>' + emptyLabel +
+            ' pages are being added — check back shortly, or ' +
+            '<a href="/">search from the home page</a>.</p></div>';
+        }
+      } catch (e) {
+        box.innerHTML = '<div class="no-events"><p>Couldn\'t load the ' +
+          emptyLabel.toLowerCase() + ' list. <a href="/">Search from the home page</a>.</p></div>';
+      }
+    }
+
     init();
   </script>
   <script src="/autocomplete.js" defer></script>
