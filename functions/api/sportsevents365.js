@@ -27,6 +27,12 @@ const SANDBOX_BASE    = 'https://api-v2.sandbox365.com';
 const PRODUCTION_BASE = 'https://api-v2.sportsevents365.com';
 const CACHE_KEY       = 'se365:participants:latest';
 
+// Price-history capture. MUST MATCH price-sampler.js — same KV key, same
+// fallback table — so an SE365 sample and a VividSeats sample of the same
+// event convert to GBP identically and are directly comparable.
+const FX_KEY      = 'fx:rates';
+const FX_FALLBACK = { USD: 0.79, EUR: 0.85, GBP: 1, CAD: 0.58, AUD: 0.52, SGD: 0.58, CHF: 0.88 };
+
 export async function onRequestGet(ctx) {
   const { request, env } = ctx;
   const apiKey      = env.SE365_API_KEY;
@@ -60,6 +66,11 @@ export async function onRequestGet(ctx) {
   // Phase 1.4B: callers that know their page category declare it so served
   // events can be registered for SSR (same pattern as awin-events.js).
   const cat      = (incoming.searchParams.get('cat') || '').trim().toLowerCase();
+  // Optional: the calling page's own entity slug (e.g. "arsenal" from
+  // /football/arsenal). Used to file price-history samples against the right
+  // entity. Callers that don't send it fall back to deriving from q, and an
+  // unresolvable slug simply writes no sample — see tsCapturePriceSamples.
+  const pageSlug = (incoming.searchParams.get('slug') || '').trim().toLowerCase();
 
   if (!q) {
     return jsonResponse({ error: 'q (event name) is required.' }, 400);
@@ -166,6 +177,18 @@ export async function onRequestGet(ctx) {
       }
       return records;
     });
+
+    // Price-history capture. Independent of the registry hook above: it runs
+    // for every category (not just the SSR-registerable ones), because a price
+    // sample is safe for any event type whereas a mis-categorised PAGE is not.
+    // Prefer the caller's declared page slug; fall back to deriving one from
+    // the query. Either way an entity we don't already track writes nothing.
+    tsCapturePricesThrottled(
+      env, kv, (p) => ctx.waitUntil(p),
+      'se365:' + participant.id,
+      pageSlug || tsEntitySlug(q),
+      upcoming
+    );
 
     // ── Step 4: Build result ───────────────────────────────────────────────
     const buildMatch = (event) => ({
@@ -451,6 +474,109 @@ async function tsRegisterEvents(env, records) {
     if (batch.length >= 400) break; // per-request safety cap
   }
   if (batch.length) await db.batch(batch);
+}
+
+// ── Price-history capture (piggyback) ──────────────────────────────────────
+// SE365 has no bulk price feed, so it can't be scanned from KV the way the
+// VividSeats / TicketNetwork / Ticombo catalogs are. But every one of these
+// requests ALREADY returns minTicketPrice for each event — so we record what
+// we've just fetched instead of spending a second API call. Cost: zero extra
+// SE365 calls, zero extra quota, no rate-limit exposure.
+//
+// Coverage is therefore traffic-driven: events people actually look at build
+// dense history, quiet ones build little. For a price TREND that's the right
+// trade — but it does mean SE365 history is not uniform across the catalogue,
+// which matters if we ever chart per-source lines.
+//
+// event_key format MUST MATCH price-sampler.js: `${slug}|${date}|${venueSlug}`
+// or samples land in a different bucket from the other sources and the chart
+// silently splits one event's history in two.
+function tsKeySlug(s) {
+  return (s || '')
+    .replace(/\s*\([^)]*\)\s*/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ß/g, 'ss')
+    .toLowerCase().replace(/[^a-z0-9\s-]/g, '')
+    .trim().replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 60);
+}
+
+// Candidate entity slug. Mirrors discover-pages.js toSlug + the sampler's
+// club-suffix strip, so it lines up with slugs already in `entities`.
+function tsEntitySlug(name) {
+  const base = tsKeySlug(name);
+  return base.replace(/-(fc|cf|afc|sc|ac|club)$/, '');
+}
+
+async function tsWritePriceSamples(env, kv, entitySlug, events) {
+  const db = env.PRICE_DB;
+  if (!db || !entitySlug || !events || !events.length) return;
+
+  let fx = FX_FALLBACK;
+  try { const f = await kv.get(FX_KEY, 'json'); if (f) fx = { ...FX_FALLBACK, ...f }; } catch {}
+
+  const now      = Math.floor(Date.now() / 1000);
+  const todayISO = new Date().toISOString().split('T')[0];
+
+  // Cheapest price per event_key, exactly as the sampler does it.
+  const mins = new Map();
+  for (const e of events) {
+    const raw = e.minTicketPrice?.price;
+    if (!raw || raw <= 0) continue;
+    const [dd, mm, yyyy] = String(e.dateOfEvent || '').split('/');
+    const iso = (dd && mm && yyyy) ? `${yyyy}-${mm}-${dd}` : '';
+    if (!iso || iso < todayISO) continue;
+
+    const rate = fx[String(e.minTicketPrice?.currency || 'GBP').toUpperCase()] ?? fx.GBP;
+    const gbp  = Math.round(raw * rate * 100) / 100;
+    const venue = e.venue?.name || 'tba';
+    const key   = `${entitySlug}|${iso}|${tsKeySlug(venue)}`;
+    const cur   = mins.get(key);
+    if (!cur || gbp < cur.minGBP) {
+      mins.set(key, {
+        minGBP: gbp, date: iso, name: e.name || '',
+        venue: e.venue?.name || '',
+        city: e.city?.name || e.venue?.city?.name || e.location?.city?.name || ''
+      });
+    }
+  }
+  if (!mins.size) return;
+
+  // NOTE: deliberately NO `INSERT INTO entities`. The events insert selects
+  // the entity id from `entities`, so an entity we don't already track yields
+  // zero rows and the whole chain no-ops. That is the point: this path must
+  // never mint new entities from a free-text query, which would fragment
+  // price history across near-duplicate slugs. Fails closed by construction.
+  const stmts = [];
+  for (const [eventKey, e] of mins) {
+    stmts.push(db.prepare(
+      `INSERT INTO events (entity_id, event_key, name, venue, city, event_date)
+       SELECT id, ?, ?, ?, ?, ? FROM entities WHERE slug = ?
+       ON CONFLICT(event_key) DO NOTHING`
+    ).bind(eventKey, e.name, e.venue, e.city, e.date, entitySlug));
+    stmts.push(db.prepare(
+      `INSERT INTO price_samples (event_id, source, sampled_at, min_price_gbp)
+       SELECT id, ?, ?, ? FROM events WHERE event_key = ?
+       ON CONFLICT(event_id, source, sampled_at) DO NOTHING`
+    ).bind('se365', now, e.minGBP, eventKey));
+    if (stmts.length >= 80) break; // per-request safety cap (40 events)
+  }
+  if (stmts.length) await db.batch(stmts);
+}
+
+// Same 6h throttle as the registry capture, which matches the price-sampler
+// cron (`0 */6 * * *`) — so SE365 contributes at the same 4x/day cadence as
+// the other sources rather than skewing the daily min with extra samples.
+function tsCapturePricesThrottled(env, kv, waitUntil, markerId, entitySlug, events) {
+  try {
+    if (!env.PRICE_DB || !entitySlug) return;
+    const cache = caches.default;
+    const marker = new Request('https://ts-internal.ticketscout.co.uk/price-capture/' + encodeURIComponent(markerId));
+    waitUntil((async () => {
+      if (await cache.match(marker)) return;
+      await tsWritePriceSamples(env, kv, entitySlug, events);
+      await cache.put(marker, new Response('1', { headers: { 'Cache-Control': 'max-age=21600' } }));
+    })().catch(() => {}));
+  } catch {}
 }
 
 // Cache-API throttle: at most one registry write per markerId per 6h per

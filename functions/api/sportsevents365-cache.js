@@ -50,11 +50,23 @@ const GENERIC_NAMES = new Set([
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
 
+  // Diagnostic: report the REAL eventTypeId distribution before we map it.
+  // Sits above the trigger gate so it works standalone, same convention as
+  // the ?find= endpoints in the merchant caches. Writes nothing.
+  if (url.searchParams.get('types') === '1') {
+    const result = await inspectTypes(env);
+    return new Response(JSON.stringify(result, null, 2), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   if (url.searchParams.get('trigger') !== '1') {
     return text([
       'SE365 participant cache — usage:',
       '  ?trigger=1         — fetch all pages, build cache, queue new pages for discovery',
       '  ?trigger=1&dry=1   — dry run, shows what would be queued without writing',
+      '  ?types=1           — DIAGNOSTIC: eventTypeId distribution + samples (writes nothing)',
       '',
       'One weekly cron job is all that is needed:',
       '  https://ticketscout.co.uk/api/sportsevents365-cache?trigger=1',
@@ -71,6 +83,88 @@ export async function onRequestGet({ request, env }) {
     status: 200,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+// ── DIAGNOSTIC: what eventTypeIds does SE365 actually return? ──────────────
+// The genre map covers 12 sport IDs and everything else falls through to
+// 'Sports', which is how a musician ended up tagged as a sports participant
+// and routed to /concert/. Rather than guess at SE365's taxonomy, this
+// reports the real distribution so the map can be built from evidence.
+// Read-only: fetches pages, counts, returns. No KV writes, no queueing.
+async function inspectTypes(env) {
+  const apiKey     = env.SE365_API_KEY;
+  const httpUser   = env.SE365_HTTP_USERNAME;
+  const httpPass   = env.SE365_HTTP_PASSWORD;
+  const httpSource = env.SE365_HTTP_SOURCE || '';
+  const isProd     = env.SE365_PROD === 'true' || env.SE365_PROD === true;
+
+  if (!apiKey || !httpUser || !httpPass) {
+    return { success: false, error: 'SE365 credentials not configured.' };
+  }
+
+  const baseUrl = isProd
+    ? 'https://api-v2.sportsevents365.com'
+    : 'https://api-v2.sandbox365.com';
+  const headers = {
+    'Authorization': `Basic ${btoa(`${httpUser}:${httpPass}`)}`,
+    'Accept': 'application/json',
+    ...(httpSource ? { 'Source': httpSource } : {})
+  };
+
+  try {
+    const firstResp = await fetch(buildPageUrl(baseUrl, apiKey, 1), { headers });
+    if (!firstResp.ok) return { success: false, error: `HTTP ${firstResp.status} on page 1` };
+    const firstData  = await firstResp.json();
+    const totalPages = firstData?.meta?.last_page || 1;
+    const all        = [...(firstData?.data || [])];
+
+    for (let page = 2; page <= totalPages; page++) {
+      const resp = await fetch(buildPageUrl(baseUrl, apiKey, page), { headers });
+      if (!resp.ok) break;
+      const rows = (await resp.json())?.data || [];
+      if (!rows.length) break;
+      all.push(...rows);
+      if (page % 20 === 0) await sleep(150);
+    }
+
+    // Count by type, keeping a few real names per type so the mapping choice
+    // is obvious ("is 1043 tennis players or music acts?").
+    const byType = new Map();
+    let missingType = 0;
+    for (const p of all) {
+      if (!p || !p.name) continue;
+      const t = (p.eventTypeId ?? null);
+      if (t === null) missingType++;
+      const k = String(t);
+      if (!byType.has(k)) byType.set(k, { eventTypeId: t, count: 0, samples: [] });
+      const rec = byType.get(k);
+      rec.count++;
+      if (rec.samples.length < 5) rec.samples.push(String(p.name).trim());
+    }
+
+    const known = se365Genre.MAP || {};
+    const types = [...byType.values()]
+      .sort((a, b) => b.count - a.count)
+      .map(r => ({
+        ...r,
+        mappedGenre: known[r.eventTypeId] || null,
+        status: known[r.eventTypeId] ? 'mapped' : 'UNMAPPED → currently falls back to "Sports"'
+      }));
+
+    const unmapped = types.filter(t => !t.mappedGenre);
+    return {
+      success: true,
+      totalParticipants: all.length,
+      distinctTypes: types.length,
+      missingType,
+      unmappedTypeCount: unmapped.length,
+      unmappedParticipantCount: unmapped.reduce((n, t) => n + t.count, 0),
+      types,
+      note: 'Read-only diagnostic. Nothing written, nothing queued.'
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
 }
 
 async function refreshCache(env, dryRun) {
@@ -140,25 +234,32 @@ async function refreshCache(env, dryRun) {
     for (const p of allParticipants) {
       if (!p.id || !p.name) continue;
 
+      // SE365 returns names with leading/trailing whitespace (" Jamie XX").
+      // toSlug() trims, so slugs looked fine while the stored NAME kept the
+      // space and flowed into page titles, meta descriptions and JSON-LD.
+      // Normalise once here so every downstream copy is clean.
+      const pName = String(p.name).replace(/\s+/g, ' ').trim();
+      if (!pName) continue;
+
       // Build lookup entry
-      const normName = normaliseName(p.name);
+      const normName = normaliseName(pName);
       if (normName) {
         lookup[normName] = {
           id:          p.id,
-          name:        p.name,
+          name:        pName,
           eventTypeId: p.eventTypeId || null
         };
       }
 
       // Discovery — queue new participants as pages
-      if (!isValidName(p.name) || isTribute(p.name)) continue;
-      const slug = toSlug(p.name);
+      if (!isValidName(pName) || isTribute(pName)) continue;
+      const slug = toSlug(pName);
       if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
 
       const genre = se365Genre(p.eventTypeId);
       newArtists.set(slug, {
-        slug, name: p.name, search: p.name,
-        genre, description: generateDescription(p.name, genre),
+        slug, name: pName, search: pName,
+        genre, description: generateDescription(pName, genre),
         source: 'sportsevents365'
       });
     }
@@ -240,23 +341,43 @@ function isTribute(name) {
   return TRIBUTE_KEYWORDS.some(kw => (name || '').toLowerCase().includes(kw));
 }
 
-function se365Genre(eventTypeId) {
-  const map = {
-    1000: 'Football', 1002: 'Basketball', 1005: 'Baseball',
-    1014: 'Boxing',   1019: 'Cricket',    1035: 'MMA',
-    1001: 'Tennis',   1006: 'Ice Hockey', 1007: 'American Football',
-    1008: 'Rugby',    1009: 'Golf',       1010: 'Motorsport'
-  };
-  return map[eventTypeId] || 'Sports';
-}
+// Known SE365 eventTypeIds. Exposed on the function so the ?types=1
+// diagnostic can report which live types are still unmapped.
+// KNOWN GAP: everything not in here currently falls back to 'Sports', which
+// routes non-sport participants (musicians, festivals) to /concert/ pages
+// carrying a "professional Sports team or athlete" description. Run
+// ?types=1 and extend this table from the real distribution before trusting
+// the fallback.
+const SE365_TYPE_MAP = {
+  1000: 'Football', 1002: 'Basketball', 1005: 'Baseball',
+  1014: 'Boxing',   1019: 'Cricket',    1035: 'MMA',
+  1001: 'Tennis',   1006: 'Ice Hockey', 1007: 'American Football',
+  1008: 'Rugby',    1009: 'Golf',       1010: 'Motorsport'
+};
 
+function se365Genre(eventTypeId) {
+  return SE365_TYPE_MAP[eventTypeId] || 'Sports';
+}
+se365Genre.MAP = SE365_TYPE_MAP;
+
+// Copy must only assert what we actually know: the name, and that we compare
+// prices for it. The previous version stated facts we had not verified —
+// "X are a professional Boxing team or athlete", "a passionate global
+// fanbase" — which was published at scale on indexable pages, and read as
+// nonsense whenever the genre fallback had guessed wrong (a musician tagged
+// 'Sports'). Only the Football branch keeps a factual claim, because that
+// genre comes from an explicitly mapped eventTypeId (1000) rather than the
+// fallback, so we know it really is a club.
 function generateDescription(name, genre) {
-  const g = genre.toLowerCase();
+  const g = String(genre || '').toLowerCase();
   if (g === 'football')
-    return `${name} are a professional football club with a passionate global fanbase. Compare ticket prices for upcoming matches across verified sellers on TicketScout.`;
-  if (g === 'boxing' || g === 'mma')
-    return `${name} is a professional fighter known for exciting bouts and a dedicated global following. Compare ticket prices for upcoming events on TicketScout.`;
-  return `${name} are a professional ${genre} team or athlete. Compare ticket prices for upcoming events across verified sellers on TicketScout.`;
+    return `${name} fixtures listed with live pricing. Compare ${name} ticket prices across verified sellers on TicketScout.`;
+  // 'Sports' is the fallback sentinel, so any other value came from a real
+  // eventTypeId mapping and is safe to name.
+  if (g && g !== 'sports')
+    return `Compare ${name} ticket prices for upcoming ${genre} events across verified sellers on TicketScout. Updated daily.`;
+  // Unmapped/fallback genre — say nothing about what the participant IS.
+  return `Compare ${name} ticket prices for upcoming events across verified sellers on TicketScout. Updated daily.`;
 }
 
 function sleep(ms) {

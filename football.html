@@ -797,7 +797,7 @@
             ? fetch(`/api/ticketmaster?attractionId=${encodeURIComponent(attractionId)}&size=50&page=0`).then(safeJson).catch(() => null)
             : Promise.resolve(null),
           fetch(`/api/awin-events?name=${searchName}&size=50&cat=football`).then(safeJson).catch(() => null),
-          fetch(`/api/sportsevents365?q=${searchName}&mode=list&cat=football`).then(safeJson).catch(() => null),
+          fetch(`/api/sportsevents365?q=${searchName}&mode=list&cat=football&slug=${encodeURIComponent(slug)}`).then(safeJson).catch(() => null),
           fetch(`/api/vividseats?q=${searchName}&mode=list&cat=football`).then(safeJson).catch(() => null),
           fetch(`/api/ticombo?q=${searchName}`).then(safeJson).catch(() => null),
           fetch(`/api/ticketnetwork?q=${searchName}&mode=list&cat=football`).then(safeJson).catch(() => null)
@@ -890,6 +890,14 @@
           // "International Friendly - X"). Keyword list extended.
           .replace(/^.*?(?:friendly|cup|league|trophy|championship|qualifier|final|semi[- ]?final|quarter[- ]?final|round|matchday|group [a-z]|pre[- ]?season|international|test match|play[- ]?off|community shield|super cup|charity shield|exhibition|tournament)\b.*?(?::|\s-\s)\s*/i, '')
           .replace(/\b(versus|vs\.?|v\.?)\b/g, ' vs ')
+          // Placeholder opponents are NOT a real second side. Feeds list a
+          // fixture before the opponent is drawn ("FC Barcelona vs To be
+          // decided"), which previously produced a two-sided key that matched
+          // nothing and survived as a phantom duplicate alongside the real
+          // fixture. Blanking the placeholder leaves one side, so the key
+          // reduces to the bare club and the existing bare-card collapse
+          // handles it like any other single-team listing.
+          .replace(/\b(?:to be (?:decided|confirmed|announced|determined)|tbd|tba|tbc|unknown opponent|opponent tbd)\b/g, ' ')
           .replace(/\b(fc|cf|afc|sc|rc|ac|bc|ud|rcd|ssc|ss|as|vfb|fsv|vfl|tsv|rb|bv|sv)\b/g, ' ')
           // Drop founding-year tokens some feeds append ("Como 1907") so the
           // same club matches whether or not the year is present.
@@ -900,6 +908,11 @@
           .replace(/\band\b/g, ' ')
           .replace(/[^a-z0-9]+/g, ' ')
           .trim()
+          // Blanking a placeholder side leaves a dangling "vs" with nothing
+          // after it. The split below needs whitespace on BOTH sides, so an
+          // orphan would survive as a literal word and corrupt the key
+          // ("barcelona vs" -> "barcelonavs"). Drop it before splitting.
+          .replace(/^vs\s+|\s+vs$/g, '')
           .split(/\s+vs\s+/)
           .map(side => side.trim().split(/\s+/).filter(Boolean).sort().join(''))
           .filter(Boolean)
@@ -963,6 +976,19 @@
         // ── Global dedup: merge all, sort by date, remove duplicates ─────────
         const allRaw = [...tmEvents, ...awinOnly, ...se365Events, ...vsEventCards, ...tnEventCards, ...tcEvents];
         const venueKey = e => ((e._embedded?.venues?.[0]?.name) || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        // Sponsor naming differs per feed for the SAME ground — Ticketmaster
+        // returns "Spotify Camp Nou" where another feed returns "Camp Nou",
+        // which made an exact key comparison fail and left a bare card and its
+        // full fixture both showing on the same date. Sponsor names are always
+        // a PREFIX, so endsWith is the safe test (not loose substring, which
+        // would match unrelated grounds). The 6-char floor stops short generic
+        // words like "arena" or "park" collapsing different venues together.
+        const sameVenue = (a, b) => {
+          if (!a || !b) return false;
+          if (a === b) return true;
+          const [long, short] = a.length >= b.length ? [a, b] : [b, a];
+          return short.length >= 6 && long.endsWith(short);
+        };
         // A fuzzy key like "arsenal|betisreal" describes a two-sided fixture;
         // "arsenal" alone is a bare single-team listing. This returns the set
         // of sides so we can tell whether a bare name is one side of a kept
@@ -987,10 +1013,11 @@
               // (a) exact / fuzzy name match within ±2 days — same fixture
               if (diffDays <= 2 && (k.name === eName || k.fuzzy === eFuzzy)) return false;
               // (b) bare single-team card collapses into a full fixture ONLY
-              //     when date AND venue match exactly and the bare name is one
-              //     side of that fixture (or vice-versa). Both guards required,
-              //     so it never merges across different venues or dates.
-              const sameSlot = eDate && k.date && eDate === k.date && eVenue && k.venue && eVenue === k.venue;
+              //     when date AND venue match and the bare name is one side of
+              //     that fixture (or vice-versa). Both guards still required,
+              //     so it never merges across different dates or grounds —
+              //     venue matching just tolerates sponsor prefixes now.
+              const sameSlot = eDate && k.date && eDate === k.date && sameVenue(eVenue, k.venue);
               if (sameSlot) {
                 const eIsBare = eSides.length === 1;
                 const kIsBare = k.sides.length === 1;

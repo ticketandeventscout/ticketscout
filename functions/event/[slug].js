@@ -327,7 +327,30 @@ function renderPage(d) {
           fetch('/api/price-history' + qs)
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (data) {
-              if (data && !data.error) renderPriceHistory(box, data, { entityName: EV.name });
+              if (!data || data.error) return;
+              // Reconcile against the LIVE compare table. The sampler only
+              // captures VS/TN/Ticombo catalog snapshots 4x/day, so its stored
+              // "current" can lag a fresher live listing (e.g. a new Vivid
+              // Seats price) — which looked like a bug: a £807 headline above a
+              // £477 seller row. We wait briefly for compare.js to render, read
+              // the cheapest plausible live row straight from the DOM the user
+              // sees, and never let the chart headline exceed it. The trend
+              // line (historical shape) is untouched; only the quoted current
+              // figure is pinned to reality.
+              livePriceThen(function (livePrice) {
+                if (livePrice != null && data.summary) {
+                  var cur = data.summary.current;
+                  if (typeof cur === 'number' && livePrice < cur) {
+                    data.summary.current = livePrice;
+                    // A fresh live low also can't be above the 30-day low.
+                    if (typeof data.summary.low30d === 'number' && livePrice < data.summary.low30d) {
+                      data.summary.low30d = livePrice;
+                    }
+                    data._reconciled = true;
+                  }
+                }
+                renderPriceHistory(box, data, { entityName: EV.name });
+              });
             })
             .catch(function () { /* supplementary — silent */ });
         })();
@@ -365,6 +388,29 @@ function renderPage(d) {
     })();
   </script>
   <script>
+  // Reads the cheapest plausible price from the live compare table once
+  // compare.js has rendered it. Polls briefly (compare hydrates async) and
+  // gives up quietly after ~4s, calling back with null — the chart then just
+  // shows its own figure. Reads the same data-price rows and E2 implausible
+  // flag compare.js uses for its own "Best price" badge, so we agree with it.
+  function livePriceThen(cb) {
+    var tries = 0, MAX = 20; // 20 × 200ms = 4s
+    (function poll() {
+      var rows = document.querySelectorAll('#compare-rows .compare-row');
+      if (rows.length) {
+        var lo = Infinity;
+        rows.forEach(function (row) {
+          if (row.dataset.implausible === '1') return;
+          var p = parseFloat(row.dataset.price);
+          if (p > 0 && p < lo) lo = p;
+        });
+        return cb(lo === Infinity ? null : lo);
+      }
+      if (++tries >= MAX) return cb(null);
+      setTimeout(poll, 200);
+    })();
+  }
+
   // ── Price-history renderer (inline SVG, zero dependencies) ──────────────
   // Kept self-contained on the page rather than in compare.js: it's only used
   // here, and inlining avoids a compare.js version bump for a display-only
@@ -382,7 +428,7 @@ function renderPage(d) {
     var anchorLine, scopeTag;
     if (scope === 'event' && data.event) {
       var dd = data.event.date ? new Date(data.event.date + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-      anchorLine = 'Get-in price for this ' + (data.event.name || 'event') + (dd ? ' on ' + dd : '') + (data.event.venue ? ', ' + data.event.venue : '');
+      anchorLine = 'Get-in price for ' + (data.event.name || 'this event') + (dd ? ' on ' + dd : '') + (data.event.venue ? ', ' + data.event.venue : '');
       scopeTag = 'this event';
     } else {
       anchorLine = 'Cheapest ticket across all ' + (opts.entityName || 'upcoming') + ' dates' + (summary.upcomingEvents ? ' (' + summary.upcomingEvents + ' events)' : '');
@@ -420,17 +466,19 @@ function renderPage(d) {
         '</div>' +
         phSvg(series, trend) +
         '<div class="ts-ph-foot"><span class="anchor">' + phEsc(anchorLine) + '.</span> ' +
+          (data._reconciled ? 'Current figure reflects the cheapest live seller price now; the line shows our tracked daily history. ' : '') +
           'Cheapest available ticket per day, all sellers, in GBP. Not a purchase price \u2014 confirm on the seller\\'s site.</div>' +
       '</div>';
   }
 
   function phSvg(series, trend) {
-    var W = 640, H = 140, padL = 10, padR = 10, padT = 14, padB = 26;
+    var W = 640, H = 150, padL = 10, padR = 10, padT = 20, padB = 26;
     var iw = W - padL - padR, ih = H - padT - padB;
     var mins = series.map(function (p) { return p.min; });
     var lo = Math.min.apply(null, mins), hi = Math.max.apply(null, mins);
-    if (hi === lo) { hi = lo + 1; lo = lo - 1; }
-    var pad = (hi - lo) * 0.15; lo -= pad; hi += pad;
+    var loFlat = (hi === lo);
+    if (loFlat) { hi = lo + 1; lo = lo - 1; }
+    var padY = (hi - lo) * 0.15; lo -= padY; hi += padY;
     var x = function (i) { return padL + (series.length === 1 ? iw / 2 : (i / (series.length - 1)) * iw); };
     var y = function (v) { return padT + ih - ((v - lo) / (hi - lo)) * ih; };
     var stroke = trend === 'up' ? '#c0392b' : trend === 'down' ? '#1e8449' : '#1a6fc4';
@@ -438,15 +486,45 @@ function renderPage(d) {
     var line = series.map(function (p, i) { return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.min).toFixed(1); }).join(' ');
     var area = 'M' + x(0).toFixed(1) + ' ' + (padT + ih) + ' ' + line.replace(/^M/, 'L') + ' L' + x(series.length - 1).toFixed(1) + ' ' + (padT + ih) + ' Z';
     var d0 = phDay(series[0].day), d1 = phDay(series[series.length - 1].day);
-    var lx = x(series.length - 1), ly = y(series[series.length - 1].min);
+
+    // Value readouts: the series high and low get a labelled dot each, so the
+    // reader sees the actual prices behind the shape rather than bare
+    // direction. (No y-axis — two anchored numbers are cleaner than a scale.)
+    var hiI = 0, loI = 0;
+    for (var i = 1; i < series.length; i++) {
+      if (series[i].min > series[hiI].min) hiI = i;
+      if (series[i].min < series[loI].min) loI = i;
+    }
+    var lastI = series.length - 1;
+    var readout = '';
+    if (!loFlat) {
+      readout += phDot(x(hiI), y(series[hiI].min), stroke, phMoney(series[hiI].min), 'above', hiI, lastI);
+      readout += phDot(x(loI), y(series[loI].min), stroke, phMoney(series[loI].min), 'below', loI, lastI);
+    }
+    // Always mark + label the latest point (the number the headline quotes).
+    var lx = x(lastI), ly = y(series[lastI].min);
+    readout += '<circle cx="' + lx.toFixed(1) + '" cy="' + ly.toFixed(1) + '" r="3.5" fill="' + stroke + '" />';
+
     return '<svg class="ts-ph-chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cheapest daily ticket price over the tracked period">' +
       '<path d="' + area + '" fill="' + fill + '" />' +
       '<path d="' + line + '" fill="none" stroke="' + stroke + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />' +
-      '<circle cx="' + lx.toFixed(1) + '" cy="' + ly.toFixed(1) + '" r="3.5" fill="' + stroke + '" />' +
+      readout +
       '<text x="' + padL + '" y="' + (H - 8) + '" font-size="12" fill="#9aa4ae" font-family="Inter,sans-serif">' + d0 + '</text>' +
       '<text x="' + (W - padR) + '" y="' + (H - 8) + '" font-size="12" fill="#9aa4ae" text-anchor="end" font-family="Inter,sans-serif">' + d1 + '</text>' +
     '</svg>';
   }
+
+  // A labelled dot on the line. Label sits above or below the point, and
+  // flips its text-anchor near the edges so readouts never clip the viewBox.
+  function phDot(cx, cy, colour, label, pos, i, lastI) {
+    if (i === lastI) return ''; // the latest point is marked separately
+    var dy = pos === 'above' ? -8 : 15;
+    var anchor = cx < 60 ? 'start' : cx > 580 ? 'end' : 'middle';
+    return '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3" fill="' + colour + '" />' +
+      '<text x="' + cx.toFixed(1) + '" y="' + (cy + dy).toFixed(1) + '" font-size="12" font-weight="600" fill="#5a6b7b" text-anchor="' + anchor + '" font-family="Inter,sans-serif">' + label + '</text>';
+  }
+
+  function phMoney(n) { n = Math.round(n); return '\u00a3' + n; }
 
   function phDay(iso) { var d = new Date(iso + 'T00:00:00Z'); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); }
   function phNum(n) { n = Math.round(n * 100) / 100; return (n % 1 === 0) ? String(n) : n.toFixed(2); }
