@@ -7,9 +7,24 @@ const CATEGORY_MAP = {
   all:    { segment: '' },
   music:  { segment: 'Music' },
   sports: { segment: 'Sports' },
-  arts:   { segment: 'Arts & Theatre' },
-  comedy: { segment: 'Arts & Theatre', keyword: 'comedy' }
+  arts:   { segment: 'Arts & Theatre' }
 };
+
+// TM segments that represent real ticketed events. Everything else — notably
+// segment "Miscellaneous" / genre "Undefined", which is how TM classifies
+// attractions like The View from The Shard, Twist Museum and Sea Life — is
+// excluded from the homepage. Confirmed 23 Jul against the live TM payload.
+const TRENDING_SEGMENTS = new Set(['Music', 'Sports', 'Arts & Theatre']);
+
+function isRealEvent(e) {
+  const c = (e && e.classifications && e.classifications[0]) || null;
+  if (!c) return false;
+  const seg = (c.segment && c.segment.name) || '';
+  const genre = (c.genre && c.genre.name) || '';
+  if (!TRENDING_SEGMENTS.has(seg)) return false;
+  if (genre === 'Undefined') return false;
+  return true;
+}
 
 const CATEGORY_ICONS = {
   Music: '🎵',
@@ -92,7 +107,9 @@ async function fetchEvents(keyword = '', segmentName = '', genreId = '', subGenr
   grid.innerHTML = '<div class="loading">Loading events…</div>';
 
   try {
-    const params = new URLSearchParams({ size: '12' });
+    // Over-fetch so that filtering attractions out still leaves a full grid.
+    // Same single TM call, same quota cost, same 10-min edge cache.
+    const params = new URLSearchParams({ size: '40' });
     if (keyword) params.set('keyword', keyword);
     if (segmentName) params.set('segmentName', segmentName);
 
@@ -104,7 +121,14 @@ async function fetchEvents(keyword = '', segmentName = '', genreId = '', subGenr
       return;
     }
 
-    renderEventCards(grid, data._embedded.events);
+    const events = data._embedded.events.filter(isRealEvent).slice(0, 12);
+
+    if (!events.length) {
+      grid.innerHTML = '<div class="error-msg">No events found. Try a different search.</div>';
+      return;
+    }
+
+    renderEventCards(grid, events);
   } catch (error) {
     grid.innerHTML = '<div class="error-msg">Unable to load events right now. Please try again shortly.</div>';
     console.error('Ticketmaster fetch error:', error);

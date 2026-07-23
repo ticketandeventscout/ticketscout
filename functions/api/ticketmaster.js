@@ -7,6 +7,13 @@
 // your project → Settings → Environment variables
 // ===========================
 
+// TM Discovery v2 sort values. There is no popularity sort; 'relevance,desc'
+// is the closest available proxy for demand.
+const TM_SORTS = new Set([
+  'date,asc', 'date,desc', 'name,asc', 'name,desc',
+  'relevance,asc', 'relevance,desc', 'random'
+]);
+
 export async function onRequestGet(ctx) {
   const { request, env } = ctx;
 
@@ -65,9 +72,17 @@ export async function onRequestGet(ctx) {
     const segmentName = incoming.searchParams.get('segmentName');
     if (segmentName) {
       tmUrl.searchParams.set('segmentName', segmentName);
-      // Remove GB filter for segment browsing — show global events
-      tmUrl.searchParams.delete('countryCode');
+      // countryCode=GB is deliberately KEPT here. The only caller that passes
+      // segmentName is fetchEvents() in events.js, which renders the homepage
+      // under the heading "Trending events in the UK" — dropping GB returned
+      // New York results under a UK heading. attractionId and venueId below
+      // still drop it, because those are genuinely global lookups.
     }
+
+    // Sort override — lets a live A/B be run from the URL before any default
+    // is changed. Whitelisted against TM's documented sort values.
+    const sort = incoming.searchParams.get('sort');
+    if (sort && TM_SORTS.has(sort)) tmUrl.searchParams.set('sort', sort);
 
 
 
