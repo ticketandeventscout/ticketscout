@@ -138,7 +138,10 @@ function wrongOrigin() {
 
 function load(elId, sort) {
   var el = document.getElementById(elId);
-  var url = '/api/ticketmaster?size=40&sort=' + encodeURIComponent(sort) + '&_cb=' + Date.now();
+  // NO cache-buster. lastGoodKey in ticketmaster.js is built from every
+  // incoming search param, so a unique param per request guarantees both an
+  // edge-cache miss AND a KV last-good miss — turning any TM hiccup into a 503.
+  var url = '/api/ticketmaster?size=40&sort=' + encodeURIComponent(sort);
 
   if (wrongOrigin()) {
     el.querySelector('.meta').outerHTML =
@@ -150,8 +153,12 @@ function load(elId, sort) {
     return;
   }
 
+  var httpStatus = null, fallback = null;
+
   fetch(url)
     .then(function (r) {
+      httpStatus = r.status;
+      fallback = r.headers.get('x-tm-fallback');
       var ct = r.headers.get('content-type') || '';
       if (ct.indexOf('application/json') === -1) {
         throw new Error('Expected JSON, got "' + ct + '" (HTTP ' + r.status + '). ' +
@@ -163,7 +170,14 @@ function load(elId, sort) {
       var all = (data._embedded && data._embedded.events) || [];
       if (!all.length) {
         el.querySelector('.meta').outerHTML =
-          '<div class="err">No events returned. ' + esc(data.error || '') + '</div>';
+          '<div class="err"><strong>No events returned.</strong><br />' +
+          'HTTP ' + esc(httpStatus) +
+          (fallback ? ' &middot; X-TM-Fallback: ' + esc(fallback) : ' &middot; no fallback header') +
+          '<br />' + esc(data.error || '(no error field)') +
+          '<br /><br />HTTP 503 with this message means TM answered non-OK ' +
+          '(or the quota breaker is set) and KV held no last-good copy for ' +
+          'this exact query. Check the <code>tm:quota:exhausted</code> key in ' +
+          'the GIGSBERG_KV namespace.</div>';
         return;
       }
       var kept = all.filter(isRealEvent).slice(0, 12);
@@ -175,6 +189,7 @@ function load(elId, sort) {
       var withPrice = kept.filter(function (e) { return e.priceRanges && e.priceRanges[0]; }).length;
 
       el.querySelector('.meta').innerHTML =
+        (fallback ? '<strong style="color:#8a5a10">STALE (' + esc(fallback) + ')</strong> &middot; ' : '') +
         'fetched ' + all.length + ' &middot; filtered out ' + dropped +
         ' &middot; showing ' + kept.length +
         ' &middot; <strong>' + withPrice + '/' + kept.length + ' priced</strong>' +
