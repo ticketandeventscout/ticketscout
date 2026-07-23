@@ -35,22 +35,7 @@ export async function onRequestGet({ request, env }) {
   // discover-pages build-registry) rather than scanning KV, so it costs one
   // read and can never disagree with what's in the sitemap.
   if (url.searchParams.get('list') === '1') {
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 500);
-    try {
-      const raw = env.GIGSBERG_KV ? await env.GIGSBERG_KV.get('sitemap:registry') : null;
-      const reg = raw ? JSON.parse(raw) : null;
-      const slugs = Object.keys((reg && reg.sections && reg.sections.sports) || {}).sort();
-      return json({
-        count: slugs.length,
-        entities: slugs.slice(0, limit).map(s => ({
-          slug: s,
-          name: toTitleCase(s.replace(/-/g, ' ')),
-          url: '/sports/' + s
-        }))
-      }, 200);
-    } catch (err) {
-      return json({ count: 0, entities: [], error: String(err) }, 200);
-    }
+    return listEntities(env, url);
   }
 
   if (!slug) return json({ error: 'slug is required' }, 400);
@@ -128,4 +113,67 @@ function json(body, status) {
       'Access-Control-Allow-Origin': '*'
     }
   });
+}
+
+// ── Hub listing with genres ───────────────────────────────────────────────
+// The hub needs a GENRE per entity so visitors can filter — a flat list of
+// a thousand names tells them nothing about what's there. Genre lives on the
+// individual KV record, so building the list means one read per entity.
+// That's fine at today's scale but wouldn't be at a thousand, so the built
+// list is cached in KV for 6h and every later request is a single read.
+const HUB_INDEX_KEY = 'sports:hub:index';
+const HUB_INDEX_TTL = 6 * 60 * 60;
+const HUB_BUILD_CAP = 600;          // reads per rebuild — keeps us inside CPU limits
+
+async function listEntities(env, url) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return json({ count: 0, entities: [], genres: [] }, 200);
+
+  const rebuild = url.searchParams.get('rebuild') === '1';
+
+  if (!rebuild) {
+    try {
+      const cached = await kv.get(HUB_INDEX_KEY, 'json');
+      if (cached && Array.isArray(cached.entities)) {
+        return json({ ...cached, cached: true }, 200);
+      }
+    } catch { /* fall through to a rebuild */ }
+  }
+
+  let slugs = [];
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    slugs = Object.keys((reg && reg.sections && reg.sections.sports) || {}).sort();
+  } catch { /* empty registry — return an empty hub rather than erroring */ }
+
+  const entities = [];
+  const genreCounts = new Map();
+  for (const s of slugs.slice(0, HUB_BUILD_CAP)) {
+    let name = toTitleCase(s.replace(/-/g, ' '));
+    let genre = 'Other';
+    try {
+      const raw = await kv.get(KV_PREFIX + s);
+      if (raw) {
+        const rec = JSON.parse(raw);
+        if (rec.name) name = rec.name;
+        if (SPORTS_GENRES.has(rec.genre)) genre = rec.genre;
+      }
+    } catch { /* keep the de-slugged fallback */ }
+    entities.push({ slug: s, name, genre, url: '/sports/' + s });
+    genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
+  }
+
+  const payload = {
+    count: entities.length,
+    totalRegistered: slugs.length,
+    truncated: slugs.length > HUB_BUILD_CAP,
+    genres: [...genreCounts.entries()]
+      .map(([genre, count]) => ({ genre, count }))
+      .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
+    entities,
+    builtAt: new Date().toISOString()
+  };
+
+  try { await kv.put(HUB_INDEX_KEY, JSON.stringify(payload), { expirationTtl: HUB_INDEX_TTL }); } catch {}
+  return json({ ...payload, cached: false }, 200);
 }

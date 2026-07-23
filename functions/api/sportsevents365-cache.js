@@ -331,9 +331,20 @@ function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
 }
 
+// MUST MATCH discover-pages.js toSlug.
+// Two bugs fixed here, both seen in live output:
+//   * No transliteration meant accents were DELETED, not converted:
+//     "Yair Rodriguez" (with an accented i) became "yair-rodrguez".
+//     discover-pages.js already had this fix; this copy did not.
+//   * Removing a parenthetical also ate the spaces either side, joining the
+//     neighbouring words: "Ahavat (Hashem) Gordon" -> "ahavatgordon".
+//     Replacing with a single space keeps the word boundary.
 function toSlug(name) {
   return (name || '')
-    .replace(/\s*\([^)]*\)\s*/g, '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ß/g, 'ss').replace(/ø/g, 'o').replace(/Ø/g, 'o')
+    .replace(/æ/g, 'ae').replace(/Æ/g, 'ae').replace(/đ/g, 'd').replace(/Đ/g, 'd')
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()

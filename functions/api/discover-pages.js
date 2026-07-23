@@ -416,9 +416,23 @@ export async function onRequestGet({ request, env }) {
           if (raw) rec = JSON.parse(raw);
         } catch {}
         if (!rec || !rec.genre) continue;          // no genre = no evidence = leave alone
-        const shouldBe = genreToCategory(rec.genre);
-        if (shouldBe !== fromCat) {
-          misfiled.push({ slug, from: fromCat, to: shouldBe, genre: rec.genre, name: rec.name || slug });
+        const shouldBeCat = genreToCategory(rec.genre);
+        // Stale slug: toSlug used to delete diacritics instead of
+        // transliterating them ("yair-rodrguez") and used to join words
+        // across a removed parenthetical ("ahavatgordon"). Both are fixed,
+        // so re-deriving from the stored NAME finds pages minted by the old
+        // rule. Left alone, the next discovery run would mint the corrected
+        // slug as a brand-new page and we'd have duplicates.
+        const shouldBeSlug = rec.name ? toSlug(rec.name) : slug;
+        const catWrong  = shouldBeCat !== fromCat;
+        const slugWrong = shouldBeSlug && shouldBeSlug !== slug;
+        if (catWrong || slugWrong) {
+          misfiled.push({
+            slug, from: fromCat, to: shouldBeCat,
+            toSlug: slugWrong ? shouldBeSlug : slug,
+            reason: catWrong && slugWrong ? 'category+slug' : catWrong ? 'category' : 'slug',
+            genre: rec.genre, name: rec.name || slug
+          });
         }
       }
       if (misfiled.length >= limit) break;
@@ -443,13 +457,18 @@ export async function onRequestGet({ request, env }) {
     const files = [];
     for (const m of misfiled) {
       const gen = categoryToHtmlGenerator(m.to);
+      const target = m.toSlug || m.slug;
       let enrich = null;
       try {
-        const meta = await kv.get(`entity:meta:${m.to}:${m.slug}`);
+        const meta = await kv.get(`entity:meta:${m.from}:${m.slug}`);
         if (meta) enrich = JSON.parse(meta);
       } catch {}
-      files.push({ path: `${m.to}/${m.slug}.html`, content: gen(m.slug, enrich || { name: m.name }) });
-      files.push({ path: `${m.from}/${m.slug}.html`, content: null });   // null = delete
+      files.push({ path: `${m.to}/${target}.html`, content: gen(target, enrich || { name: m.name }) });
+      // Only delete the old path if it actually differs — a same-path write
+      // followed by a delete of that same path would remove the new file.
+      if (`${m.from}/${m.slug}` !== `${m.to}/${target}`) {
+        files.push({ path: `${m.from}/${m.slug}.html`, content: null });
+      }
     }
 
     const github = new GitHubAPI(githubToken, owner, repo, branch);
@@ -467,18 +486,33 @@ export async function onRequestGet({ request, env }) {
     const moved = [];
     for (const m of misfiled) {
       try {
+        const target = m.toSlug || m.slug;
         const oldKey = categoryToKvPrefix(m.from) + m.slug;
+        const newKey = categoryToKvPrefix(m.to) + target;
         const raw = await kv.get(oldKey);
         if (raw) {
           const rec = JSON.parse(raw);
           rec.category = m.to;
-          await kv.put(categoryToKvPrefix(m.to) + m.slug, JSON.stringify(rec));
-          await kv.delete(oldKey);
+          rec.slug = target;
+          await kv.put(newKey, JSON.stringify(rec));
+          if (oldKey !== newKey) await kv.delete(oldKey);
+        }
+        // Drop the stale slug from the known-set too, or discovery will
+        // treat the corrected slug as brand new and re-queue a duplicate.
+        if (m.slug !== target) {
+          try {
+            const k = await kv.get(KNOWN_KEY);
+            if (k) {
+              const known = new Set(JSON.parse(k));
+              known.delete(m.slug); known.add(target);
+              await kv.put(KNOWN_KEY, JSON.stringify([...known]));
+            }
+          } catch {}
         }
         if (registry.sections[m.from]) delete registry.sections[m.from][m.slug];
         if (!registry.sections[m.to]) registry.sections[m.to] = {};
-        registry.sections[m.to][m.slug] = today;
-        moved.push(`${m.from}/${m.slug} -> ${m.to}/${m.slug}`);
+        registry.sections[m.to][target] = today;
+        moved.push(`${m.from}/${m.slug} -> ${m.to}/${target} (${m.reason})`);
       } catch (err) {
         // Reported, not thrown — one bad record shouldn't abort the rest.
         moved.push(`ERROR ${m.slug}: ${err}`);
@@ -2372,7 +2406,10 @@ function se365Genre(eventTypeId) {
 
 function toSlug(name) {
   return (name || '')
-    .replace(/\s*\([^)]*\)\s*/g, '')
+    // Replace with a SPACE, not nothing: stripping the parenthetical along
+    // with its surrounding spaces joined the neighbouring words
+    // ("Ahavat (Hashem) Gordon" -> "ahavatgordon").
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
     // Transliterate diacritics BEFORE stripping: "Bayern München" -> "bayern-munchen"
     // (previously the ü was deleted entirely -> "bayern-mnchen")
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
