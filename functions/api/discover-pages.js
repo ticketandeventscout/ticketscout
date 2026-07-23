@@ -1244,11 +1244,14 @@ export async function onRequestGet({ request, env }) {
   try { const ep = await kv.get(PENDING_KEY); if (ep) existing = JSON.parse(ep); } catch {}
 
   const stamp = new Date().toISOString();
-  await kv.put(PENDING_KEY, JSON.stringify({
-    artists:   [...existing.artists, ...artistList.map(a => ({ ...a, queuedAt: stamp }))],
-    venues:    [...existing.venues,  ...venueList.map(v => ({ ...v, queuedAt: stamp }))],
-    updatedAt: stamp
-  }), { expirationTtl: 8 * 60 * 60 });
+  // Dedup by slug — see mergePendingQueue. Appending unconditionally here
+  // grew the SE365 queue to 25.68 MiB of duplicates and broke the KV write.
+  const mergedArtists = mergePendingQueue(
+    existing.artists, artistList.map(a => ({ ...a, queuedAt: stamp })), 'slug');
+  const mergedVenues  = mergePendingQueue(
+    existing.venues,  venueList.map(v => ({ ...v, queuedAt: stamp })), 'slug');
+  const built = buildPendingBody(mergedArtists, mergedVenues, stamp);
+  await kv.put(PENDING_KEY, built.body, { expirationTtl: 8 * 60 * 60 });
 
   return json({
     ...results,
@@ -2282,4 +2285,46 @@ function json(body, status) {
   return new Response(JSON.stringify(body, null, 2), {
     status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
+}
+
+// ── Pending-queue merge (dedup + size guard) ─────────────────────────────
+// The queue is a SINGLE KV value with a hard 25 MiB ceiling. The previous
+// merge appended unconditionally AND refreshed the 8h TTL on every write, so
+// the same slugs re-queued on every cron run and the value never expired —
+// it grew to ~101,000 records (25.68 MiB) and started failing with
+// "KV PUT failed: 413". 3,000 real records is only ~0.8 MiB; the entire
+// overflow was duplicates.
+//
+// Dedup by slug, newest wins. The cap and byte guard are belt-and-braces so
+// a future change can never reintroduce an unbounded write.
+const QUEUE_MAX_ITEMS = 20000;
+const QUEUE_MAX_BYTES = 24 * 1024 * 1024;   // headroom under the 25 MiB limit
+
+function mergePendingQueue(existingItems, newItems, keyField) {
+  const key = keyField || 'slug';
+  const bySlug = new Map();
+  for (const it of (existingItems || [])) {
+    if (it && it[key]) bySlug.set(it[key], it);
+  }
+  for (const it of (newItems || [])) {
+    if (it && it[key]) bySlug.set(it[key], it);   // newest wins
+  }
+  let merged = [...bySlug.values()];
+  if (merged.length > QUEUE_MAX_ITEMS) merged = merged.slice(-QUEUE_MAX_ITEMS);
+  return merged;
+}
+
+// Serialise and, if still oversized, trim from the oldest end until it fits.
+// Returns { body, artists, venues, trimmed } so callers can report honestly
+// instead of throwing a 413 that hides what happened.
+function buildPendingBody(artists, venues, stamp) {
+  let a = artists, v = venues, trimmed = 0;
+  let body = JSON.stringify({ artists: a, venues: v, updatedAt: stamp });
+  while (body.length > QUEUE_MAX_BYTES && a.length > 100) {
+    const drop = Math.max(100, Math.floor(a.length * 0.1));
+    a = a.slice(drop);
+    trimmed += drop;
+    body = JSON.stringify({ artists: a, venues: v, updatedAt: stamp });
+  }
+  return { body, artists: a, venues: v, trimmed };
 }
