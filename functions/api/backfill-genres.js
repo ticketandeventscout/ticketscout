@@ -43,6 +43,8 @@ const PLACEHOLDER_GENRES = new Set([
 const CURSOR_KEY   = s => 'backfill:genre:cursor:' + s;
 const MISFILED_KEY = s => 'backfill:genre:misfiled:' + s;
 const REPORT_KEY   = s => 'backfill:genre:report:' + s;
+const REVIEW_KEY   = s => 'backfill:genre:review:' + s;
+const OVERRIDE_KEY = s => 'backfill:genre:override:' + s;
 
 function json(body, status) {
   return new Response(JSON.stringify(body, null, 2), {
@@ -82,31 +84,115 @@ function pickGenre(cls) {
   return null;
 }
 
+// Words that carry no identifying information in a production title. Dropping
+// them is what lets 'Beetlejuice The Musical' match TM's 'Beetlejuice
+// (Touring)', and 'Be Like Blippi' match 'Blippi: Be Like Blippi Tour'.
+const NOISE_WORDS = new Set([
+  'the', 'a', 'an', 'and', 'of', 'in', 'on', 'at',
+  'musical', 'the musical', 'show', 'live', 'tour', 'touring',
+  'concert', 'uk', 'london', 'presents', 'experience'
+]);
+
+function tokenise(s) {
+  return norm(s).split(' ').filter(w => w && !NOISE_WORDS.has(w));
+}
+
+// Returns BOTH the full form and the prefix-stripped form, because stripping
+// is right for some titles and wrong for others: TM's 'Blippi: Be Like Blippi
+// Tour' needs the prefix gone to match 'Be Like Blippi', but 'Beautiful: the
+// Carole King Musical' would lose the word 'Beautiful', which is the title.
+// Trying both and keeping the best match serves both cases.
+function coreVariants(s) {
+  const base = String(s || '').replace(/\([^)]*\)/g, ' ');  // drop '(Touring)'
+  const out = [tokenise(base)];
+  const stripped = base.replace(/^[^:]{1,24}:\s*/, ' ');
+  if (stripped !== base) out.push(tokenise(stripped));
+  return out.filter(v => v.length);
+}
+
+function sameSet(a, b) {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort().join('|'), sb = [...b].sort().join('|');
+  return sa === sb;
+}
+
+function isSubset(small, big) {
+  const set = new Set(big);
+  return small.length > 0 && small.every(w => set.has(w));
+}
+
+// Tiered confidence. Exact-name matching alone proved insufficient in BOTH
+// directions during the 23 Jul dry run: it rejected real matches that differ
+// only by a '(Touring)' suffix, AND it accepted 'Back To The Future' against
+// a classical film-in-concert listing. So we grade the match and, separately,
+// refuse to write when equally-good candidates disagree about the genre.
+function classifyMatch(ourName, tmName) {
+  if (norm(ourName) === norm(tmName)) return 'exact';
+  const oursV = coreVariants(ourName), theirsV = coreVariants(tmName);
+  if (!oursV.length || !theirsV.length) return null;
+  let best = null;
+  for (const ours of oursV) {
+    for (const theirs of theirsV) {
+      if (sameSet(ours, theirs)) return 'strong';
+      if (isSubset(ours, theirs)) best = 'weak';
+    }
+  }
+  return best;
+}
+
+const TIER_RANK = { exact: 3, strong: 2, weak: 1 };
+
 async function lookupAttraction(apiKey, name) {
   const u = new URL('https://app.ticketmaster.com/discovery/v2/attractions.json');
   u.searchParams.set('apikey', apiKey);
   u.searchParams.set('keyword', name);
-  u.searchParams.set('size', '5');
+  u.searchParams.set('size', '10');
 
   const r = await fetch(u.toString());
   if (!r.ok) return { ok: false, status: r.status };
 
   const data = await r.json();
   const list = (data._embedded && data._embedded.attractions) || [];
-  const target = norm(name);
 
+  const matches = [];
   for (const a of list) {
-    if (norm(a.name) !== target) continue;          // exact match only
+    const tier = classifyMatch(name, a.name);
+    if (!tier) continue;
     const cls = (a.classifications && a.classifications[0]) || null;
-    return {
-      ok: true,
-      matched: true,
+    matches.push({
       tmName: a.name,
+      tier,
       genre: pickGenre(cls),
       segment: (cls && cls.segment && cls.segment.name) || null
+    });
+  }
+
+  if (!matches.length) {
+    return { ok: true, matched: false, candidates: list.slice(0, 3).map(a => a.name) };
+  }
+
+  const best = Math.max(...matches.map(m => TIER_RANK[m.tier]));
+  const top = matches.filter(m => TIER_RANK[m.tier] === best);
+
+  // Equally-confident candidates disagreeing on genre is the signal that the
+  // title is ambiguous — 'Back To The Future' is both a musical and a film
+  // score concert. Refuse to guess; queue it for a human.
+  const genres = [...new Set(top.map(m => m.genre).filter(Boolean))];
+  if (genres.length > 1) {
+    return {
+      ok: true, matched: true, ambiguous: true,
+      tier: top[0].tier,
+      options: top.map(m => ({ tmName: m.tmName, genre: m.genre, segment: m.segment }))
     };
   }
-  return { ok: true, matched: false, candidates: list.slice(0, 3).map(a => a.name) };
+
+  return {
+    ok: true, matched: true, ambiguous: false,
+    tmName: top[0].tmName,
+    tier: top[0].tier,
+    genre: top[0].genre,
+    segment: top[0].segment
+  };
 }
 
 export async function onRequestGet({ request, env }) {
@@ -134,9 +220,11 @@ export async function onRequestGet({ request, env }) {
   }
 
   if (url.searchParams.get('status') === '1') {
-    let report = null, misfiled = null;
-    try { report   = await kv.get(REPORT_KEY(section), 'json'); } catch {}
-    try { misfiled = await kv.get(MISFILED_KEY(section), 'json'); } catch {}
+    let report = null, misfiled = null, review = null, overridesNow = null;
+    try { report       = await kv.get(REPORT_KEY(section), 'json'); } catch {}
+    try { misfiled     = await kv.get(MISFILED_KEY(section), 'json'); } catch {}
+    try { review       = await kv.get(REVIEW_KEY(section), 'json'); } catch {}
+    try { overridesNow = await kv.get(OVERRIDE_KEY(section), 'json'); } catch {}
     return json({
       section,
       totalRegistered: slugs.length,
@@ -145,6 +233,9 @@ export async function onRequestGet({ request, env }) {
       complete: cursor >= slugs.length,
       misfiledCount: (misfiled && misfiled.length) || 0,
       misfiledSample: (misfiled || []).slice(0, 20),
+      reviewCount: (review && review.length) || 0,
+      reviewSample: (review || []).slice(0, 20),
+      overrideCount: Object.keys(overridesNow || {}).length,
       lastRun: report
     });
   }
@@ -163,10 +254,17 @@ export async function onRequestGet({ request, env }) {
   const stats = {
     section, dryRun: dry, batchStart: cursor, batchSize: batch.length,
     updated: 0, alreadyGood: 0, unmatched: 0, noGenre: 0,
-    missingRecord: 0, tmErrors: 0, misfiled: 0
+    missingRecord: 0, tmErrors: 0, misfiled: 0,
+    ambiguous: 0, weakQueued: 0, fromOverride: 0
   };
   const samples = [];
   const misfiledNew = [];
+  const reviewNew = [];
+
+  // Manual corrections always win, so a bad automated guess can be fixed
+  // once and never regress. Shape: { "back-to-the-future": "Musical" }
+  let overrides = {};
+  try { overrides = (await kv.get(OVERRIDE_KEY(section), 'json')) || {}; } catch {}
 
   for (const slug of batch) {
     let rec = null;
@@ -175,6 +273,15 @@ export async function onRequestGet({ request, env }) {
       if (!raw) { stats.missingRecord++; continue; }
       rec = JSON.parse(raw);
     } catch { stats.missingRecord++; continue; }
+
+    if (overrides[slug]) {
+      stats.fromOverride++;
+      if (!dry && rec.genre !== overrides[slug]) {
+        rec.genre = overrides[slug];
+        try { await kv.put(cfg.prefix + slug, JSON.stringify(rec)); } catch {}
+      }
+      continue;
+    }
 
     if (!isPlaceholder(rec.genre)) { stats.alreadyGood++; continue; }
 
@@ -189,6 +296,29 @@ export async function onRequestGet({ request, env }) {
       stats.unmatched++;
       if (samples.length < 15) {
         samples.push({ slug, name: rec.name, result: 'unmatched', candidates: res.candidates });
+      }
+      continue;
+    }
+
+    if (res.ambiguous) {
+      stats.ambiguous++;
+      reviewNew.push({ slug, name: rec.name, reason: 'ambiguous', options: res.options });
+      if (samples.length < 15) {
+        samples.push({ slug, name: rec.name, result: 'ambiguous', options: res.options });
+      }
+      continue;
+    }
+
+    // Only exact and strong matches are written automatically. Weak matches
+    // are a token-subset guess and go to review instead — a wrong genre is
+    // worse than a missing one, which the first dry run proved the hard way.
+    if (res.tier === 'weak') {
+      stats.weakQueued++;
+      reviewNew.push({ slug, name: rec.name, reason: 'weak-match',
+                       tmName: res.tmName, genre: res.genre, segment: res.segment });
+      if (samples.length < 15) {
+        samples.push({ slug, name: rec.name, result: 'weak-queued',
+                       tmName: res.tmName, wouldBe: res.genre });
       }
       continue;
     }
@@ -232,6 +362,14 @@ export async function onRequestGet({ request, env }) {
 
   if (!dry) {
     try { await kv.put(CURSOR_KEY(section), String(newCursor)); } catch {}
+
+    if (reviewNew.length) {
+      let existing = [];
+      try { existing = (await kv.get(REVIEW_KEY(section), 'json')) || []; } catch {}
+      const seen = new Set(existing.map(m => m.slug));
+      for (const m of reviewNew) if (!seen.has(m.slug)) existing.push(m);
+      try { await kv.put(REVIEW_KEY(section), JSON.stringify(existing)); } catch {}
+    }
 
     if (misfiledNew.length) {
       let existing = [];

@@ -91,11 +91,15 @@ const THEATRE_RULES = [
   ['Comedy',      /comedy|stand.?up|improv/i],
   ['Opera',       /opera/i],
   ['Ballet',      /ballet/i],
+  // 'Classical' must be tested BEFORE the Play rule. /classic/ used to swallow
+  // it and label orchestral shows as plays.
+  ['Classical',   /classical|orchestra|symphony|philharmonic/i],
+  ['Variety',     /variety|cabaret|burlesque|revue/i],
   ['Dance',       /dance|cirque/i],
   ['Circus',      /circus|specialty|magic|illusion/i],
   ['Family',      /children|family|puppet|panto/i],
-  ['Play',        /play|drama|classic/i],
-  ['Spectacular', /spectacular|immersive|exhibition/i]
+  ['Spectacular', /spectacular|immersive|exhibition/i],
+  ['Play',        /\bplay\b|drama|shakespeare/i]
 ];
 
 function canonicalTheatreGenre(raw) {
