@@ -142,13 +142,29 @@ function classifyMatch(ourName, tmName) {
 
 const TIER_RANK = { exact: 3, strong: 2, weak: 1 };
 
+const sleep = ms => new Promise(res => setTimeout(res, ms));
+
+// TM rate-limits at roughly 5 requests/second. A 161-entity batch fired with
+// no spacing produced 6 hard errors and a batch of silent misses on 23 Jul —
+// entities that resolved fine in a 25-item run came back empty in the large
+// one. Spacing plus a single backoff retry removes that non-determinism.
+const TM_SPACING_MS = 240;
+const TM_RETRY_MS = 1500;
+
 async function lookupAttraction(apiKey, name) {
   const u = new URL('https://app.ticketmaster.com/discovery/v2/attractions.json');
   u.searchParams.set('apikey', apiKey);
   u.searchParams.set('keyword', name);
   u.searchParams.set('size', '10');
 
-  const r = await fetch(u.toString());
+  let r = await fetch(u.toString());
+
+  // 429 is the documented rate-limit response; 5xx is worth one retry too.
+  if (r.status === 429 || r.status >= 500) {
+    await sleep(TM_RETRY_MS);
+    r = await fetch(u.toString());
+  }
+
   if (!r.ok) return { ok: false, status: r.status };
 
   const data = await r.json();
@@ -305,7 +321,9 @@ export async function onRequestGet({ request, env }) {
   if (!apiKey) return json({ error: 'Missing TM_API_KEY' }, 500);
 
   const dry = url.searchParams.get('dry') === '1';
-  const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 300);
+  // Capped at 60: with 240ms spacing that is ~15s of wall clock, comfortably
+  // inside the Worker limit. Larger batches were what broke the 161 run.
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 60);
   const batch = slugs.slice(cursor, cursor + limit);
 
   const stats = {
@@ -317,6 +335,7 @@ export async function onRequestGet({ request, env }) {
   const samples = [];
   const misfiledNew = [];
   const reviewNew = [];
+  const failedNew = [];
 
   // Manual corrections always win, so a bad automated guess can be fixed
   // once and never regress. Shape: { "back-to-the-future": "Musical" }
@@ -344,10 +363,11 @@ export async function onRequestGet({ request, env }) {
 
     let res;
     try {
+      await sleep(TM_SPACING_MS);          // stay under TM's ~5/sec ceiling
       res = await lookupAttraction(apiKey, rec.search || rec.name || slug);
-    } catch (e) { stats.tmErrors++; continue; }
+    } catch (e) { stats.tmErrors++; failedNew.push(slug); continue; }
 
-    if (!res.ok) { stats.tmErrors++; continue; }
+    if (!res.ok) { stats.tmErrors++; failedNew.push(slug); continue; }
 
     if (!res.matched) {
       stats.unmatched++;
@@ -443,6 +463,7 @@ export async function onRequestGet({ request, env }) {
 
   const report = {
     ...stats,
+    failedSlugs: failedNew,
     cursor: newCursor,
     remaining: Math.max(0, slugs.length - newCursor),
     complete: newCursor >= slugs.length,
