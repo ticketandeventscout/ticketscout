@@ -98,7 +98,7 @@ const THEATRE_RULES = [
   ['Dance',       /dance|cirque/i],
   ['Circus',      /circus|specialty|magic|illusion/i],
   ['Family',      /children|family|puppet|panto/i],
-  ['Spectacular', /spectacular|immersive|exhibition/i],
+  ['Spectacular', /spectacular|immersive|exhibition|fine art|performance art/i],
   ['Play',        /\bplay\b|drama|shakespeare/i]
 ];
 

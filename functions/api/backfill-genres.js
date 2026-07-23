@@ -60,6 +60,7 @@ function norm(s) {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // strip accents
     .toLowerCase()
     .replace(/&/g, ' and ')
+    .replace(/[\u2018\u2019']s\b/g, '')   // "Sky's Edge" -> "Sky Edge"
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }
@@ -151,7 +152,7 @@ const sleep = ms => new Promise(res => setTimeout(res, ms));
 const TM_SPACING_MS = 240;
 const TM_RETRY_MS = 1500;
 
-async function lookupAttraction(apiKey, name) {
+async function lookupAttraction(apiKey, name, expectSegment) {
   const u = new URL('https://app.ticketmaster.com/discovery/v2/attractions.json');
   u.searchParams.set('apikey', apiKey);
   u.searchParams.set('keyword', name);
@@ -188,17 +189,53 @@ async function lookupAttraction(apiKey, name) {
   }
 
   const best = Math.max(...matches.map(m => TIER_RANK[m.tier]));
-  const top = matches.filter(m => TIER_RANK[m.tier] === best);
+  let top = matches.filter(m => TIER_RANK[m.tier] === best);
 
-  // Equally-confident candidates disagreeing on genre is the signal that the
-  // title is ambiguous — 'Back To The Future' is both a musical and a film
-  // score concert. Refuse to guess; queue it for a human.
+  // SEGMENT PREFERENCE. We know which section we are repairing, so a candidate
+  // in the expected segment is far more likely to be the right entity. Without
+  // this, 'Hamilton' and 'Chicago' matched Music artists sharing the name and
+  // their genres were written onto West End musicals (observed 23 Jul).
+  const inSegment = top.filter(m => m.segment === expectSegment);
+  if (inSegment.length) {
+    top = inSegment;
+  } else {
+    // Nothing in the expected segment means the title probably does not
+    // belong to this section at all — 'WOW' (Sports), 'Eiffel Tower Viewing
+    // Deck' (Miscellaneous), 'The Notebook' (Film). Never write a genre from
+    // a foreign-segment match; surface it for review instead.
+    return {
+      ok: true, matched: true, wrongSegment: true,
+      tier: top[0].tier,
+      options: top.slice(0, 5).map(m => ({ tmName: m.tmName, genre: m.genre, segment: m.segment }))
+    };
+  }
+
   const genres = [...new Set(top.map(m => m.genre).filter(Boolean))];
+
   if (genres.length > 1) {
+    // A clear majority resolves the common case where one production has many
+    // regional listings plus a stray outlier — 'Moulin Rouge' returned five
+    // Musical entries and one Film. But only for multi-word titles: 'Cat',
+    // 'Company' and 'Berlin' match dozens of unrelated acts, and a majority
+    // there is meaningless.
+    const distinctiveEnough = coreVariants(name).some(v => v.length >= 2);
+    if (distinctiveEnough) {
+      const tally = new Map();
+      for (const m of top) if (m.genre) tally.set(m.genre, (tally.get(m.genre) || 0) + 1);
+      const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+      if (ranked.length && ranked[0][1] > (ranked[1] ? ranked[1][1] : 0)) {
+        const winner = ranked[0][0];
+        const pick = top.find(m => m.genre === winner);
+        return {
+          ok: true, matched: true, ambiguous: false, resolvedBy: 'majority',
+          tmName: pick.tmName, tier: pick.tier, genre: winner, segment: pick.segment
+        };
+      }
+    }
     return {
       ok: true, matched: true, ambiguous: true,
       tier: top[0].tier,
-      options: top.map(m => ({ tmName: m.tmName, genre: m.genre, segment: m.segment }))
+      options: top.slice(0, 8).map(m => ({ tmName: m.tmName, genre: m.genre, segment: m.segment }))
     };
   }
 
@@ -364,7 +401,7 @@ export async function onRequestGet({ request, env }) {
     let res;
     try {
       await sleep(TM_SPACING_MS);          // stay under TM's ~5/sec ceiling
-      res = await lookupAttraction(apiKey, rec.search || rec.name || slug);
+      res = await lookupAttraction(apiKey, rec.search || rec.name || slug, cfg.expectSegment);
     } catch (e) { stats.tmErrors++; failedNew.push(slug); continue; }
 
     if (!res.ok) { stats.tmErrors++; failedNew.push(slug); continue; }
@@ -373,6 +410,16 @@ export async function onRequestGet({ request, env }) {
       stats.unmatched++;
       if (samples.length < 15) {
         samples.push({ slug, name: rec.name, result: 'unmatched', candidates: res.candidates });
+      }
+      continue;
+    }
+
+    if (res.wrongSegment) {
+      stats.misfiled++;
+      misfiledNew.push({ slug, name: rec.name, reason: 'no-candidate-in-segment',
+                         expected: cfg.expectSegment, options: res.options });
+      if (samples.length < 15) {
+        samples.push({ slug, name: rec.name, result: 'wrong-segment', options: res.options });
       }
       continue;
     }
@@ -398,14 +445,6 @@ export async function onRequestGet({ request, env }) {
                        tmName: res.tmName, wouldBe: res.genre });
       }
       continue;
-    }
-
-    // Segment disagreement flags miscategorisation — e.g. "British F1 GP"
-    // filed under concert. Recorded for review, never auto-moved: moving a
-    // slug changes its URL, which is an SEO decision, not a script's call.
-    if (res.segment && res.segment !== cfg.expectSegment) {
-      stats.misfiled++;
-      misfiledNew.push({ slug, name: rec.name, tmSegment: res.segment, expected: cfg.expectSegment });
     }
 
     if (!res.genre) {
