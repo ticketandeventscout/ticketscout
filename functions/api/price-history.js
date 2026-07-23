@@ -44,11 +44,78 @@ export async function onRequestGet(ctx) {
 
   const days = Math.min(parseInt(url.searchParams.get('days') || '30', 10) || 30, 365);
 
+  // ── DIAGNOSTIC: ?debug=1 ───────────────────────────────────────────────
+  // Answers "why doesn't the chart agree with the compare table?" by showing
+  // every event row we hold for this entity and which sources have actually
+  // sampled each one. Two failure modes it exposes directly:
+  //   * KEY SPLIT — the same real event stored twice under different venue
+  //     spellings ("sphere" vs "sphere-las-vegas"), so the chart reads one
+  //     bucket while the cheapest seller sits in the other.
+  //   * SOURCE GAP — an event sampled only by, say, TicketNetwork, so its
+  //     "cheapest" never reflects the Vivid Seats listing shown live.
+  // Read-only.
+  if (url.searchParams.get('debug') === '1') {
+    try {
+      const dbgDate    = eventDateOf(url);
+      const dateFilter = dbgDate ? 'AND ev.event_date = ?2' : '';
+      const evBinds    = dbgDate ? [slug, dbgDate] : [slug];
+      const evRows = await db.prepare(
+        `SELECT ev.id, ev.event_key, ev.name, ev.venue, ev.city, ev.event_date, ev.status
+           FROM events ev JOIN entities en ON en.id = ev.entity_id
+          WHERE en.slug = ?1 ${dateFilter}
+          ORDER BY ev.event_date ASC LIMIT 200`
+      ).bind(...evBinds).all();
+
+      const srcRows = await db.prepare(
+        `SELECT ps.event_id, ps.source, COUNT(*) AS n,
+                MIN(ps.min_price_gbp) AS lo, MAX(ps.min_price_gbp) AS hi,
+                MAX(ps.sampled_at) AS last_sampled
+           FROM price_samples ps
+           JOIN events ev   ON ev.id = ps.event_id
+           JOIN entities en ON en.id = ev.entity_id
+          WHERE en.slug = ?1 ${dateFilter}
+          GROUP BY ps.event_id, ps.source`
+      ).bind(...evBinds).all();
+
+      const bySrc = new Map();
+      for (const r of (srcRows.results || [])) {
+        if (!bySrc.has(r.event_id)) bySrc.set(r.event_id, []);
+        bySrc.get(r.event_id).push({
+          source: r.source, samples: r.n, min: r.lo, max: r.hi,
+          lastSampled: r.last_sampled ? new Date(r.last_sampled * 1000).toISOString() : null
+        });
+      }
+
+      const events = (evRows.results || []).map(e => ({
+        ...e, sources: bySrc.get(e.id) || []
+      }));
+
+      // Same date, more than one row = a key split.
+      const byDate = new Map();
+      for (const e of events) {
+        if (!byDate.has(e.event_date)) byDate.set(e.event_date, []);
+        byDate.get(e.event_date).push(e.event_key);
+      }
+      const splits = [...byDate.entries()]
+        .filter(([, keys]) => keys.length > 1)
+        .map(([date, keys]) => ({ date, keys }));
+
+      return json({
+        slug, debug: true,
+        eventsFound: events.length,
+        suspectedKeySplits: splits,
+        distinctSources: [...new Set((srcRows.results || []).map(r => r.source))],
+        events
+      }, 200);
+    } catch (err) {
+      return json({ error: `Debug query failed: ${err}` }, 500);
+    }
+  }
+
   // Event scope is opt-in via a strict YYYY-MM-DD date. Anything malformed
   // falls back to entity scope rather than erroring — a bad date on a page
   // should degrade to the old behaviour, never blank the chart.
-  const rawDate   = (url.searchParams.get('date') || '').trim();
-  const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
+  const eventDate = eventDateOf(url);
   const scope     = eventDate ? 'event' : 'entity';
 
   const sinceUnix = Math.floor(Date.now() / 1000) - days * 24 * 3600;
@@ -158,6 +225,13 @@ function summarise(series) {
   }
 
   return { current, weekAgo, low30d, trend };
+}
+
+// Strict YYYY-MM-DD or null. Shared by the debug branch and event scope so
+// both agree on what counts as a usable date.
+function eventDateOf(url) {
+  const raw = (url.searchParams.get('date') || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
 }
 
 function json(body, status, cacheControl) {

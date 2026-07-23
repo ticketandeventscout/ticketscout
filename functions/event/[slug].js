@@ -330,25 +330,10 @@ function renderPage(d) {
               if (!data || data.error) return;
               // Reconcile against the LIVE compare table. The sampler only
               // captures VS/TN/Ticombo catalog snapshots 4x/day, so its stored
-              // "current" can lag a fresher live listing (e.g. a new Vivid
-              // Seats price) — which looked like a bug: a £807 headline above a
-              // £477 seller row. We wait briefly for compare.js to render, read
-              // the cheapest plausible live row straight from the DOM the user
-              // sees, and never let the chart headline exceed it. The trend
-              // line (historical shape) is untouched; only the quoted current
-              // figure is pinned to reality.
+              // "current" can lag a fresher live listing — which looked like a
+              // bug: an £807 headline above a £477 seller row.
               livePriceThen(function (livePrice) {
-                if (livePrice != null && data.summary) {
-                  var cur = data.summary.current;
-                  if (typeof cur === 'number' && livePrice < cur) {
-                    data.summary.current = livePrice;
-                    // A fresh live low also can't be above the 30-day low.
-                    if (typeof data.summary.low30d === 'number' && livePrice < data.summary.low30d) {
-                      data.summary.low30d = livePrice;
-                    }
-                    data._reconciled = true;
-                  }
-                }
+                phReconcile(data, livePrice);
                 renderPriceHistory(box, data, { entityName: EV.name });
               });
             })
@@ -411,6 +396,56 @@ function renderPage(d) {
     })();
   }
 
+  // Reconcile tracked history against the live compare table.
+  //
+  // Two distinct situations, and conflating them is what produced a card that
+  // claimed a "30-day low" the drawn line never reached:
+  //
+  //  1. MILD LAG — the live price undercuts our latest sample but sits within
+  //     the tracked range. The last point IS today's sample and the live read
+  //     is a fresher view of the same day, so we correct that point, then
+  //     recompute low + trend from the amended series. Headline, line and
+  //     badge all agree afterwards.
+  //
+  //  2. NOT COMPARABLE — the live price is far below EVERY tracked point. Our
+  //     history plainly isn't measuring the same listings (a stale catalog
+  //     snapshot, or samples filed under a different event_key). Plotting that
+  //     gap would draw a ~40% price crash that never happened, which is worse
+  //     than showing nothing: someone might buy or wait on the strength of it.
+  //     So we suppress the trend entirely and show only what we can stand
+  //     behind — the live price.
+  function phReconcile(data, livePrice) {
+    if (livePrice == null || !data || !data.summary) return;
+    var s = data.summary;
+    var series = (data.series || []).filter(function (p) { return p && typeof p.min === 'number'; });
+    if (!series.length) return;
+
+    var seriesMin = series.reduce(function (m, p) { return p.min < m ? p.min : m; }, series[0].min);
+
+    if (livePrice < seriesMin * 0.85) {   // >15% below the whole series
+      data._inconsistent = true;
+      data._livePrice = livePrice;
+      return;
+    }
+
+    if (typeof s.current !== 'number' || livePrice >= s.current) return;
+
+    s.current = livePrice;
+    data._reconciled = true;
+
+    // Same-day correction, not a fabricated point.
+    var last = series[series.length - 1];
+    if (livePrice < last.min) last.min = livePrice;
+
+    s.low30d = series.reduce(function (m, p) { return p.min < m ? p.min : m; }, series[0].min);
+
+    // Recompute the badge so it can never describe the superseded figure.
+    if (typeof s.weekAgo === 'number' && s.weekAgo > 0) {
+      var d = livePrice - s.weekAgo;
+      s.trend = d > s.weekAgo * 0.05 ? 'up' : d < -s.weekAgo * 0.05 ? 'down' : 'flat';
+    }
+  }
+
   // ── Price-history renderer (inline SVG, zero dependencies) ──────────────
   // Kept self-contained on the page rather than in compare.js: it's only used
   // here, and inlining avoids a compare.js version bump for a display-only
@@ -440,6 +475,24 @@ function renderPage(d) {
     var trend   = summary.trend || 'flat';
     var trendTxt = { up: 'trending up', down: 'trending down', flat: 'holding steady' }[trend] || 'holding steady';
     var trendArrow = { up: '\u25b2', down: '\u25bc', flat: '\u25ac' }[trend] || '';
+
+    // Tracked history isn't comparable to what sellers are listing right now.
+    // Show the live price, say plainly that there's no reliable trend, and
+    // draw no line — a chart here would imply a price move that never
+    // happened. See phReconcile for how this is detected.
+    if (data._inconsistent) {
+      container.innerHTML =
+        '<div class="ts-pricehist ts-ph-sparse">' +
+          '<div class="ts-ph-head"><h3 class="ts-ph-title">Price history</h3>' +
+            '<span class="ts-ph-scope">' + phEsc(scopeTag) + '</span></div>' +
+          '<div class="ts-ph-figs"><span class="ts-ph-current"><span class="cur">\u00a3</span>' + phNum(data._livePrice) + '</span></div>' +
+          '<div class="ts-ph-foot"><span class="anchor">' + phEsc(anchorLine) + '.</span> ' +
+            'That\\'s the cheapest price sellers are listing right now. Our tracked ' +
+            'history for this event doesn\\'t line up with current listings, so we\\'re ' +
+            'not showing a price trend rather than show you a misleading one.</div>' +
+        '</div>';
+      return;
+    }
 
     if (series.length < 4) {
       container.innerHTML =

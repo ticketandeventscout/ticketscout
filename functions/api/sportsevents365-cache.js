@@ -90,81 +90,72 @@ export async function onRequestGet({ request, env }) {
 // 'Sports', which is how a musician ended up tagged as a sports participant
 // and routed to /concert/. Rather than guess at SE365's taxonomy, this
 // reports the real distribution so the map can be built from evidence.
-// Read-only: fetches pages, counts, returns. No KV writes, no queueing.
+//
+// Reads the EXISTING KV participant cache rather than refetching the API.
+// The cache already stores eventTypeId for every entry, so this costs one KV
+// read, no HTTP, and no page loop. The first version refetched all ~80 pages
+// and accumulated every participant in memory, which tripped Cloudflare's
+// resource limit (Error 1102) — the same accumulate-instead-of-stream trap as
+// the large CSV feeds. Read-only: no writes, no queueing.
 async function inspectTypes(env) {
-  const apiKey     = env.SE365_API_KEY;
-  const httpUser   = env.SE365_HTTP_USERNAME;
-  const httpPass   = env.SE365_HTTP_PASSWORD;
-  const httpSource = env.SE365_HTTP_SOURCE || '';
-  const isProd     = env.SE365_PROD === 'true' || env.SE365_PROD === true;
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return { success: false, error: 'GIGSBERG_KV binding not configured.' };
 
-  if (!apiKey || !httpUser || !httpPass) {
-    return { success: false, error: 'SE365 credentials not configured.' };
-  }
-
-  const baseUrl = isProd
-    ? 'https://api-v2.sportsevents365.com'
-    : 'https://api-v2.sandbox365.com';
-  const headers = {
-    'Authorization': `Basic ${btoa(`${httpUser}:${httpPass}`)}`,
-    'Accept': 'application/json',
-    ...(httpSource ? { 'Source': httpSource } : {})
-  };
-
+  let lookup;
   try {
-    const firstResp = await fetch(buildPageUrl(baseUrl, apiKey, 1), { headers });
-    if (!firstResp.ok) return { success: false, error: `HTTP ${firstResp.status} on page 1` };
-    const firstData  = await firstResp.json();
-    const totalPages = firstData?.meta?.last_page || 1;
-    const all        = [...(firstData?.data || [])];
-
-    for (let page = 2; page <= totalPages; page++) {
-      const resp = await fetch(buildPageUrl(baseUrl, apiKey, page), { headers });
-      if (!resp.ok) break;
-      const rows = (await resp.json())?.data || [];
-      if (!rows.length) break;
-      all.push(...rows);
-      if (page % 20 === 0) await sleep(150);
-    }
-
-    // Count by type, keeping a few real names per type so the mapping choice
-    // is obvious ("is 1043 tennis players or music acts?").
-    const byType = new Map();
-    let missingType = 0;
-    for (const p of all) {
-      if (!p || !p.name) continue;
-      const t = (p.eventTypeId ?? null);
-      if (t === null) missingType++;
-      const k = String(t);
-      if (!byType.has(k)) byType.set(k, { eventTypeId: t, count: 0, samples: [] });
-      const rec = byType.get(k);
-      rec.count++;
-      if (rec.samples.length < 5) rec.samples.push(String(p.name).trim());
-    }
-
-    const known = se365Genre.MAP || {};
-    const types = [...byType.values()]
-      .sort((a, b) => b.count - a.count)
-      .map(r => ({
-        ...r,
-        mappedGenre: known[r.eventTypeId] || null,
-        status: known[r.eventTypeId] ? 'mapped' : 'UNMAPPED → currently falls back to "Sports"'
-      }));
-
-    const unmapped = types.filter(t => !t.mappedGenre);
-    return {
-      success: true,
-      totalParticipants: all.length,
-      distinctTypes: types.length,
-      missingType,
-      unmappedTypeCount: unmapped.length,
-      unmappedParticipantCount: unmapped.reduce((n, t) => n + t.count, 0),
-      types,
-      note: 'Read-only diagnostic. Nothing written, nothing queued.'
-    };
+    lookup = await kv.get(CACHE_KEY, 'json');
   } catch (err) {
-    return { success: false, error: String(err) };
+    return { success: false, error: `KV read failed: ${err}` };
   }
+  if (!lookup) {
+    return {
+      success: false,
+      error: 'Participant cache is empty.',
+      fix: 'Run /api/sportsevents365-cache?trigger=1 first, then retry ?types=1.'
+    };
+  }
+
+  // Count by type, keeping a few real names per type so the mapping choice is
+  // obvious ("is 1043 tennis players or music acts?"). Iterating the KV object
+  // holds one small aggregate map, not the participant list.
+  const byType = new Map();
+  let total = 0, missingType = 0;
+  for (const key of Object.keys(lookup)) {
+    const p = lookup[key];
+    if (!p) continue;
+    total++;
+    const t = (p.eventTypeId ?? null);
+    if (t === null) missingType++;
+    const k = String(t);
+    if (!byType.has(k)) byType.set(k, { eventTypeId: t, count: 0, samples: [] });
+    const rec = byType.get(k);
+    rec.count++;
+    if (rec.samples.length < 5) rec.samples.push(String(p.name || '').trim());
+  }
+
+  const types = [...byType.values()]
+    .sort((a, b) => b.count - a.count)
+    .map(r => ({
+      ...r,
+      mappedGenre: SE365_TYPE_MAP[r.eventTypeId] || null,
+      status: SE365_TYPE_MAP[r.eventTypeId]
+        ? 'mapped'
+        : 'UNMAPPED -> currently falls back to "Sports" and routes to /concert/'
+    }));
+
+  const unmapped = types.filter(t => !t.mappedGenre);
+  return {
+    success: true,
+    source: 'KV participant cache (' + CACHE_KEY + ')',
+    totalParticipants: total,
+    distinctTypes: types.length,
+    missingType,
+    unmappedTypeCount: unmapped.length,
+    unmappedParticipantCount: unmapped.reduce((n, t) => n + t.count, 0),
+    types,
+    note: 'Read-only. Counts are of deduplicated cache entries, so slightly ' +
+          'below the raw fetched total — fine for a distribution.'
+  };
 }
 
 async function refreshCache(env, dryRun) {
