@@ -224,16 +224,21 @@
 
       // A page whose entity isn't registered is a thin page we can't vouch
       // for — don't invite Google to index it.
-      if (entity.found === false) {
-        var m = document.createElement('meta');
-        m.name = 'robots'; m.content = 'noindex, follow';
-        document.head.appendChild(m);
-      }
+      if (entity.found === false) setRobots('noindex, follow');
 
       document.getElementById('breadcrumb').innerHTML =
         '<a href="/">Home</a> › <a href="/sports">Sports</a> › ' + esc(entity.name);
 
       await loadEvents(entity);
+    }
+
+    // The stub bakes <meta name="robots" content="index, follow"> into its
+    // head. Appending a second robots tag would leave two conflicting
+    // directives, so replace the existing one where present.
+    function setRobots(value) {
+      var m = document.querySelector('meta[name="robots"]');
+      if (!m) { m = document.createElement('meta'); m.name = 'robots'; document.head.appendChild(m); }
+      m.setAttribute('content', value);
     }
 
     function setAttr(id, attr, val) {
@@ -330,6 +335,14 @@
         box.innerHTML = '<div class="events-loading">No upcoming ' + esc(entity.name) +
           ' events listed right now. Check back soon — we update daily.</div>';
         updateSchema([], entity);
+        // An entity with zero listed events has nothing to compare, so asking
+        // Google to index it invites exactly the thin-content problem the
+        // section was built to avoid. The page still works for anyone who
+        // lands on it, and flips back to indexable by itself as soon as any
+        // seller lists an event. Discovery publishes SE365 roster entries
+        // before we know whether they have inventory, so this is the safety
+        // net for that gap — not a substitute for fixing the liquidity gate.
+        setRobots('noindex, follow');
         return;
       }
 
