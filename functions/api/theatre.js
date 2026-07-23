@@ -81,10 +81,30 @@ const HUB_BUILD_CAP = 600;
 
 // Stored theatre genres are already clean ('West End Musical', 'Musical',
 // 'Play', 'Opera'), so unlike concerts they need only an allow-list.
-const THEATRE_GENRES = new Set([
-  'West End Musical', 'Musical', 'Play', 'Opera', 'Ballet',
-  'Dance', 'Comedy', 'Pantomime', 'Circus'
-]);
+// Folds both our hand-curated values ('West End Musical') and Ticketmaster's
+// vocabulary ('Circus & Specialty Acts', "Children's Theatre") into one tidy
+// set. Order matters — first match wins, most specific first.
+// NB 'Theatre' is deliberately NOT a bucket: it is the segment-level
+// placeholder that made all 161 shows collapse into one pill.
+const THEATRE_RULES = [
+  ['Musical',     /musical/i],
+  ['Comedy',      /comedy|stand.?up|improv/i],
+  ['Opera',       /opera/i],
+  ['Ballet',      /ballet/i],
+  ['Dance',       /dance|cirque/i],
+  ['Circus',      /circus|specialty|magic|illusion/i],
+  ['Family',      /children|family|puppet|panto/i],
+  ['Play',        /play|drama|classic/i],
+  ['Spectacular', /spectacular|immersive|exhibition/i]
+];
+
+function canonicalTheatreGenre(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return 'Other';
+  if (/^(theatre|theater|arts & theatre|undefined|other)$/i.test(s)) return 'Other';
+  for (const [label, re] of THEATRE_RULES) if (re.test(s)) return label;
+  return 'Other';
+}
 
 // toTitleCase() is declared further down this file and hoists, so it is
 // deliberately NOT redeclared here — a duplicate top-level declaration is a
@@ -121,7 +141,7 @@ async function listEntities(env, url) {
       if (raw) {
         const rec = JSON.parse(raw);
         if (rec.name) name = rec.name;
-        if (THEATRE_GENRES.has(rec.genre)) genre = rec.genre;
+        genre = canonicalTheatreGenre(rec.genre);
       }
     } catch { /* keep the de-slugged fallback */ }
     entities.push({ slug: s, name, genre, url: '/theatre/' + s });
