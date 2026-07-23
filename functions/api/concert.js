@@ -203,12 +203,65 @@ async function listEntities(env, url) {
   return jsonResponse({ ...payload, cached: false }, 200);
 }
 
+async function inspectRecords(env, section, prefix) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return jsonResponse({ error: 'no KV binding' }, 500);
+
+  let slugs = [];
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    slugs = Object.keys((reg && reg.sections && reg.sections[section]) || {}).sort();
+  } catch (e) { return jsonResponse({ error: 'registry read failed: ' + String(e) }, 500); }
+
+  // Sample from the start, middle and end — the first entries alphabetically
+  // are the oddest (numeric-prefixed imports), so they are not representative.
+  const picks = [slugs[0], slugs[Math.floor(slugs.length / 2)], slugs[slugs.length - 1]]
+    .filter(Boolean);
+
+  const out = [];
+  for (const s of picks) {
+    const row = { slug: s, entityKey: prefix + s, metaKey: 'entity:meta:' + section + ':' + s };
+    try {
+      const raw = await kv.get(prefix + s);
+      row.entityExists = !!raw;
+      if (raw) {
+        row.entityRaw = raw.slice(0, 600);
+        try {
+          const rec = JSON.parse(raw);
+          row.entityFields = Object.keys(rec);
+          row.entityGenre = rec.genre === undefined ? '<<MISSING>>' : rec.genre;
+        } catch { row.entityFields = '<<not JSON>>'; }
+      }
+    } catch (e) { row.entityError = String(e); }
+
+    try {
+      const m = await kv.get('entity:meta:' + section + ':' + s);
+      row.metaExists = !!m;
+      if (m) {
+        row.metaRaw = m.slice(0, 600);
+        try {
+          const meta = JSON.parse(m);
+          row.metaFields = Object.keys(meta);
+          row.metaGenre = meta.genre === undefined ? '<<MISSING>>' : meta.genre;
+        } catch { row.metaFields = '<<not JSON>>'; }
+      }
+    } catch (e) { row.metaError = String(e); }
+
+    out.push(row);
+  }
+
+  return jsonResponse({
+    section, prefix, totalRegistered: slugs.length, sampled: picks, records: out
+  }, 200);
+}
+
 export async function onRequestGet({ request, env }) {
   const url  = new URL(request.url);
   const slug = url.searchParams.get('slug');
 
   // Hub listing powers /concert so the section is browsable and internally
   // linked rather than a dead end Google reads as a thin page.
+  if (url.searchParams.get('inspect') === '1') return inspectRecords(env, 'concert', 'concert:artist:');
   if (url.searchParams.get('list') === '1') return listEntities(env, url);
 
   if (!slug) {
