@@ -147,10 +147,10 @@ function canonicalGenre(raw) {
   return 'Other';
 }
 
-function toTitleCase(str) {
-  return String(str || '').split(' ')
-    .map(w => w ? w.charAt(0).toUpperCase() + w.slice(1) : w).join(' ');
-}
+// toTitleCase() is declared further down this file and hoists, so it is
+// deliberately NOT redeclared here — a duplicate top-level declaration is a
+// hard build error in an ES module (Wrangler), though node --check accepts it
+// in script mode. Always verify functions/ files in module mode.
 
 async function listEntities(env, url) {
   const kv = env.GIGSBERG_KV;
