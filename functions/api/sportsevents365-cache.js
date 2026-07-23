@@ -221,6 +221,7 @@ async function refreshCache(env, dryRun) {
     // Build lookup map AND discover new artists simultaneously
     const lookup     = {};
     const newArtists = new Map(); // slug → artist data
+    let skipInvalidName = 0, skipUnmappedType = 0, skipNonQueueable = 0;
 
     for (const p of allParticipants) {
       if (!p.id || !p.name) continue;
@@ -243,11 +244,18 @@ async function refreshCache(env, dryRun) {
       }
 
       // Discovery — queue new participants as pages
-      if (!isValidName(pName) || isTribute(pName)) continue;
+      if (!isValidName(pName) || isTribute(pName)) { skipInvalidName++; continue; }
+
+      // Fail CLOSED. An unmapped eventTypeId used to become 'Sports' and get
+      // a /concert/ page; now it gets no page at all. Better a missing page
+      // than a wrong one — the wrong ones are what GSC has been flagging.
+      const genre = se365Genre(p.eventTypeId);
+      if (!genre) { skipUnmappedType++; continue; }
+      if (!SE365_QUEUEABLE_GENRES.has(genre)) { skipNonQueueable++; continue; }
+
       const slug = toSlug(pName);
       if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
 
-      const genre = se365Genre(p.eventTypeId);
       newArtists.set(slug, {
         slug, name: pName, search: pName,
         genre, description: generateDescription(pName, genre),
@@ -286,6 +294,12 @@ async function refreshCache(env, dryRun) {
       totalFetched:    allParticipants.length,
       lookupEntries:   lookupSize,
       newArtistsQueued: newArtistList.length,
+      skipped: {
+        invalidOrTributeName: skipInvalidName,
+        unmappedEventType:    skipUnmappedType,
+        genreHasNoPageType:   skipNonQueueable
+      },
+      queueableGenres: [...SE365_QUEUEABLE_GENRES],
       sampleNewArtists: newArtistList.slice(0, 5).map(a => ({ slug: a.slug, name: a.name, genre: a.genre })),
       elapsedMs:       Date.now() - startTime,
       cachedAt:        new Date().toISOString()
@@ -320,11 +334,24 @@ function toSlug(name) {
     .slice(0, 60);
 }
 
+// Names that are not entities at all. Every pattern below matches something
+// the live feed actually returned — tournament bracket slots and event
+// titles were being queued as if they were performers or clubs.
+const PLACEHOLDER_PATTERNS = [
+  /^[a-z]\d{1,2}$/i,                                              // A1, B5, C2 — bracket slots
+  /\bqualifier\b/i,                                               // "African qualifier"
+  /\b(?:winner|loser|runner[- ]up)\s+of\b/i,                      // "Winner of Semi-final 1"
+  /^(?:america|asia|africa|europe|oceania|pacific)[\s\/]+[\w\s\/]*\d{1,2}$/i, // "America 1", "Asia / Pacific 1"
+  /\bat\b.+\b(?:19|20)\d{2}$/i,                                   // "X and Y at the Jazz Open Modena 2026"
+  /-test$/i                                                       // "eliki-swimming-test"
+];
+
 function isValidName(name) {
   if (!name || name.length < 3) return false;
   const slug = toSlug(name);
   if (/^\d+$/.test(slug)) return false;
   if (GENERIC_NAMES.has(name.toLowerCase().trim())) return false;
+  if (PLACEHOLDER_PATTERNS.some(re => re.test(name.trim()))) return false;
   return true;
 }
 
@@ -332,22 +359,65 @@ function isTribute(name) {
   return TRIBUTE_KEYWORDS.some(kw => (name || '').toLowerCase().includes(kw));
 }
 
-// Known SE365 eventTypeIds. Exposed on the function so the ?types=1
-// diagnostic can report which live types are still unmapped.
-// KNOWN GAP: everything not in here currently falls back to 'Sports', which
-// routes non-sport participants (musicians, festivals) to /concert/ pages
-// carrying a "professional Sports team or athlete" description. Run
-// ?types=1 and extend this table from the real distribution before trusting
-// the fallback.
+// SE365 eventTypeId → genre. EVERY entry below is verified against real
+// participant names returned by ?types=1 on 23 Jul 2026 — nothing here is
+// inferred from the ID number or from SE365 documentation.
+//
+// Two entries in the previous table were WRONG and had been mislabelling
+// ~204 participants:
+//   1006 was 'Ice Hockey' but returns Arizona Cardinals, Baltimore Ravens,
+//        Alabama Crimson Tide  -> American Football
+//   1010 was 'Motorsport' but returns Anaheim Ducks, Adler Mannheim,
+//        Admiral Vladivostok   -> Ice Hockey
+// Actual motorsport is 1003 (IndyCar, NASCAR, United States Grand Prix).
+//
+// Three IDs from the old table (1007, 1008, 1009) do not appear in live data
+// at all. Given 1006/1010 were swapped, unobserved IDs can't be trusted
+// either, so they are deliberately NOT carried over — an unmapped ID is now
+// skipped rather than mislabelled.
 const SE365_TYPE_MAP = {
-  1000: 'Football', 1002: 'Basketball', 1005: 'Baseball',
-  1014: 'Boxing',   1019: 'Cricket',    1035: 'MMA',
-  1001: 'Tennis',   1006: 'Ice Hockey', 1007: 'American Football',
-  1008: 'Rugby',    1009: 'Golf',       1010: 'Motorsport'
+  1000: 'Football',           // 1597 — Namibia, 1. FC Slovacko, 1899 Hoffenheim
+  1023: 'Concert',            //  909 — Jamie XX, Lewis Capaldi, 30 Seconds To Mars
+  1002: 'Basketball',         //  294 — KK Borac, Adelaide 36ers
+  1035: 'MMA',                //  134 — Yair Rodríguez, Alex Perez
+  1010: 'Ice Hockey',         //  129 — Anaheim Ducks, Adler Mannheim (was 'Motorsport')
+  1020: 'Rugby',              //  110 — All Blacks, ASM Clermont Auvergne
+  1012: 'Handball',           //   76 — Aalborg Handbold
+  1006: 'American Football',  //   75 — Arizona Cardinals, Baltimore Ravens (was 'Ice Hockey')
+  1005: 'Baseball',           //   64 — Arizona Diamondbacks, Atlanta Braves
+  1014: 'Boxing',             //   51 — Terence Crawford, Amir Khan
+  1060: 'MMA',                //   31 — Alex Pereira, Arman Tsarukyan, Caio Borralho
+  1001: 'Tennis',             //   24 — Alexander Zverev, Andy Murray
+  1019: 'Cricket',            //   22 — Derbyshire County, Glamorgan County
+  1003: 'Motorsport',         //    3 — IndyCar Series, NASCAR, United States Grand Prix
+  1026: 'MMA',                //    2 — Gustafsson, Manuwa
+  1028: 'Golf',               //    1 — Ryder Cup
+  1032: 'Wrestling',          //    1 — Sumo Wrestling
+  1033: 'Wrestling'           //    1 — WWE Mexico Live Tour
 };
 
+// STILL UNIDENTIFIED — samples are too ambiguous to map honestly, so these
+// are left out and their participants are not queued:
+//   1043 (40)  Afghanistan, Anderlecht, Angola, Armenia, Barca — mixed clubs
+//              and countries; possibly futsal, not established
+//   1024 (36)  Arkas IZMIR (volleyball) but otherwise country names only
+//   1029 (14)  A2, A3, B2, B3, C2 — tournament slot placeholders, not entities
+//   1056 (4)   Argentina, France, Serbia, South Sudan — sport not determinable
+//   1011 (1)   "eliki-swimming-test" — SE365 test record
+//   null (17)  no eventTypeId at all; mixed music acts and football clubs
+
+// Which genres we are willing to CREATE PAGES for. genreToCategory() in
+// discover-pages.js only knows football / theatre / concert, so every other
+// genre would land a basketball team or an MMA fighter on a /concert/ page.
+// Rather than publish a mis-categorised page we skip it: correctly labelled
+// data, no page, until a general sports category exists.
+const SE365_QUEUEABLE_GENRES = new Set(['Football', 'Concert']);
+
+// Returns null for unmapped types. Callers MUST treat null as "don't queue" —
+// the old behaviour returned 'Sports' for anything unknown, which is how 909
+// music acts became "professional Sports team or athlete" on /concert/ pages.
 function se365Genre(eventTypeId) {
-  return SE365_TYPE_MAP[eventTypeId] || 'Sports';
+  return SE365_TYPE_MAP[eventTypeId] || null;
 }
 se365Genre.MAP = SE365_TYPE_MAP;
 
@@ -363,11 +433,11 @@ function generateDescription(name, genre) {
   const g = String(genre || '').toLowerCase();
   if (g === 'football')
     return `${name} fixtures listed with live pricing. Compare ${name} ticket prices across verified sellers on TicketScout.`;
-  // 'Sports' is the fallback sentinel, so any other value came from a real
-  // eventTypeId mapping and is safe to name.
-  if (g && g !== 'sports')
+  if (g === 'concert')
+    return `Compare ${name} ticket prices for upcoming live shows across verified sellers on TicketScout. Updated daily.`;
+  if (g)
     return `Compare ${name} ticket prices for upcoming ${genre} events across verified sellers on TicketScout. Updated daily.`;
-  // Unmapped/fallback genre — say nothing about what the participant IS.
+  // No genre = unmapped type. These aren't queued, so this is a safety net.
   return `Compare ${name} ticket prices for upcoming events across verified sellers on TicketScout. Updated daily.`;
 }
 

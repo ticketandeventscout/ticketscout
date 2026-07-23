@@ -1082,15 +1082,23 @@ export async function onRequestGet({ request, env }) {
         const participants = Object.values(JSON.parse(se365Cache));
         results.participantsScanned = participants.length;
         for (const p of participants) {
-          if (!isValidName(p.name) || isTribute(p.name)) continue;
-          const slug = toSlug(p.name);
+          // SE365 returns names with leading whitespace (" Jamie XX"). toSlug
+          // trims so slugs looked fine, but the stored name fed page titles
+          // and JSON-LD. Normalise once, here.
+          const pName = String(p.name || '').replace(/\s+/g, ' ').trim();
+          if (!pName) continue;
+          if (!isValidName(pName) || isTribute(pName)) continue;
+          // Fail CLOSED: an unmapped eventTypeId used to become 'Sports' and
+          // get a /concert/ page. No genre now means no page.
+          const genre = se365Genre(p.eventTypeId);
+          if (!genre || !SE365_QUEUEABLE_GENRES.has(genre)) continue;
+          const slug = toSlug(pName);
           if (!slug || knownArtists.has(slug) || newArtists.has(slug)) continue;
-          const genre    = se365Genre(p.eventTypeId);
           const category = genreToCategory(genre);
           newArtists.set(slug, {
-            slug, name: p.name, search: p.name,
+            slug, name: pName, search: pName,
             genre, category,
-            description: generateArtistDescription(p.name, genre),
+            description: generateArtistDescription(pName, genre),
             source: 'sportsevents365'
           });
         }
@@ -2104,11 +2112,28 @@ function getGenre(event) {
   return segment || 'Live Music';
 }
 
+// MUST MATCH sportsevents365-cache.js SE365_TYPE_MAP. Every entry verified
+// against live participant names via ?types=1 on 23 Jul 2026. Note 1006 and
+// 1010 were previously swapped ('Ice Hockey' / 'Motorsport'), mislabelling
+// ~204 participants; 1023 (909 music acts) was missing entirely and fell
+// through to 'Sports'. Unobserved IDs 1007/1008/1009 are NOT carried over.
+const SE365_TYPE_MAP = {
+  1000: 'Football',           1023: 'Concert',    1002: 'Basketball',
+  1035: 'MMA',                1010: 'Ice Hockey', 1020: 'Rugby',
+  1012: 'Handball',           1006: 'American Football',
+  1005: 'Baseball',           1014: 'Boxing',     1060: 'MMA',
+  1001: 'Tennis',             1019: 'Cricket',    1003: 'Motorsport',
+  1026: 'MMA',                1028: 'Golf',       1032: 'Wrestling',
+  1033: 'Wrestling'
+};
+
+// genreToCategory() only knows football / theatre / concert, so any other
+// genre would publish a basketball team onto a /concert/ page. Skip instead.
+const SE365_QUEUEABLE_GENRES = new Set(['Football', 'Concert']);
+
+// Returns null for unmapped types — callers MUST treat null as "don't queue".
 function se365Genre(eventTypeId) {
-  const map = { 1000: 'Football', 1002: 'Basketball', 1005: 'Baseball', 1014: 'Boxing',
-    1019: 'Cricket', 1035: 'MMA', 1001: 'Tennis', 1006: 'Ice Hockey',
-    1007: 'American Football', 1008: 'Rugby', 1009: 'Golf', 1010: 'Motorsport' };
-  return map[eventTypeId] || 'Sports';
+  return SE365_TYPE_MAP[eventTypeId] || null;
 }
 
 function toSlug(name) {
@@ -2127,11 +2152,23 @@ function toSlug(name) {
     .slice(0, 60);
 }
 
+// MUST MATCH sportsevents365-cache.js PLACEHOLDER_PATTERNS. Each pattern
+// matches something the live feed actually returned as a "participant".
+const PLACEHOLDER_PATTERNS = [
+  /^[a-z]\d{1,2}$/i,                                              // A1, B5, C2 bracket slots
+  /\bqualifier\b/i,                                               // "African qualifier"
+  /\b(?:winner|loser|runner[- ]up)\s+of\b/i,
+  /^(?:america|asia|africa|europe|oceania|pacific)[\s\/]+[\w\s\/]*\d{1,2}$/i,
+  /\bat\b.+\b(?:19|20)\d{2}$/i,                                  // event titles, not acts
+  /-test$/i
+];
+
 function isValidName(name) {
   if (!name || name.length < 3) return false;
   const slug = toSlug(name);
   if (/^\d+$/.test(slug)) return false;
   if (GENERIC_NAMES.has(name.toLowerCase().trim())) return false;
+  if (PLACEHOLDER_PATTERNS.some(re => re.test(String(name).trim()))) return false;
   return true;
 }
 
