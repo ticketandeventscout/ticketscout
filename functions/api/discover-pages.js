@@ -714,7 +714,14 @@ export async function onRequestGet({ request, env }) {
             const metaRaw = await kv.get(`entity:meta:concert:${slug}`);
             if (metaRaw) {
               const meta = JSON.parse(metaRaw);
-              if (meta && meta.source === 'musicbrainz') musicianVeto = true;
+              // enrich-entities.js sets source='musicbrainz' UNCONDITIONALLY for
+              // every concert entity, BEFORE the lookup — so source alone vetoed
+              // everything, incl. tennis sessions (confirmed 25 Jul: 300/300
+              // vetoed). The real hit signal is facts.mbid: musicbrainzArtistFacts
+              // only returns an mbid on a score>=90 match, else {}. mbid present
+              // == a confident recording-artist match. That is the veto.
+              const hasMbid = meta?.facts?.mbid || meta?.mbid;
+              if (hasMbid) musicianVeto = true;
             }
           } catch {}
           if (musicianVeto) catWrong = false;
