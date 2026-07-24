@@ -79,6 +79,7 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&phase=backfill       — write KV data for already-committed pages',
       '  ?trigger=1&phase=build-registry — build sitemap:registry from the GitHub tree (one-time)',
       '  ?trigger=1&phase=slugaudit&category=concert — READ-ONLY: list slugs that disagree with toSlug(name)',
+      '  ?trigger=1&phase=eventaudit&category=concert — READ-ONLY: list entities whose NAME is an event, not an entity',
       '  ?trigger=1&phase=recheck-deferred — re-check liquidity-gated entities, requeue liquid ones',
       '  &dry=1                          — dry run, no writes',
       '',
@@ -308,6 +309,79 @@ export async function onRequestGet({ request, env }) {
   }
 
   // ── BACKFILL PHASE — write KV data for already-committed pages ───────────
+  // ── EVENTAUDIT PHASE — READ-ONLY, performs no writes ─────────────────────
+  // Runs looksLikeEvent() over every registered entity NAME and reports what a
+  // discovery-time filter WOULD have rejected. Nothing is rejected or removed.
+  //
+  // Read the counts per label before trusting any pattern: a label firing far
+  // more than expected is the signature of a false positive, which is exactly
+  // how the s7.6 purge-detector failure would have been caught early.
+  //
+  // Usage: ?trigger=1&phase=eventaudit&category=concert&offset=0&limit=400
+  //        &full=1  — list every match rather than samples
+  if (phase === 'eventaudit') {
+    const category = (url.searchParams.get('category') || 'concert').toLowerCase();
+    const offset   = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
+    const limit    = Math.min(parseInt(url.searchParams.get('limit') || '400', 10) || 400, 600);
+    const full     = url.searchParams.get('full') === '1';
+
+    let registry = null;
+    try { registry = await kv.get(REGISTRY_KEY, 'json'); } catch {}
+    if (!registry || !registry.sections || !registry.sections[category]) {
+      return json({ error: 'No registry section "' + category + '"' }, 503);
+    }
+
+    const slugs  = Object.keys(registry.sections[category]).sort();
+    const batch  = slugs.slice(offset, offset + limit);
+    const prefix = categoryToKvPrefix(category);
+
+    const byLabel = {};
+    const cleanSample = [];
+    let checked = 0, noRecord = 0, tierA = 0, tierB = 0;
+
+    for (const slug of batch) {
+      let raw = null;
+      try { raw = await kv.get(prefix + slug); } catch {}
+      if (!raw) { noRecord++; continue; }
+      let rec = null;
+      try { rec = JSON.parse(raw); } catch { continue; }
+      const name = (rec && rec.name) || '';
+      if (!name) continue;
+      checked++;
+
+      const hit = looksLikeEvent(name);
+      if (!hit) {
+        if (cleanSample.length < 15) cleanSample.push(name);
+        continue;
+      }
+      if (hit.tier === 'A') tierA++; else tierB++;
+      const key = hit.tier + ':' + hit.label;
+      if (!byLabel[key]) byLabel[key] = { tier: hit.tier, label: hit.label, count: 0, samples: [] };
+      byLabel[key].count++;
+      if (full || byLabel[key].samples.length < 6) byLabel[key].samples.push({ slug, name });
+    }
+
+    const groups = Object.values(byLabel).sort((a, b) => b.count - a.count);
+    const nextOffset = offset + batch.length;
+    const done = nextOffset >= slugs.length;
+
+    return json({
+      phase: 'eventaudit',
+      readOnly: true,
+      category,
+      totalInSection: slugs.length,
+      batch: { offset, size: batch.length },
+      checked, noRecord,
+      wouldRejectTierA: tierA,
+      flagForReviewTierB: tierB,
+      groups,
+      cleanSample,
+      done,
+      next: done ? null : '?trigger=1&phase=eventaudit&category=' + category +
+        '&offset=' + nextOffset + '&limit=' + limit + (full ? '&full=1' : '')
+    }, 200);
+  }
+
   // ── SLUGAUDIT PHASE — READ-ONLY, performs no writes ──────────────────────
   // Lists entities whose stored slug disagrees with toSlug(name) recomputed
   // from the stored display name.
@@ -2490,6 +2564,69 @@ const SE365_QUEUEABLE_GENRES = new Set([
 // Returns null for unmapped types — callers MUST treat null as "don't queue".
 function se365Genre(eventTypeId) {
   return SE365_TYPE_MAP[eventTypeId] || null;
+}
+
+// ===========================
+// Event-vs-entity detection
+// ===========================
+//
+// An ENTITY is a performer, team, show or venue — something with many dates.
+// An EVENT is one occurrence: "Session 4", "DZIEN 1", "3-Day Pass".
+// Discovery has been registering events AS entities, producing pages like
+// /concert/erste-letnie-brzmienia-2026-wroclaw-dzien-1 that can never rank
+// and can never be a stable comparison target.
+//
+// PATTERN DISCIPLINE (session 13, s7.6 — read before adding anything):
+// A name-based detector scored 10/10 on the section it was tuned against and
+// 5 false positives out of 7 on the next one, because GENERIC SINGLE NOUNS ARE
+// UNUSABLE — titles are made of them. "Bowling For Soup" is a band.
+// So: every pattern here is either a multi-word phrase, or a word bound to a
+// NUMBER or to structural punctuation. No bare nouns.
+//
+// TIER A — structural. Cannot occur in a performer name. Safe to reject.
+// TIER B — suggestive but ambiguous. REVIEW ONLY, never auto-reject.
+//          e.g. "Sobota" is Polish for Saturday AND the name of a real rapper;
+//          "Karnet" means season-pass but could appear in a title.
+//
+const EVENT_PATTERNS = [
+  // ── Tier A ──────────────────────────────────────────────────────────────
+  { tier: 'A', label: 'session-number',   re: /\bsessions?\s*(?:#\s*)?\d+\b/i },
+  { tier: 'A', label: 'single-session',   re: /\bsingle\s+session\b/i },
+  { tier: 'A', label: 'day-pass',         re: /\b\d+\s*[-\u2013]?\s*day\s+(?:pass|ticket)\b/i },
+  { tier: 'A', label: 'pl-multiday-pack', re: /\bpakiet\s+\d+\s*[-\u2013]?\s*dniow/i },
+  { tier: 'A', label: 'pl-play-prefix',   re: /^\s*spektakl\b\s*[:\u2013-]?/i },
+  { tier: 'A', label: 'pl-after-show',    re: /\bpo\s+spektaklu\b/i },
+  { tier: 'A', label: 'pl-day-number',    re: /\bdzie[n\u0144]\s*\d+\b/i },
+  { tier: 'A', label: 'pl-vip-ticket',    re: /\bbilet\s+vip\b/i },
+  { tier: 'A', label: 'final-year',       re: /\bfinals?\s+20\d\d\b/i },
+  { tier: 'A', label: 'semis-quarters',   re: /\b(?:semi[-\s]?finals?|quarter[-\s]?finals?)\b/i },
+  { tier: 'A', label: 'round-number',     re: /\bround\s+\d+\b/i },
+  { tier: 'A', label: 'matchday',         re: /\bmatchday\s*\d+\b/i },
+  { tier: 'A', label: 'f1-gp-day',        re: /\bf1\s+gp\b/i },
+  { tier: 'A', label: 'away-fixture',     re: /\bat\s+[A-Z\u00c0-\u024f][\w'\u00c0-\u024f]*\s+[A-Z\u00c0-\u024f]/ },
+
+  // ── Tier B — review only ────────────────────────────────────────────────
+  { tier: 'B', label: 'pl-season-pass',   re: /\bkarnet\b/i },
+  { tier: 'B', label: 'pl-weekday',       re: /\b(?:pi[a\u0105]tek|sobota|niedziela|czwartek)\b/i },
+  { tier: 'B', label: 'en-weekday',       re: /\b(?:friday|saturday|sunday|monday)\b/i },
+  { tier: 'B', label: 'pl-month',         re: /\b(?:stycze[n\u0144]|luty|marzec|kwiecie[n\u0144]|maj|czerwiec|lipiec|sierpie[n\u0144]|wrzesie[n\u0144]|pa[z\u017a]dziernik|listopad|grudzie[n\u0144])\b/i },
+  { tier: 'B', label: 'premiere',         re: /\bpremiera\b/i },
+  { tier: 'B', label: 'with-dinner',      re: /\b(?:z\s+kolacj|show\s+z\s+)/i }
+];
+
+/**
+ * Returns { tier, label } for the FIRST matching pattern, or null.
+ * Tier A is always evaluated before Tier B, regardless of array order.
+ */
+function looksLikeEvent(name) {
+  const n = String(name || '');
+  if (!n) return null;
+  for (const tier of ['A', 'B']) {
+    for (const p of EVENT_PATTERNS) {
+      if (p.tier === tier && p.re.test(n)) return { tier: p.tier, label: p.label };
+    }
+  }
+  return null;
 }
 
 function toSlug(name) {
