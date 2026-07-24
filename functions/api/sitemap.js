@@ -38,6 +38,7 @@ const STATIC_URLS = [
   '/football',
   '/theatre',
   '/sports',
+  '/venue',
   '/faq',
   '/contact',
   '/privacy',
