@@ -207,8 +207,13 @@ export async function onRequestGet({ request, env }) {
 
     // PROTECTED: an enrichment record means an external source (Wikidata /
     // MusicBrainz) recognises this as a real entity. Dormant, never expired.
+    // Key is 'entity:meta:{category}:{slug}' (enrich-entities.js META_PREFIX).
+    // An earlier version used 'meta:{section}:{slug}' and silently matched
+    // NOTHING — protectedEntities came back 0 on a batch that was fully
+    // enriched. With protection broken every entity is expirable, so if this
+    // ever reads 0 on an enriched section, treat it as a bug, not a result.
     let isProtected = false;
-    try { if (await kv.get(`meta:${section}:${slug}`)) isProtected = true; } catch {}
+    try { if (await kv.get(`entity:meta:${section}:${slug}`)) isProtected = true; } catch {}
     if (!isProtected && rec && (rec.wikidataId || rec.mbid)) isProtected = true;
     if (isProtected) protectedCount++;
 
@@ -229,8 +234,13 @@ export async function onRequestGet({ request, env }) {
   // ── EXPIRY ──────────────────────────────────────────────────────────────
   // Writes registry:purged:{section} in registry-purge.js's exact entry shape,
   // so its ?restore={slug} works unchanged on anything removed here.
+  // CIRCUIT BREAKER. If nothing in a whole batch is protected, the protection
+  // lookup is far more likely broken than every entity being genuinely
+  // unrecognised — that exact bug shipped once already. Refuse to delete.
+  const protectionSuspect = checked >= 25 && protectedCount === 0;
+
   const expired = [];
-  if (allowExpire && !dry && toExpire.length) {
+  if (allowExpire && !dry && !protectionSuspect && toExpire.length) {
     let log = [];
     try { const l = await kv.get(PURGE_LOG(section)); if (l) log = JSON.parse(l); } catch {}
     for (const item of toExpire) {
@@ -279,6 +289,10 @@ export async function onRequestGet({ request, env }) {
     expirySample: toExpire.slice(0, 25),
     expired: expired.length,
     expiredSlugs: expired,
+    protectionSuspect,
+    protectionWarning: protectionSuspect
+      ? 'ZERO protected entities in this batch — protection lookup is probably broken. Expiry BLOCKED.'
+      : undefined,
     done,
     next: done ? null : `?trigger=1&section=${section}&limit=${limit}${allowExpire ? '&expire=1' : ''}${dry ? '&dry=1' : ''}`,
     message: dry
