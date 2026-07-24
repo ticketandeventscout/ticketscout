@@ -2090,12 +2090,24 @@ async function fetchTicketmasterEvents(apiKey, kv, diag) {
   try { const c = await kv.get(TM_CURSOR_KEY); if (c) cursor = JSON.parse(c); } catch {}
   const page = (cursor.page >= 0 && cursor.page < MAX_PAGE) ? cursor.page : 0;
 
+  let segIndex = 0;
   for (const segmentId of segmentIds) {
+    // TM spike arrest: 5 messages/sec across the whole key, shared with live
+    // proxy traffic. Unspaced back-to-back calls produced a 429 on the third
+    // segment (confirmed 24 Jul 2026). Same 240ms spacing as the s7.2 fix.
+    if (segIndex++ > 0) await new Promise(r => setTimeout(r, 260));
+
     const u = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
     u.searchParams.set('apikey', apiKey);
     u.searchParams.set('size', '200');
     u.searchParams.set('page', String(page));
-    u.searchParams.set('sort', 'onSaleStartDate,desc');
+    // 'onSaleStartDate,desc' is NOT a valid TM sort and returned 400 (DIS1016)
+    // on every call since this was written — silently, because the catch below
+    // was empty. Valid values per TM: name,asc | name,desc | date,asc |
+    // date,desc | relevance,asc | relevance,desc | distance,asc |
+    // distance,date,asc | name,date,asc. 'date,asc' is used elsewhere in the
+    // codebase and gives deterministic ordering, which deep paging needs.
+    u.searchParams.set('sort', 'date,asc');
     u.searchParams.set('segmentId', segmentId);
     // No countryCode filter — discover international events too.
     // UK fans buy tickets to events worldwide (European football, US tours etc).
@@ -2130,10 +2142,16 @@ async function fetchTicketmasterEvents(apiKey, kv, diag) {
     if (diag) diag.push(d);
   }
 
-  // Advance cursor for next run (wraps at MAX_PAGE)
-  try {
-    await kv.put(TM_CURSOR_KEY, JSON.stringify({ page: (page + 1) % MAX_PAGE, lastRun: new Date().toISOString() }));
-  } catch {}
+  // Advance the cursor ONLY if this run actually retrieved something.
+  // Previously it advanced unconditionally, so while every request was 400ing
+  // the cursor kept rotating 0->1->2->3->4->0, making the failure both
+  // invisible AND self-perpetuating. On a total failure we now re-try the same
+  // page next run rather than silently skipping a fifth of the catalogue.
+  if (events.length > 0) {
+    try {
+      await kv.put(TM_CURSOR_KEY, JSON.stringify({ page: (page + 1) % MAX_PAGE, lastRun: new Date().toISOString() }));
+    } catch {}
+  }
 
   return events;
 }
