@@ -38,7 +38,6 @@ const STATIC_URLS = [
   '/football',
   '/theatre',
   '/sports',
-  '/venue',
   '/faq',
   '/contact',
   '/privacy',
@@ -103,7 +102,46 @@ export async function onRequestGet({ request, env }) {
   }
 
   const slugs = registry.sections[sec] || {};
+
+  // ── Dormant delisting (entity-lifecycle.js) ─────────────────────────────
+  // Entities with no priced offers for MISSES_TO_DORMANT consecutive weekly
+  // sweeps are dropped from the sitemap. We stop ASKING Google to crawl a page
+  // that has nothing to sell; the page itself still resolves, and the moment
+  // offers reappear the lifecycle sweep resets misses to 0 and it returns here
+  // automatically. Nothing is deleted by this and nothing is permanent.
+  //
+  // FAIL-OPEN BY DESIGN: any error, missing key or malformed state leaves
+  // `dormant` empty and the full sitemap is emitted. A bug in the lifecycle
+  // state must never be able to silently empty the sitemap — that would be far
+  // more damaging than listing a few dead pages.
+  const dormant = new Set();
+  try {
+    const raw = await kv.get(`lifecycle:state:${sec}`);
+    if (raw) {
+      const state = JSON.parse(raw);
+      // TIME-BASED, matching entity-lifecycle.js DORMANT_AFTER_DAYS. Sweep
+      // counts are not comparable across sections: the cursor checks each
+      // entity once per full cycle, and cycle length scales with section size.
+      const DORMANT_AFTER_DAYS = 30; // keep in step with entity-lifecycle.js
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const nowMs = Date.now();
+      for (const [slug, v] of Object.entries(state)) {
+        if (!v || !v.firstMiss) continue;
+        const ts = Date.parse(v.firstMiss);
+        if (!Number.isFinite(ts)) continue;
+        if ((nowMs - ts) / DAY_MS >= DORMANT_AFTER_DAYS) dormant.add(slug);
+      }
+    }
+  } catch { /* fail open */ }
+
+  // Guard: if dormancy would remove more than half a section, treat the state
+  // as untrustworthy and emit everything. Protects against a runaway sweep
+  // (e.g. a liquidity source down for weeks marking the whole site dormant).
+  const total = Object.keys(slugs).length;
+  const suppress = dormant.size > 0 && dormant.size <= Math.floor(total / 2);
+
   const entries = Object.entries(slugs)
+    .filter(([slug]) => !(suppress && dormant.has(slug)))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([slug, lastmod]) =>
       `  <url><loc>${HOST}/${sec}/${slug}</loc><lastmod>${lastmod}</lastmod></url>`)

@@ -24,8 +24,8 @@
 // STATES
 // ------
 //   active   has priced upcoming offers                -> nothing to do
-//   dormant  MISSES_TO_DORMANT consecutive misses      -> delist from sitemap
-//   expired  MISSES_TO_EXPIRE misses AND not protected -> purge (restorable)
+//   dormant  no offers for DORMANT_AFTER_DAYS          -> delist from sitemap
+//   expired  no offers for EXPIRE_AFTER_DAYS, unprotected -> purge (restorable)
 //
 // PROTECTION (important — read before tuning thresholds)
 // ------------------------------------------------------
@@ -66,9 +66,25 @@ const STATE_KEY    = s => `lifecycle:state:${s}`;
 const CURSOR_KEY   = s => `lifecycle:cursor:${s}`;
 const PURGE_LOG    = s => `registry:purged:${s}`;
 
-// Weekly cron => 4 misses ~= 1 month dormant, 12 ~= 3 months to expiry.
-const MISSES_TO_DORMANT = 4;
-const MISSES_TO_EXPIRE  = 12;
+// THRESHOLDS ARE TIME-BASED, NOT SWEEP-COUNT-BASED. This matters: the cursor
+// means each entity is checked once per FULL CYCLE, and cycle length depends on
+// section size. At limit=200 daily, concert (2,401) cycles every 12 days while
+// theatre (139) cycles every day. Counting sweeps would have expired theatre
+// entities in 12 days and concert entities in 5 months. Elapsed time since the
+// FIRST consecutive miss is cadence-independent and survives any later change
+// to limit or schedule.
+const DORMANT_AFTER_DAYS = 30;
+const EXPIRE_AFTER_DAYS  = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// firstMiss is set on the first miss and cleared the moment offers reappear.
+function missAgeDays(v, nowMs) {
+  if (!v || !v.firstMiss) return 0;
+  const ts = Date.parse(v.firstMiss);
+  return Number.isFinite(ts) ? (nowMs - ts) / DAY_MS : 0;
+}
+const isDormant = (v, nowMs) => missAgeDays(v, nowMs) >= DORMANT_AFTER_DAYS;
+const isExpired = (v, nowMs) => missAgeDays(v, nowMs) >= EXPIRE_AFTER_DAYS;
 
 const SECTIONS = ['concert', 'football', 'theatre', 'venue', 'sports'];
 
@@ -104,18 +120,21 @@ export async function onRequestGet({ request, env }) {
       try { const v = await kv.get(STATE_KEY(s)); if (v) state = JSON.parse(v); } catch {}
       try { const c = await kv.get(CURSOR_KEY(s)); cursor = c ? parseInt(c, 10) || 0 : 0; } catch {}
       const vals = Object.values(state);
+      const nowMs = Date.now();
       out[s] = {
         tracked: vals.length,
-        active:  vals.filter(v => (v.misses || 0) === 0).length,
-        warming: vals.filter(v => (v.misses || 0) > 0 && (v.misses || 0) < MISSES_TO_DORMANT).length,
-        dormant: vals.filter(v => (v.misses || 0) >= MISSES_TO_DORMANT).length,
-        atExpiryThreshold: vals.filter(v => (v.misses || 0) >= MISSES_TO_EXPIRE).length,
+        active:  vals.filter(v => !v.firstMiss).length,
+        warming: vals.filter(v => v.firstMiss && !isDormant(v, nowMs)).length,
+        dormant: vals.filter(v => isDormant(v, nowMs)).length,
+        atExpiryThreshold: vals.filter(v => isExpired(v, nowMs) && !v.protected).length,
+        protectedEntities: vals.filter(v => v.protected).length,
+        oldestMissDays: vals.length ? Math.round(Math.max(0, ...vals.map(v => missAgeDays(v, nowMs)))) : 0,
         cursor
       };
     }
     return json({
       status: 'ok', readOnly: true,
-      thresholds: { MISSES_TO_DORMANT, MISSES_TO_EXPIRE },
+      thresholds: { DORMANT_AFTER_DAYS, EXPIRE_AFTER_DAYS },
       sections: out
     });
   }
@@ -126,9 +145,13 @@ export async function onRequestGet({ request, env }) {
     if (!section) return json({ error: 'section required' }, 400);
     let state = {};
     try { const v = await kv.get(STATE_KEY(section)); if (v) state = JSON.parse(v); } catch {}
+    const nowMs = Date.now();
     const slugs = Object.entries(state)
-      .filter(([, v]) => (v.misses || 0) >= MISSES_TO_DORMANT)
-      .map(([slug, v]) => ({ slug, misses: v.misses, since: v.since, protected: !!v.protected }));
+      .filter(([, v]) => isDormant(v, nowMs))
+      .map(([slug, v]) => ({
+        slug, misses: v.misses, firstMiss: v.firstMiss,
+        missAgeDays: Math.round(missAgeDays(v, nowMs)), protected: !!v.protected
+      }));
     return json({ section, readOnly: true, count: slugs.length, dormant: slugs });
   }
 
@@ -217,18 +240,29 @@ export async function onRequestGet({ request, env }) {
     if (!isProtected && rec && (rec.wikidataId || rec.mbid)) isProtected = true;
     if (isProtected) protectedCount++;
 
+    const nowMs = Date.parse(now);
+
     if (liquid) {
       liquidCount++;
-      if ((prev.misses || 0) >= MISSES_TO_DORMANT) recovered.push(slug);
-      state[slug] = { misses: 0, lastSeen: now, protected: isProtected };
+      // Recovery clears firstMiss entirely — a returning entity starts clean.
+      if (isDormant(prev, nowMs)) recovered.push(slug);
+      state[slug] = { misses: 0, firstMiss: null, lastSeen: now, protected: isProtected };
       continue;
     }
 
     const misses = (prev.misses || 0) + 1;
-    state[slug] = { misses, since: prev.since || now, lastSeen: prev.lastSeen || null, protected: isProtected };
+    const next = {
+      misses,
+      firstMiss: prev.firstMiss || now,
+      lastSeen: prev.lastSeen || null,
+      protected: isProtected
+    };
+    state[slug] = next;
 
-    if (misses === MISSES_TO_DORMANT) becameDormant.push({ slug, name });
-    if (misses >= MISSES_TO_EXPIRE && !isProtected) toExpire.push({ slug, name });
+    if (isDormant(next, nowMs) && !isDormant(prev, nowMs)) becameDormant.push({ slug, name });
+    if (isExpired(next, nowMs) && !isProtected) {
+      toExpire.push({ slug, name, missAgeDays: Math.round(missAgeDays(next, nowMs)) });
+    }
   }
 
   // ── EXPIRY ──────────────────────────────────────────────────────────────
@@ -253,7 +287,7 @@ export async function onRequestGet({ request, env }) {
         record,
         removedAt: now,
         removedBy: 'entity-lifecycle',
-        reason: `no priced offers for ${MISSES_TO_EXPIRE} consecutive sweeps`
+        reason: `no priced offers for ${EXPIRE_AFTER_DAYS}+ days`
       });
       delete registry.sections[section][item.slug];
       try { await kv.delete(prefix + item.slug); } catch {}

@@ -81,6 +81,7 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&phase=slugaudit&category=concert — READ-ONLY: list slugs that disagree with toSlug(name)',
       '  ?trigger=1&phase=eventaudit&category=concert — READ-ONLY: list entities whose NAME is an event, not an entity',
       '  ?trigger=1&phase=rejected — READ-ONLY: last 200 names the event filter rejected at discovery',
+      '  ?trigger=1&phase=nameaudit&category=concert — READ-ONLY: series prefixes + city variants to merge',
       '  ?trigger=1&phase=recheck-deferred — re-check liquidity-gated entities, requeue liquid ones',
       '  &dry=1                          — dry run, no writes',
       '',
@@ -310,6 +311,107 @@ export async function onRequestGet({ request, env }) {
   }
 
   // ── BACKFILL PHASE — write KV data for already-committed pages ───────────
+  // ── NAMEAUDIT PHASE — READ-ONLY, no writes ───────────────────────────────
+  // Finds the two junk classes the event filter CANNOT catch, because neither
+  // should be rejected — both should be MERGED into an existing entity.
+  //
+  //   A. SERIES PREFIX   "Southampton Summer Sessions: Bowling For Soup"
+  //                      "Firenze Rocks: Lenny Kravitz"
+  //      The artist is the entity we want; the prefix fragments it across many
+  //      near-duplicate pages.
+  //
+  //   B. CITY VARIANT    "Burna Boy" / "Burna Boy Copenhagen" / "... Helsinki"
+  //                      "Fito & Fitipaldis" + five city variants
+  //
+  // DETECTION IS DATA-DRIVEN, NOT A WORD LIST. Per s7.6, a hand-written list of
+  // festival or city nouns would score well here and fail on the next section.
+  // Instead:
+  //   A. a token prefix shared by >= MIN_SERIES distinct slugs, each with a
+  //      DIFFERENT remainder, is a series prefix — the repetition is the
+  //      evidence.
+  //   B. a slug that extends another slug that ALSO EXISTS in the registry is
+  //      a variant of it — the base entity's existence is the evidence.
+  //
+  // Operates on registry slugs only: ONE KV read, whole-section clustering, no
+  // per-entity fetches.
+  //
+  // THIS IS A REVIEW QUEUE, NOT AN ACTION LIST. Class B especially: "Real
+  // Madrid" / "Real Madrid Castilla" are different clubs, and "Aberdeen" /
+  // "Aberdeen FC" are the same one. Nothing here is safe to merge blind.
+  //
+  // Usage: ?trigger=1&phase=nameaudit&category=concert[&minSeries=3][&full=1]
+  if (phase === 'nameaudit') {
+    const category   = (url.searchParams.get('category') || 'concert').toLowerCase();
+    const MIN_SERIES = Math.max(2, parseInt(url.searchParams.get('minSeries') || '3', 10) || 3);
+    const full       = url.searchParams.get('full') === '1';
+
+    let registry = null;
+    try { registry = await kv.get(REGISTRY_KEY, 'json'); } catch {}
+    if (!registry?.sections?.[category]) {
+      return json({ error: 'No registry section "' + category + '"' }, 503);
+    }
+
+    const slugs   = Object.keys(registry.sections[category]).sort();
+    const slugSet = new Set(slugs);
+
+    // ── Class A: repeated token prefixes ──────────────────────────────────
+    const prefixMap = new Map();
+    for (const slug of slugs) {
+      const parts = slug.split('-');
+      for (let k = 2; k <= Math.min(6, parts.length - 1); k++) {
+        const pre = parts.slice(0, k).join('-');
+        const rem = parts.slice(k).join('-');
+        if (!rem) continue;
+        if (!prefixMap.has(pre)) prefixMap.set(pre, new Set());
+        prefixMap.get(pre).add(rem);
+      }
+    }
+    let series = [];
+    for (const [pre, rems] of prefixMap) {
+      if (rems.size >= MIN_SERIES) series.push({ prefix: pre, variants: rems.size });
+    }
+    // Keep only the LONGEST prefix of each family: "southampton-summer" and
+    // "southampton-summer-sessions" both qualify; only the latter is the real
+    // series name.
+    series.sort((a, b) => b.prefix.length - a.prefix.length);
+    const kept = [];
+    for (const s of series) {
+      if (!kept.some(k => k.prefix.startsWith(s.prefix + '-'))) kept.push(s);
+    }
+    kept.sort((a, b) => b.variants - a.variants);
+    const seriesOut = (full ? kept : kept.slice(0, 40)).map(s => ({
+      ...s,
+      examples: slugs.filter(x => x.startsWith(s.prefix + '-')).slice(0, 5)
+    }));
+
+    // ── Class B: slugs extending an existing slug ─────────────────────────
+    const variants = [];
+    for (const slug of slugs) {
+      const parts = slug.split('-');
+      for (let k = parts.length - 1; k >= 1; k--) {
+        const base = parts.slice(0, k).join('-');
+        if (slugSet.has(base)) {
+          variants.push({ slug, base, extra: parts.slice(k).join('-') });
+          break; // longest existing base only
+        }
+      }
+    }
+
+    return json({
+      phase: 'nameaudit',
+      readOnly: true,
+      category,
+      totalInSection: slugs.length,
+      minSeries: MIN_SERIES,
+      seriesPrefixCount: kept.length,
+      seriesPrefixes: seriesOut,
+      variantCount: variants.length,
+      variants: full ? variants : variants.slice(0, 60),
+      note: 'REVIEW QUEUE. Class B contains legitimate distinct entities ' +
+            '(Real Madrid / Real Madrid Castilla). Nothing here is safe to merge blind.'
+    }, 200);
+  }
+
   // ── REJECTED PHASE — READ-ONLY. What the event filter actually stopped.
   // Check this after each discovery run for the first few weeks: a name here
   // that is a real performer means a pattern needs narrowing.
@@ -586,8 +688,48 @@ export async function onRequestGet({ request, env }) {
         // rule. Left alone, the next discovery run would mint the corrected
         // slug as a brand-new page and we'd have duplicates.
         const shouldBeSlug = rec.name ? toSlug(rec.name) : slug;
-        const catWrong  = shouldBeCat !== fromCat;
+        let catWrong  = shouldBeCat !== fromCat;
         const slugWrong = shouldBeSlug && shouldBeSlug !== slug;
+
+        // ── MUSICIAN VETO (24 Jul 2026) ───────────────────────────────────
+        // The concert section holds ~217 entities whose stored genre is the
+        // literal string 'Sports'. Most are genuinely misfiled tournament
+        // sessions — but some are REAL MUSICIANS (adele, arctic-monkeys,
+        // ariana-grande, alt-j), residue of the SE365 1023 mapping bug this
+        // file's own comments describe: "1023 (909 music acts) was missing
+        // entirely and fell through to 'Sports'". The mapping was fixed; the
+        // records written before the fix still carry the wrong genre.
+        //
+        // A bulk concert->sports move would drag Adele into /sports/. So before
+        // moving anything OUT of concert, ask the enrichment record: a
+        // MusicBrainz match means an external authority recognises this name as
+        // a recording artist. Genre is the corrupted field here; MusicBrainz is
+        // independent evidence, so it wins.
+        //
+        // Vetoed entities are reported with reason 'musician-veto' and left
+        // exactly where they are — their GENRE is wrong, not their section.
+        let musicianVeto = false;
+        if (catWrong && fromCat === 'concert') {
+          try {
+            const metaRaw = await kv.get(`entity:meta:concert:${slug}`);
+            if (metaRaw) {
+              const meta = JSON.parse(metaRaw);
+              if (meta && meta.source === 'musicbrainz') musicianVeto = true;
+            }
+          } catch {}
+          if (musicianVeto) catWrong = false;
+        }
+
+        if (musicianVeto && !slugWrong) {
+          misfiled.push({
+            slug, from: fromCat, to: fromCat, toSlug: slug,
+            reason: 'musician-veto',
+            genre: rec.genre, name: rec.name || slug,
+            note: 'MusicBrainz match — genre is wrong, section is right. Not moved.'
+          });
+          continue;
+        }
+
         if (catWrong || slugWrong) {
           misfiled.push({
             slug, from: fromCat, to: shouldBeCat,
@@ -1445,8 +1587,13 @@ export async function onRequestGet({ request, env }) {
         let   scanned    = 0;
 
         while (page <= totalPages && page <= 10) { // cap at 10 pages to stay within 30s limit
-          const catalogUrl = new URL(`https://api.impact.com/Mediapartners/${accountSid}/Catalogs/Items`);
-          catalogUrl.searchParams.set('CampaignId', '12730');
+          // Impact's catalog resource is /Catalogs/{CatalogId}/Items — the ID
+          // belongs in the PATH. This previously called /Catalogs/Items with
+          // CampaignId=12730 as a query param, which is not a resource, so it
+          // 404'd on page 1 every time and VS discovery has never returned
+          // anything. Catalog 7904 = Vivid Seats, per impact-debug.js:47,
+          // which exercises exactly this URL.
+          const catalogUrl = new URL(`https://api.impact.com/Mediapartners/${accountSid}/Catalogs/${VS_CATALOG_ID}/Items`);
           catalogUrl.searchParams.set('PageSize',   '100');
           catalogUrl.searchParams.set('Page',       String(page));
 
@@ -1455,7 +1602,16 @@ export async function onRequestGet({ request, env }) {
           });
 
           if (!resp.ok) {
-            results.errors.push({ source: 'vividseats', error: `HTTP ${resp.status} on page ${page}` });
+            // Capture the body — a bare status cost real debug time on the TM
+            // and Partnerize bugs. Impact names the offending resource.
+            let body = '';
+            try { body = (await resp.text()).slice(0, 300); } catch {}
+            results.errors.push({
+              source: 'vividseats',
+              error: `HTTP ${resp.status} on page ${page}`,
+              url: catalogUrl.toString().replace(accountSid, '{accountSid}'),
+              body
+            });
             break;
           }
 
@@ -2067,6 +2223,10 @@ async function updateVenueDataFile(github, venues) {
 // ===========================
 // Ticketmaster fetcher — Music, Sports, Arts & Theatre
 // ===========================
+
+// Vivid Seats catalog on Impact. Confirmed in impact-debug.js:47.
+// TicketNetwork is catalog 896 if a second source is ever added here.
+const VS_CATALOG_ID = '7904';
 
 const TM_CURSOR_KEY = 'autodiscover:tm:cursor';
 
