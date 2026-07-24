@@ -1350,8 +1350,10 @@ export async function onRequestGet({ request, env }) {
   if (source === 'ticketmaster') {
     try {
       // Fetch Music, Sports, and Arts & Theatre segments for full genre coverage
-      const events = await fetchTicketmasterEvents(apiKey, kv);
+      const tmDiag = [];
+      const events = await fetchTicketmasterEvents(apiKey, kv, tmDiag);
       results.eventsScanned = events.length;
+      results.tmDiag = tmDiag;
 
       for (const event of events) {
         const genre    = getGenre(event);
@@ -1522,7 +1524,7 @@ export async function onRequestGet({ request, env }) {
         // so Ticombo discovery had 404'd since it was written (confirmed
         // 24 Jul 2026). Do not "modernise" this hostname.
         const resp = await fetch(
-          `https://api.performancehorizon.com/user/${publisherId}/campaigns.json?limit=100`,
+          `https://api.performancehorizon.com/publisher/${publisherId}/campaign.json?limit=100`,
           { headers: { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' } }
         );
         if (!resp.ok) {
@@ -2068,7 +2070,7 @@ async function updateVenueDataFile(github, venues) {
 
 const TM_CURSOR_KEY = 'autodiscover:tm:cursor';
 
-async function fetchTicketmasterEvents(apiKey, kv) {
+async function fetchTicketmasterEvents(apiKey, kv, diag) {
   const events = [];
   const seen   = new Set();
 
@@ -2097,13 +2099,35 @@ async function fetchTicketmasterEvents(apiKey, kv) {
     u.searchParams.set('segmentId', segmentId);
     // No countryCode filter — discover international events too.
     // UK fans buy tickets to events worldwide (European football, US tours etc).
+    // INSTRUMENTED 24 Jul 2026. This block previously had an EMPTY catch and
+    // never checked resp.ok, so a 400/401/429 and a genuinely empty result were
+    // indistinguishable — both produced eventsScanned: 0 with no error. TM
+    // discovery was returning zero with the API provably healthy (?diag=1
+    // returned 200) and nothing surfaced it. Never re-empty this catch.
+    const d = { segmentId, page, status: null, ok: false, returned: 0 };
     try {
       const resp = await fetch(u.toString());
-      const data = await resp.json();
-      for (const e of (data?._embedded?.events || [])) {
-        if (!seen.has(e.id)) { seen.add(e.id); events.push(e); }
+      d.status = resp.status;
+      d.ok     = resp.ok;
+      const raw = await resp.text();
+      if (!resp.ok) {
+        d.body = raw.slice(0, 300);
+      } else {
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) { d.parseError = String(e).slice(0, 120); }
+        const list = data?._embedded?.events || [];
+        d.returned  = list.length;
+        d.totalElements = data?.page?.totalElements;
+        d.totalPages    = data?.page?.totalPages;
+        if (!list.length) d.body = raw.slice(0, 300);
+        for (const e of list) {
+          if (!seen.has(e.id)) { seen.add(e.id); events.push(e); }
+        }
       }
-    } catch {}
+    } catch (err) {
+      d.fetchError = String(err).slice(0, 200);
+    }
+    if (diag) diag.push(d);
   }
 
   // Advance cursor for next run (wraps at MAX_PAGE)
