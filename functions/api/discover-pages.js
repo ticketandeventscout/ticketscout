@@ -2718,7 +2718,16 @@ const EVENT_PATTERNS = [
   { tier: 'A', label: 'round-number',     re: /\bround\s+\d+\b/i },
   { tier: 'A', label: 'matchday',         re: /\bmatchday\s*\d+\b/i },
   { tier: 'A', label: 'f1-gp-day',        re: /\bf1\s+gp\b/i },
-  { tier: 'A', label: 'away-fixture',     re: /\bat\s+[A-Z\u00c0-\u024f][\w'\u00c0-\u024f]*\s+[A-Z\u00c0-\u024f]/ },
+  // DEMOTED TO TIER B, 24 Jul 2026. Validated clean on 2,983 entities across
+  // concert/football/theatre — then produced false positives on the FIRST
+  // Ticketmaster run: 'TK Maxx Presents Depot Live at Cardiff Castle' and
+  // 'Drag Brunch at Hamburger Mary's'. Both are real recurring events.
+  // '<X> at <Venue>' and '<Team> at <Team>' are indistinguishable by shape or
+  // capitalisation; separating them needs a venue/team lookup we do not have.
+  // The earlier sections were SE365-dominated and simply never produced this
+  // name shape — a reminder that 'no false positives' means 'none in the data
+  // seen so far'. Do NOT promote back without a venue list.
+  { tier: 'B', label: 'away-fixture',     re: /\bat\s+[A-Z\u00c0-\u024f][\w'\u00c0-\u024f]*\s+[A-Z\u00c0-\u024f]/ },
 
   // ── Tier B — review only ────────────────────────────────────────────────
   { tier: 'B', label: 'pl-season-pass',   re: /\bkarnet\b/i },
