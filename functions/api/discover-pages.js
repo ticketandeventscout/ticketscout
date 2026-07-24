@@ -78,6 +78,7 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&phase=fix-categories — find/move entities in the wrong section (dry by default)',
       '  ?trigger=1&phase=backfill       — write KV data for already-committed pages',
       '  ?trigger=1&phase=build-registry — build sitemap:registry from the GitHub tree (one-time)',
+      '  ?trigger=1&phase=slugaudit&category=concert — READ-ONLY: list slugs that disagree with toSlug(name)',
       '  ?trigger=1&phase=recheck-deferred — re-check liquidity-gated entities, requeue liquid ones',
       '  &dry=1                          — dry run, no writes',
       '',
@@ -307,6 +308,80 @@ export async function onRequestGet({ request, env }) {
   }
 
   // ── BACKFILL PHASE — write KV data for already-committed pages ───────────
+  // ── SLUGAUDIT PHASE — READ-ONLY, performs no writes ──────────────────────
+  // Lists entities whose stored slug disagrees with toSlug(name) recomputed
+  // from the stored display name.
+  //
+  // WHY: before 24 Jul 2026, toSlug() deleted any letter with no canonical NFD
+  // decomposition — Polish l-stroke most visibly — so "Michal Szotan" became
+  // "micha-sotan". Fixing toSlug does NOT rename those entities: discovery
+  // would register "michal-szotan" as a NEW entity beside the mangled one,
+  // reproducing the duplicate-club-page problem on purpose.
+  //
+  // Run this, review, purge the confirmed mangled slugs via /api/registry-purge,
+  // THEN the corrected toSlug is safe to rely on.
+  //
+  // This is a REVIEW QUEUE, not a removal list (cf. 'no-kv-record is a repair
+  // signal'). A mismatch can also mean the display name was legitimately edited
+  // after registration, or the slug was hand-curated. Confirm before purging.
+  //
+  // Long names may differ only in the tail: the old toSlug dropped characters
+  // BEFORE the 60-char truncation, so the corrected slug can truncate at a
+  // different point. Those are still genuine mangles.
+  //
+  // Usage: ?trigger=1&phase=slugaudit&category=concert&offset=0&limit=200
+  if (phase === 'slugaudit') {
+    const category = (url.searchParams.get('category') || 'concert').toLowerCase();
+    const offset   = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
+    const limit    = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 400);
+
+    let registry = null;
+    try { registry = await kv.get(REGISTRY_KEY, 'json'); } catch {}
+    if (!registry || !registry.sections || !registry.sections[category]) {
+      return json({ error: 'No registry section "' + category + '" — valid: ' +
+        Object.keys((registry && registry.sections) || {}).join(', ') }, 503);
+    }
+
+    const slugs  = Object.keys(registry.sections[category]).sort();
+    const batch  = slugs.slice(offset, offset + limit);
+    const prefix = categoryToKvPrefix(category);
+
+    const mismatches = [];
+    let checked = 0, noRecord = 0, noName = 0, errors = 0;
+
+    for (const slug of batch) {
+      try {
+        const raw = await kv.get(prefix + slug);
+        if (!raw) { noRecord++; continue; }
+        let rec;
+        try { rec = JSON.parse(raw); } catch { errors++; continue; }
+        const name = (rec && rec.name) || '';
+        if (!name) { noName++; continue; }
+        checked++;
+        const correct = toSlug(name);
+        if (correct && correct !== slug) {
+          mismatches.push({ slug, name, correctSlug: correct });
+        }
+      } catch { errors++; }
+    }
+
+    const nextOffset = offset + batch.length;
+    const done = nextOffset >= slugs.length;
+    return json({
+      phase: 'slugaudit',
+      readOnly: true,
+      category,
+      totalInSection: slugs.length,
+      batch: { offset, size: batch.length },
+      checked, noRecord, noName, errors,
+      mismatchCount: mismatches.length,
+      mismatches,
+      done,
+      next: done ? null : '?trigger=1&phase=slugaudit&category=' + category +
+        '&offset=' + nextOffset + '&limit=' + limit
+    }, 200);
+  }
+
   // Run once after deploying genre routing to populate KV for existing pages
   // Usage: ?trigger=1&phase=backfill
   if (phase === 'backfill') {
@@ -2321,7 +2396,13 @@ function generateBaseVenueJs() {
 // includes('football') would route NFL teams to the soccer section.
 const SPORTS_GENRES = new Set([
   'basketball', 'mma', 'ice hockey', 'rugby', 'handball', 'american football',
-  'baseball', 'boxing', 'tennis', 'cricket', 'motorsport', 'golf', 'wrestling'
+  'baseball', 'boxing', 'tennis', 'cricket', 'motorsport', 'golf', 'wrestling',
+  // TM's SEGMENT name, not a genre. getGenre() falls back to the segment when
+  // both subGenre and genre are 'Undefined' — which is the norm for tournament
+  // sessions (Miami Open, ABN AMRO Open, F1 GP day passes). Without this entry
+  // those fall through genreToCategory()'s catch-all and become CONCERTS.
+  // 217 such entities were found in the concert section on 24 Jul 2026.
+  'sports'
 ]);
 
 function genreToCategory(genre) {
@@ -2422,6 +2503,11 @@ function toSlug(name) {
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/ß/g, 'ss').replace(/ø/g, 'o').replace(/Ø/g, 'o')
     .replace(/æ/g, 'ae').replace(/Æ/g, 'ae').replace(/đ/g, 'd').replace(/Đ/g, 'd')
+    // These have NO canonical NFD decomposition, so the strip below deletes
+    // them outright. Polish l-stroke produced 'micha-sotan' from a real name.
+    .replace(/ł/g, 'l').replace(/Ł/g, 'l')
+    .replace(/ð/g, 'd').replace(/Ð/g, 'd').replace(/þ/g, 'th').replace(/Þ/g, 'th')
+    .replace(/œ/g, 'oe').replace(/Œ/g, 'oe').replace(/ı/g, 'i').replace(/ŀ/g, 'l')
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
