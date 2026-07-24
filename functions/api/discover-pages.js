@@ -1516,13 +1516,21 @@ export async function onRequestGet({ request, env }) {
     } else {
       try {
         const basicAuth = btoa(`${userKey}:${apiKey}`);
-        // Try to list product feeds for Ticombo campaigns via Partnerize publisher API
+        // Partnerize's API lives on the LEGACY performancehorizon.com domain.
+        // api.partnerize.com returns 404 for every path — this was found and
+        // fixed in affiliate-conversions.js during session 10 but never here,
+        // so Ticombo discovery had 404'd since it was written (confirmed
+        // 24 Jul 2026). Do not "modernise" this hostname.
         const resp = await fetch(
-          `https://api.partnerize.com/user/${publisherId}/campaigns.json?limit=100`,
+          `https://api.performancehorizon.com/user/${publisherId}/campaigns.json?limit=100`,
           { headers: { 'Authorization': `Basic ${basicAuth}`, 'Accept': 'application/json' } }
         );
         if (!resp.ok) {
-          results.errors.push({ source: 'ticombo', error: `Partnerize API: HTTP ${resp.status}` });
+          // Capture the body: a bare status cost real debug time here. A 404 on
+          // the CORRECT domain means the PATH is wrong, not the host.
+          let body = '';
+          try { body = (await resp.text()).slice(0, 200); } catch {}
+          results.errors.push({ source: 'ticombo', error: `Partnerize API: HTTP ${resp.status}`, body });
         } else {
           const data = await resp.json();
           const campaigns = data?.campaigns || [];
