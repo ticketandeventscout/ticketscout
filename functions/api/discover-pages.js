@@ -80,6 +80,7 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&phase=build-registry — build sitemap:registry from the GitHub tree (one-time)',
       '  ?trigger=1&phase=slugaudit&category=concert — READ-ONLY: list slugs that disagree with toSlug(name)',
       '  ?trigger=1&phase=eventaudit&category=concert — READ-ONLY: list entities whose NAME is an event, not an entity',
+      '  ?trigger=1&phase=rejected — READ-ONLY: last 200 names the event filter rejected at discovery',
       '  ?trigger=1&phase=recheck-deferred — re-check liquidity-gated entities, requeue liquid ones',
       '  &dry=1                          — dry run, no writes',
       '',
@@ -309,6 +310,18 @@ export async function onRequestGet({ request, env }) {
   }
 
   // ── BACKFILL PHASE — write KV data for already-committed pages ───────────
+  // ── REJECTED PHASE — READ-ONLY. What the event filter actually stopped.
+  // Check this after each discovery run for the first few weeks: a name here
+  // that is a real performer means a pattern needs narrowing.
+  // Usage: ?trigger=1&phase=rejected
+  if (phase === 'rejected') {
+    let log = [];
+    try { const r = await kv.get('discover:rejected:log'); if (r) log = JSON.parse(r); } catch {}
+    const byLabel = {};
+    for (const e of log) byLabel[e.label] = (byLabel[e.label] || 0) + 1;
+    return json({ phase: 'rejected', readOnly: true, total: log.length, byLabel, log }, 200);
+  }
+
   // ── EVENTAUDIT PHASE — READ-ONLY, performs no writes ─────────────────────
   // Runs looksLikeEvent() over every registered entity NAME and reports what a
   // discovery-time filter WOULD have rejected. Nothing is rejected or removed.
@@ -1528,13 +1541,63 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
-  const artistList = [...newArtists.values()];
+  // ── EVENT FILTER (Tier A only) ───────────────────────────────────────────
+  // Single choke point: TM, SE365 and Vivid Seats all converge here, so one
+  // filter covers every discovery source.
+  //
+  // Rejects ONE-OCCURRENCE names ("Session 4", "DZIEN 1", "3-Day Pass") that
+  // can never be a stable comparison target. Tier B is NEVER applied here —
+  // it is reporting-only via ?phase=eventaudit. "Saturday Night Fever" is a
+  // West End musical that Tier B flags and Tier A correctly ignores.
+  //
+  // Validated 24 Jul 2026 across 2,983 registered entities in three sections
+  // (concert 194 hits, football 13, theatre 0) with no false positive found.
+  //
+  // Escape hatches, in order of preference:
+  //   KV key 'discover:eventfilter' = 'off'  — kill-switch, no deploy needed
+  //   &nofilter=1                            — one-off bypass for testing
+  //
+  // Rejections are logged to 'discover:rejected:log' (last 200) so a bad
+  // pattern surfaces as a review queue rather than as silent data loss.
+  let rejectedEvents = [];
+  let eventFilterOn  = url.searchParams.get('nofilter') !== '1';
+  if (eventFilterOn) {
+    try { if ((await kv.get('discover:eventfilter')) === 'off') eventFilterOn = false; } catch {}
+  }
+
+  let artistList = [...newArtists.values()];
   const venueList  = [...newVenues.values()];
+
+  if (eventFilterOn) {
+    const kept = [];
+    for (const a of artistList) {
+      const hit = looksLikeEvent(a.name);
+      if (hit && hit.tier === 'A') {
+        rejectedEvents.push({ slug: a.slug, name: a.name, label: hit.label, category: a.category });
+      } else {
+        kept.push(a);
+      }
+    }
+    artistList = kept;
+
+    if (rejectedEvents.length && !dryRun) {
+      try {
+        let log = [];
+        try { const r = await kv.get('discover:rejected:log'); if (r) log = JSON.parse(r); } catch {}
+        const stamp = new Date().toISOString();
+        log = rejectedEvents.map(r => ({ ...r, at: stamp })).concat(log).slice(0, 200);
+        await kv.put('discover:rejected:log', JSON.stringify(log));
+      } catch {}
+    }
+  }
 
   if (dryRun) {
     return json({
       ...results,
       dryRun: true,
+      eventFilter: eventFilterOn ? 'on' : 'off',
+      rejectedAsEvents: rejectedEvents.length,
+      rejectedSample: rejectedEvents.slice(0, 25),
       newArtists: artistList.map(a => ({ slug: a.slug, name: a.name, genre: a.genre, category: a.category })),
       newVenues:  venueList.map(v => ({ slug: v.slug, name: v.name, city: v.city })),
       message: 'Dry run — nothing written. Remove &dry=1 to queue for commit.'
@@ -1542,7 +1605,9 @@ export async function onRequestGet({ request, env }) {
   }
 
   if (artistList.length === 0 && venueList.length === 0) {
-    return json({ ...results, message: 'No new pages discovered — all already known.' }, 200);
+    return json({ ...results, eventFilter: eventFilterOn ? 'on' : 'off',
+      rejectedAsEvents: rejectedEvents.length, rejectedSample: rejectedEvents.slice(0, 25),
+      message: 'No new pages discovered — all already known.' }, 200);
   }
 
   // Merge with existing pending queue (may include items from Awin cache refresh)
