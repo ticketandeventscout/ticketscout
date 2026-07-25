@@ -899,8 +899,18 @@ export async function onRequestGet({ request, env }) {
       return json({ message: 'No mis-categorised entities found.', scanned }, 200);
     }
     if (!confirm) {
+      // Full breakdown across ALL matches (not just the shown 50), so a large
+      // plan can be sanity-checked without applying blind. Added 25 Jul when a
+      // 269-move plan showed only 50 in the sample.
+      const byTo = {}, byReason = {};
+      for (const m of misfiled) {
+        byTo[m.to] = (byTo[m.to] || 0) + 1;
+        byReason[m.reason] = (byReason[m.reason] || 0) + 1;
+      }
       return json({
         dryRun: true, scanned, found: misfiled.length,
+        summaryByTarget: byTo,
+        summaryByReason: byReason,
         message: 'Add &confirm=yes to move these. Old URLs will 404 afterwards — see note.',
         note: 'Pages committed today are unlikely to be indexed yet. If any ARE indexed, ' +
               'add explicit 301s to _redirects for those slugs before applying.',
