@@ -2916,6 +2916,12 @@ function generateBaseVenueJs() {
 const SPORTS_GENRES = new Set([
   'basketball', 'mma', 'ice hockey', 'rugby', 'handball', 'american football',
   'baseball', 'boxing', 'tennis', 'cricket', 'motorsport', 'golf', 'wrestling',
+  // Added 25 Jul: the genres the ?phase=genreaudit repair writes. Without these
+  // genreToCategory() didn't recognise them as sports, so a fix-categories run
+  // tried to drag every darts/snooker/esports/winter-sports/horse-racing entity
+  // OUT of /sports/ and into concert. MUST stay in sync with SPORT_RULES in the
+  // genreaudit phase — any sport there must be here too.
+  'darts', 'snooker', 'esports', 'horse racing', 'winter sports', 'volleyball',
   // TM's SEGMENT name, not a genre. getGenre() falls back to the segment when
   // both subGenre and genre are 'Undefined' — which is the norm for tournament
   // sessions (Miami Open, ABN AMRO Open, F1 GP day passes). Without this entry
