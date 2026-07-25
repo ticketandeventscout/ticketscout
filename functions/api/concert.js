@@ -203,6 +203,74 @@ async function listEntities(env, url) {
   return jsonResponse({ ...payload, cached: false }, 200);
 }
 
+const HARDCODED_THEATRE_SLUGS = [
+  'a-christmas-carol', 'little-shop-of-horrors', 'maybe-happy-ending', 'buena-vista-social-club',
+  'blue-man-group', 'magic-mike-live', 'jabbawockeez', 'dolly',
+  'all-motown', 'all-shook-up', 'candlelight', 'death-becomes-her',
+  'comedy-cellar', 'beetlejuice', 'evita', 'hells-kitchen',
+  'matilda', 'daniel', 'juliet', 'annie',
+  'mat-franco', 'hairspray', 'disney-on-ice', 'cirque-du-soleil-ka',
+  'cirque-du-soleil-mystere', 'galileo', 'cirque-du-soleil-auana', 'garden-brothers-nuclear-circus',
+  'christmas-spectacular-starring-the-radio-city-rockettes', 'eddie-griffin', 'grand-shanghai-circus', 'cirque-du-soleil-mad-apple',
+  'cats', 'beauty-and-the-beast', 'chippendales', 'laugh-factory',
+  'big-black-comedy-show', 'cirque-du-soleil-o', 'aladdin', 'jamie-allans-amaze',
+  'adam-london-laughternoon', 'metropolitan-opera', 'cirque-du-soleil-drawn-to-life', 'just-in-time',
+  'mean-girls', 'drunk-pirates', 'blueys-big-play', 'joseph-and-the-amazing-technicolor-dreamcoat',
+  'la-comedy-club', 'a-beautiful-noise', 'boop-the-musical', 'menopause-the-musical',
+  'le-grand-cirque', 'cirque-du-soleil-michael-jackson-one', 'heathers', 'legends-in-concert',
+  'cirque-du-soleil-luzia', 'delirious-comedy-club', 'circus-vazquez', 'joshua',
+  'an-r-rated-magic-show', 'los-angeles-philharmonic', 'chicago-architecture-center-river-cruise', 'beautiful',
+  'how-the-grinch-stole-christmas', 'carrot-top', 'anastasia', 'david-goldrake',
+  'the-wizard-of-oz', 'garden-bros-nuclear-circus', 'second-city-mainstage-revue', 'piano-man',
+  'radio-city-christmas-spectacular', 'shanghai-circus', 'the-empire-strips-back', 'piff-the-magic-dragon',
+  'venardos-circus', 'rupauls-drag-race',
+];
+
+// ── SHADOW CHECK (read-only) ─────────────────────────────────────────────
+// The ARTISTS array is consulted BEFORE KV (see the handler ~line 272), so
+// these 78 hardcoded 'Live Events' entries SHADOW any KV record of the same
+// slug. Most are theatre shows seeded before discovery existed. Before
+// deleting the block we must know, per slug, whether removing it would:
+//   (a) hand over to a real KV record  -> SAFE, page keeps working
+//   (b) leave nothing                   -> page 404s (orphan)
+//   (c) leave a registry entry with no server -> sitemap points at a 404
+// This classifies all 78 against KV + registry so the deletion is evidence-led.
+// Usage: /api/concert?shadowcheck=1
+async function shadowCheck(env) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return jsonResponse({ error: 'no KV binding' }, 500);
+
+  let registrySet = new Set();
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    registrySet = new Set(Object.keys((reg && reg.sections && reg.sections.concert) || {}));
+  } catch {}
+
+  const safeToDelete = [], wouldOrphan = [], inRegistryOnly = [];
+  for (const slug of HARDCODED_THEATRE_SLUGS) {
+    let kvExists = false;
+    try { kvExists = !!(await kv.get('concert:artist:' + slug)); } catch {}
+    const inReg = registrySet.has(slug);
+    const row = { slug, kvExists, inRegistry: inReg };
+    if (kvExists) safeToDelete.push(row);           // KV takes over -> safe
+    else if (inReg) inRegistryOnly.push(row);       // registry points here, no KV -> needs a KV backfill first
+    else wouldOrphan.push(row);                     // nothing anywhere -> deleting 404s a live page
+  }
+
+  return jsonResponse({
+    check: 'hardcoded-theatre-shadow',
+    readOnly: true,
+    total: HARDCODED_THEATRE_SLUGS.length,
+    safeToDeleteCount: safeToDelete.length,
+    wouldOrphanCount: wouldOrphan.length,
+    inRegistryOnlyCount: inRegistryOnly.length,
+    safeToDelete,
+    wouldOrphan,
+    inRegistryOnly,
+    guidance: 'Delete ONLY safeToDelete slugs from the ARTISTS array. wouldOrphan need a KV record created first (or keep the hardcoded entry). inRegistryOnly need the registry entry removed too, or a KV backfill.'
+  }, 200);
+}
+
 async function inspectRecords(env, section, prefix) {
   const kv = env.GIGSBERG_KV;
   if (!kv) return jsonResponse({ error: 'no KV binding' }, 500);
@@ -262,6 +330,7 @@ export async function onRequestGet({ request, env }) {
   // Hub listing powers /concert so the section is browsable and internally
   // linked rather than a dead end Google reads as a thin page.
   if (url.searchParams.get('inspect') === '1') return inspectRecords(env, 'concert', 'concert:artist:');
+  if (url.searchParams.get('shadowcheck') === '1') return shadowCheck(env);
   if (url.searchParams.get('list') === '1') return listEntities(env, url);
 
   if (!slug) {
