@@ -82,6 +82,7 @@ export async function onRequestGet({ request, env }) {
       '  ?trigger=1&phase=eventaudit&category=concert — READ-ONLY: list entities whose NAME is an event, not an entity',
       '  ?trigger=1&phase=rejected — READ-ONLY: last 200 names the event filter rejected at discovery',
       '  ?trigger=1&phase=nameaudit&category=concert — READ-ONLY: series prefixes + city variants to merge',
+      '  ?trigger=1&phase=genreaudit&category=sports — re-genre sports entities stuck on \'Sports\' (dry; &confirm=yes to apply)',
       '  ?trigger=1&phase=recheck-deferred — re-check liquidity-gated entities, requeue liquid ones',
       '  &dry=1                          — dry run, no writes',
       '',
@@ -311,6 +312,134 @@ export async function onRequestGet({ request, env }) {
   }
 
   // ── BACKFILL PHASE — write KV data for already-committed pages ───────────
+  // ── GENREAUDIT / GENREFIX PHASE ──────────────────────────────────────────
+  // The 300 entities moved to /sports/ by fix-categories landed under "Other"
+  // because their stored genre is the literal string 'Sports' (the SE365 1023
+  // corruption). fix-categories fixed the SECTION; this fixes the GENRE, so the
+  // sports hub can sub-classify them into Tennis / Motorsport / Wrestling / etc.
+  //
+  // Mirror image of the SPORTS_GENRES fix: that stopped NEW sports events
+  // becoming concerts; this re-genres the EXISTING ones already in /sports/.
+  //
+  // SPORT INFERENCE IS FROM THE EVENT NAME, structurally, per s7.6. Each rule
+  // is a distinctive multi-token signature, not a bare noun. A name matching NO
+  // rule is left as-is and reported under 'unmatched' for review — we never
+  // guess. This is the same discipline as the event filter: under-classify
+  // rather than mislabel.
+  //
+  // Also re-genres the 5 musician-veto entities (adele etc.) whose CONCERT-
+  // section genre is still 'Sports' — they get 'Live Music' so they stop
+  // appearing in every fix-categories dry run.
+  //
+  // Usage: ?trigger=1&phase=genreaudit[&category=sports]           dry, default
+  //        ?trigger=1&phase=genreaudit&category=sports&confirm=yes  apply
+  if (phase === 'genreaudit' || phase === 'genrefix') {
+    const category = (url.searchParams.get('category') || 'sports').toLowerCase();
+    const confirm  = url.searchParams.get('confirm') === 'yes';
+    const limit    = Math.min(parseInt(url.searchParams.get('limit') || '500', 10) || 500, 800);
+
+    let registry = null;
+    try { registry = await kv.get(REGISTRY_KEY, 'json'); } catch {}
+    if (!registry?.sections?.[category]) {
+      return json({ error: 'No registry section "' + category + '"' }, 503);
+    }
+
+    // Distinctive signatures only. First match wins; order is specific->general.
+    // ORDER MATTERS: specific sports with unambiguous keywords first, so that a
+    // greedy generic like 'open' (which reads as tennis) cannot pre-empt an
+    // esports or golf event that also contains it. 'open' is deliberately the
+    // LAST tennis signal and gated to appear only where no earlier rule fired.
+    const SPORT_RULES = [
+      { sport: 'esports',           re: /\b(esl|blast premier|intel extreme|fortnite|counter-strike|league of legends|dota|valorant)\b/i },
+      { sport: 'motorsport',        re: /\b(f1|formula 1|grand prix|\bgp\b|motogp|nascar|le mans|24 hours of)\b/i },
+      { sport: 'wrestling',         re: /\b(wwe|aew|wrestling|wrestlemania|smackdown|dynamite|collision)\b/i },
+      { sport: 'american football', re: /\b(nfl|super bowl|afle)\b/i },
+      { sport: 'ice hockey',        re: /\b(nhl|iihf|ice hockey|stanley cup)\b/i },
+      { sport: 'basketball',        re: /\b(nba|euroleague|basketball|final four)\b/i },
+      { sport: 'rugby',             re: /\b(rugby|six nations|premiership rugby)\b/i },
+      { sport: 'boxing',            re: /\b(boxing|title fight|heavyweight|welterweight)\b/i },
+      { sport: 'mma',               re: /\b(ufc|mma|bellator|cage warriors)\b/i },
+      { sport: 'cricket',           re: /\b(cricket|the ashes|\bt20\b|\bodi\b|\bipl\b)\b/i },
+      { sport: 'baseball',          re: /\b(mlb|baseball|world series)\b/i },
+      { sport: 'handball',          re: /\b(handball|piłce ręcznej|pilce recznej)\b/i },
+      { sport: 'volleyball',        re: /\b(volleyball|cev|siatk)\b/i },
+      { sport: 'golf',              re: /\b(pga|ryder cup|the open championship|golf)\b/i },
+      // Tennis LAST among the specific rules. 'open'/'masters' are greedy so
+      // they sit here, after every unambiguous sport has had first refusal.
+      { sport: 'tennis',            re: /\b(atp|wta|tennis|davis cup|laver cup|wimbledon|roland garros|open|masters)\b/i },
+    ];
+
+    const prefix = category === 'sports' ? categoryToKvPrefix('sports') : categoryToKvPrefix(category);
+    const slugs  = Object.keys(registry.sections[category]).slice(0, limit);
+
+    const bySport = {};
+    const unmatched = [];
+    const plan = [];
+    let checked = 0, alreadyOk = 0, noRecord = 0;
+
+    // In the CONCERT section we only touch entities whose genre is the bogus
+    // 'Sports' string (the veto set) — everything else keeps its genre.
+    const concertMode = category === 'concert';
+
+    for (const slug of slugs) {
+      let rec = null;
+      try { const raw = await kv.get(prefix + slug); if (raw) rec = JSON.parse(raw); } catch {}
+      if (!rec) { noRecord++; continue; }
+      checked++;
+      const name  = rec.name || slug;
+      const genre = rec.genre || '';
+
+      if (concertMode) {
+        if (genre !== 'Sports') continue;           // only the corrupted ones
+        plan.push({ slug, name, from: genre, to: 'Live Music', sport: 'music' });
+        continue;
+      }
+
+      // sports section: only re-genre entities still carrying a non-sport genre
+      const g = genre.toLowerCase();
+      const alreadySport = SPORT_RULES.some(r => r.sport === g);
+      if (alreadySport) { alreadyOk++; continue; }
+
+      const hit = SPORT_RULES.find(r => r.re.test(name));
+      if (!hit) { unmatched.push({ slug, name, genre }); continue; }
+      bySport[hit.sport] = (bySport[hit.sport] || 0) + 1;
+      plan.push({ slug, name, from: genre, to: hit.sport, sport: hit.sport });
+    }
+
+    // APPLY
+    let updated = 0;
+    if (confirm && plan.length) {
+      for (const item of plan) {
+        try {
+          const raw = await kv.get(prefix + item.slug);
+          if (!raw) continue;
+          const rec = JSON.parse(raw);
+          rec.genre = item.to;
+          await kv.put(prefix + item.slug, JSON.stringify(rec));
+          updated++;
+        } catch {}
+      }
+      // Bust the hub cache so the sub-category counts refresh.
+      try { await kv.delete(category + ':hub:index'); } catch {}
+    }
+
+    return json({
+      phase: 'genreaudit',
+      category,
+      dryRun: !confirm,
+      checked, alreadyOk, noRecord,
+      planCount: plan.length,
+      updated,
+      bySport: concertMode ? { music: plan.length } : bySport,
+      unmatchedCount: unmatched.length,
+      unmatched: unmatched.slice(0, 60),
+      planSample: plan.slice(0, 40),
+      message: confirm
+        ? `Updated ${updated} genres. Hub cache cleared.`
+        : 'Dry run — add &confirm=yes to apply. Review unmatched: those keep their current genre.'
+    }, 200);
+  }
+
   // ── NAMEAUDIT PHASE — READ-ONLY, no writes ───────────────────────────────
   // Finds the two junk classes the event filter CANNOT catch, because neither
   // should be rejected — both should be MERGED into an existing entity.
