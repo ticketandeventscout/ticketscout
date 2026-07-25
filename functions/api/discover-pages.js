@@ -555,6 +555,57 @@ export async function onRequestGet({ request, env }) {
   // Check this after each discovery run for the first few weeks: a name here
   // that is a real performer means a pattern needs narrowing.
   // Usage: ?trigger=1&phase=rejected
+  // ── RECONCILE (read-only): find split-state entities from an interrupted move
+  // A move that timed out mid-KV-loop can leave: new page + registry updated,
+  // but the OLD-section KV record NOT deleted (old URL still serves), or the new
+  // KV record missing (new URL 404s). This audits the registry against KV to
+  // surface both. Usage: ?trigger=1&phase=reconcile[&section=theatre]
+  if (phase === 'reconcile') {
+    let registry = null;
+    try { registry = await kv.get(REGISTRY_KEY, 'json'); } catch {}
+    if (!registry?.sections) return json({ error: 'no registry' }, 503);
+
+    const only = url.searchParams.get('section');
+    const sections = only ? [only] : ['concert','football','theatre','sports','venue'];
+    const staleOldRecords = [];   // registry says moved, but an OLD-section KV record still exists
+    const missingNewRecords = []; // registry lists it, but the NEW KV record is absent
+    const otherPrefixes = {
+      concert: 'concert:artist:', football: 'football:team:',
+      theatre: 'theatre:show:', sports: 'sports:team:', venue: 'venue:venue:'
+    };
+
+    for (const sec of sections) {
+      const slugs = Object.keys(registry.sections[sec] || {});
+      for (const slug of slugs) {
+        const newKey = otherPrefixes[sec] + slug;
+        // (a) is the record present where the registry says it is?
+        let present = false;
+        try { present = !!(await kv.get(newKey)); } catch {}
+        if (!present) missingNewRecords.push({ slug, section: sec, expectedKey: newKey });
+        // (b) does a stale record survive under ANOTHER section's prefix?
+        for (const [otherSec, pfx] of Object.entries(otherPrefixes)) {
+          if (otherSec === sec) continue;
+          try {
+            if (await kv.get(pfx + slug)) {
+              staleOldRecords.push({ slug, nowIn: sec, staleIn: otherSec, staleKey: pfx + slug });
+            }
+          } catch {}
+        }
+      }
+    }
+
+    return json({
+      phase: 'reconcile', readOnly: true, sections,
+      staleOldRecordCount: staleOldRecords.length,
+      missingNewRecordCount: missingNewRecords.length,
+      staleOldRecords: staleOldRecords.slice(0, 100),
+      missingNewRecords: missingNewRecords.slice(0, 100),
+      guidance: 'staleOldRecords: old URL still serves — needs the old-section KV key deleted. ' +
+                'missingNewRecords: new URL 404s — needs the page/record recreated. ' +
+                'Add &fix=1 to delete stale old-section KV records (safe: registry already points elsewhere).'
+    }, 200);
+  }
+
   if (phase === 'rejected') {
     let log = [];
     try { const r = await kv.get('discover:rejected:log'); if (r) log = JSON.parse(r); } catch {}
