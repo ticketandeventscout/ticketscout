@@ -907,6 +907,12 @@ export async function onRequestGet({ request, env }) {
         byTo[m.to] = (byTo[m.to] || 0) + 1;
         byReason[m.reason] = (byReason[m.reason] || 0) + 1;
       }
+      // ?target=concert filters the shown entities to one destination bucket,
+      // so a large plan's non-obvious moves can be reviewed. Added 25 Jul.
+      const targetFilter = url.searchParams.get('target');
+      const shown = targetFilter
+        ? misfiled.filter(m => m.to === targetFilter)
+        : misfiled;
       return json({
         dryRun: true, scanned, found: misfiled.length,
         summaryByTarget: byTo,
@@ -914,8 +920,9 @@ export async function onRequestGet({ request, env }) {
         message: 'Add &confirm=yes to move these. Old URLs will 404 afterwards — see note.',
         note: 'Pages committed today are unlikely to be indexed yet. If any ARE indexed, ' +
               'add explicit 301s to _redirects for those slugs before applying.',
-        entities: misfiled.slice(0, 50),
-        truncatedSample: misfiled.length > 50
+        entities: shown.slice(0, 60),
+        shownFilter: targetFilter || 'all',
+        truncatedSample: shown.length > 60
       }, 200);
     }
     if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
