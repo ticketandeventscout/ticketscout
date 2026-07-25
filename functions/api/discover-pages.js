@@ -2904,7 +2904,25 @@ function genreToCategory(genre) {
   const g = (genre || '').toLowerCase().trim();
   if (SPORTS_GENRES.has(g)) return 'sports';
   if (g.includes('football') || g.includes('soccer')) return 'football';
-  if (g.includes('theatre') || g.includes('musical') || g.includes('opera') || g.includes('ballet')) return 'theatre';
+  // Theatre routing covers TM's Arts & Theatre sub-genres. Expanded 25 Jul when
+  // the promote-misfiled pass surfaced 228 theatre entities carrying sub-genres
+  // (Comedy, Circus, Magic, Podcast, Variety...) that the old 4-keyword test
+  // missed — they'd have been genre-set but stranded in concert.
+  //
+  // DELIBERATELY EXCLUDED — genres that are AMBIGUOUS with music and must stay
+  // concert: 'classical' (orchestras are concerts, not theatre) and 'dance'
+  // (dance MUSIC / EDM). A few theatre entries with these labels (alfie-boe,
+  // dance-valley) will not move — the safe direction. Never add them here.
+  if (
+    g.includes('theatre') || g.includes('musical') || g.includes('opera') ||
+    g.includes('ballet')   || g.includes('comedy')  || g.includes('circus') ||
+    g.includes('drama')    ||
+    g.includes('magic')    || g.includes('illusion')|| g.includes('cabaret') ||
+    g.includes('variety')  || g.includes('performance art') ||
+    g.includes('podcast')  || g.includes('documentary') ||
+    g.includes('psychics') || g.includes('mediums') || g.includes('hypnotist') ||
+    g.includes('specialty') || g === 'family'
+  ) return 'theatre';
   return 'concert';
 }
 
