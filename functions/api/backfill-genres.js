@@ -310,6 +310,70 @@ export async function onRequestGet({ request, env }) {
                   totalOverrides: Object.keys(map).length });
   }
 
+  // ── PROMOTE MISFILED (concert->theatre genre set) ────────────────────────
+  // The backfill flags entities as 'wrong-segment' when TM says the name is
+  // Arts & Theatre, not Music — it refuses to write a music genre and records
+  // them in backfill:genre:misfiled:{section}. 228 such entities on 25 Jul.
+  //
+  // This sets each one's genre to its TM THEATRE genre (Musical/Drama/Comedy),
+  // which makes genreToCategory() return 'theatre' so a subsequent
+  // fix-categories run MOVES them to /theatre/. Two-step by design: this sets
+  // genre, fix-categories does the section move + slug/registry handling.
+  //
+  // First option wins where TM returned several (e.g. A Christmas Carol had
+  // Drama/Musical/Dance/Children's Theatre) — the report shows all options so a
+  // wrong first-pick is visible. Dry by default; &confirm=yes writes.
+  //
+  // Usage: ?promote-misfiled=1&section=concert            dry
+  //        ?promote-misfiled=1&section=concert&confirm=yes  apply
+  if (url.searchParams.get('promote-misfiled') === '1') {
+    let misfiled = [];
+    try { misfiled = (await kv.get(MISFILED_KEY(section), 'json')) || []; } catch {}
+    if (!misfiled.length) {
+      return json({ section, promoteMisfiled: true, count: 0,
+        message: 'No misfiled list — run the backfill apply first.' });
+    }
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    const plan = [];
+    let applied = 0, skippedNoOption = 0, skippedNoRecord = 0;
+
+    for (const m of misfiled) {
+      const opt = (m.options || [])[0];
+      if (!opt || !opt.genre) { skippedNoOption++; continue; }
+      const target = opt.genre; // e.g. 'Musical', 'Drama', 'Comedy'
+      const row = { slug: m.slug, name: m.name, to: target,
+                    allOptions: (m.options || []).map(o => o.genre) };
+      plan.push(row);
+
+      if (confirm) {
+        try {
+          const raw = await kv.get(cfg.prefix + m.slug);
+          if (!raw) { skippedNoRecord++; continue; }
+          const rec = JSON.parse(raw);
+          const before = rec.genre;
+          rec.genre = target;
+          if (before && typeof rec.description === 'string' && rec.description.includes(before)) {
+            rec.description = rec.description.split(before).join(target);
+          }
+          await kv.put(cfg.prefix + m.slug, JSON.stringify(rec));
+          applied++;
+        } catch {}
+      }
+    }
+    if (confirm) { try { await kv.delete(section + ':hub:index'); } catch {} }
+
+    return json({
+      section, promoteMisfiled: true, dryRun: !confirm,
+      total: misfiled.length,
+      planCount: plan.length, applied,
+      skippedNoOption, skippedNoRecord,
+      plan: plan.slice(0, 60),
+      next: confirm
+        ? 'Now run /api/discover-pages?trigger=1&phase=fix-categories to MOVE these to /theatre/.'
+        : 'Dry run — add &confirm=yes to set genres. Then fix-categories moves them.'
+    });
+  }
+
   // ── Review dump: every entity with its current genre, grouped.
   // 161 theatre entries is small enough to eyeball, which is the only
   // reliable way to catch a wrong-but-plausible classification.
