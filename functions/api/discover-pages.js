@@ -349,24 +349,34 @@ export async function onRequestGet({ request, env }) {
     // greedy generic like 'open' (which reads as tennis) cannot pre-empt an
     // esports or golf event that also contains it. 'open' is deliberately the
     // LAST tennis signal and gated to appear only where no earlier rule fired.
+    // ORDER MATTERS: unambiguous org/league keywords first; greedy generics
+    // ('open','masters','final four') last within their family. Every rule is a
+    // distinctive multi-token signature, never a bare common noun (s7.6).
     const SPORT_RULES = [
-      { sport: 'esports',           re: /\b(esl|blast premier|intel extreme|fortnite|counter-strike|league of legends|dota|valorant)\b/i },
-      { sport: 'motorsport',        re: /\b(f1|formula 1|grand prix|\bgp\b|motogp|nascar|le mans|24 hours of)\b/i },
+      { sport: 'esports',           re: /\b(esl|blast premier|intel extreme|fortnite|counter-strike|league of legends|dota|valorant|age of empires)\b/i },
+      // Volleyball BEFORE basketball: 'CEV ... Final Four Final' is volleyball,
+      // but basketball's 'final four' rule would otherwise steal it.
+      { sport: 'volleyball',        re: /\b(volleyball|\bcev\b|siatk)\b/i },
+      { sport: 'motorsport',        re: /\b(f1|formula 1|formula e|grand prix|\bgp\b|\bgp:|motogp|nascar|le mans|24 hours of|e-prix|festival of speed)\b/i },
       { sport: 'wrestling',         re: /\b(wwe|aew|wrestling|wrestlemania|smackdown|dynamite|collision)\b/i },
-      { sport: 'american football', re: /\b(nfl|super bowl|afle)\b/i },
-      { sport: 'ice hockey',        re: /\b(nhl|iihf|ice hockey|stanley cup)\b/i },
+      { sport: 'american football', re: /\b(nfl|super bowl|afle|thursday night football|sunday night football|monday night football)\b/i },
+      { sport: 'ice hockey',        re: /\b(nhl|iihf|ice hockey|stanley cup|hockey|oiho)\b/i },
       { sport: 'basketball',        re: /\b(nba|euroleague|basketball|final four)\b/i },
       { sport: 'rugby',             re: /\b(rugby|six nations|premiership rugby)\b/i },
-      { sport: 'boxing',            re: /\b(boxing|title fight|heavyweight|welterweight)\b/i },
+      { sport: 'boxing',            re: /\b(boxing|title fight|heavyweight|welterweight|la velada)\b/i },
       { sport: 'mma',               re: /\b(ufc|mma|bellator|cage warriors)\b/i },
       { sport: 'cricket',           re: /\b(cricket|the ashes|\bt20\b|\bodi\b|\bipl\b)\b/i },
       { sport: 'baseball',          re: /\b(mlb|baseball|world series)\b/i },
       { sport: 'handball',          re: /\b(handball|piłce ręcznej|pilce recznej)\b/i },
-      { sport: 'volleyball',        re: /\b(volleyball|cev|siatk)\b/i },
-      { sport: 'golf',              re: /\b(pga|ryder cup|the open championship|golf)\b/i },
-      // Tennis LAST among the specific rules. 'open'/'masters' are greedy so
-      // they sit here, after every unambiguous sport has had first refusal.
-      { sport: 'tennis',            re: /\b(atp|wta|tennis|davis cup|laver cup|wimbledon|roland garros|open|masters)\b/i },
+      { sport: 'darts',            re: /\b(darts|pdc)\b/i },
+      { sport: 'snooker',          re: /\b(snooker)\b/i },
+      { sport: 'horse racing',     re: /\b(cheltenham|grand national|royal ascot|epsom derby|aintree|goodwood|horse racing)\b/i },
+      { sport: 'winter sports',    re: /\b(winter games|big air|free skating|figure skating|snowboard|osbd|ocur|ofsk|curling)\b/i },
+      { sport: 'football',         re: /\b(champions league|carabao cup|fa cup|world cup|europa league|coupe de france|super match|premier league)\b/i },
+      { sport: 'golf',              re: /\b(pga|ryder cup|the open championship|players championship|golf)\b/i },
+      // Tennis LAST. 'open'/'masters' are greedy so they sit here, after every
+      // unambiguous sport has had first refusal.
+      { sport: 'tennis',            re: /\b(atp|wta|tennis|davis cup|laver cup|wimbledon|roland garros|\bopen\b|masters|bnl)\b/i },
     ];
 
     const prefix = category === 'sports' ? categoryToKvPrefix('sports') : categoryToKvPrefix(category);
