@@ -561,48 +561,75 @@ export async function onRequestGet({ request, env }) {
   // KV record missing (new URL 404s). This audits the registry against KV to
   // surface both. Usage: ?trigger=1&phase=reconcile[&section=theatre]
   if (phase === 'reconcile') {
+    // MUST be batched: a full nested scan is >10k KV reads and trips 1102.
+    // One section per call, cursor-paged, and we only check the ONE most-likely
+    // stale prefix per section (the theatre move came FROM concert or sports),
+    // not all four — that cuts KV reads to ~2 per entity.
     let registry = null;
     try { registry = await kv.get(REGISTRY_KEY, 'json'); } catch {}
     if (!registry?.sections) return json({ error: 'no registry' }, 503);
 
-    const only = url.searchParams.get('section');
-    const sections = only ? [only] : ['concert','football','theatre','sports','venue'];
-    const staleOldRecords = [];   // registry says moved, but an OLD-section KV record still exists
-    const missingNewRecords = []; // registry lists it, but the NEW KV record is absent
-    const otherPrefixes = {
+    const sec    = (url.searchParams.get('section') || 'theatre').toLowerCase();
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
+    const limit  = Math.min(parseInt(url.searchParams.get('limit') || '150', 10) || 150, 200);
+    const doFix  = url.searchParams.get('fix') === '1';
+
+    const prefixes = {
       concert: 'concert:artist:', football: 'football:team:',
       theatre: 'theatre:show:', sports: 'sports:team:', venue: 'venue:venue:'
     };
+    // Where entities in `sec` most plausibly have a stale record. The moves this
+    // session were concert->theatre, sports->concert, sports->football,
+    // concert->football. So a theatre entity's stale twin is in concert; a
+    // football entity's is in sports or concert; a concert entity's is in sports.
+    const staleSourcesFor = {
+      theatre:  ['concert'],
+      football: ['concert', 'sports'],
+      concert:  ['sports'],
+      sports:   ['concert'],
+      venue:    []
+    };
 
-    for (const sec of sections) {
-      const slugs = Object.keys(registry.sections[sec] || {});
-      for (const slug of slugs) {
-        const newKey = otherPrefixes[sec] + slug;
-        // (a) is the record present where the registry says it is?
-        let present = false;
-        try { present = !!(await kv.get(newKey)); } catch {}
-        if (!present) missingNewRecords.push({ slug, section: sec, expectedKey: newKey });
-        // (b) does a stale record survive under ANOTHER section's prefix?
-        for (const [otherSec, pfx] of Object.entries(otherPrefixes)) {
-          if (otherSec === sec) continue;
-          try {
-            if (await kv.get(pfx + slug)) {
-              staleOldRecords.push({ slug, nowIn: sec, staleIn: otherSec, staleKey: pfx + slug });
-            }
-          } catch {}
+    const allSlugs = Object.keys(registry.sections[sec] || {}).sort();
+    const slice = allSlugs.slice(offset, offset + limit);
+    const newPfx = prefixes[sec];
+    const sources = staleSourcesFor[sec] || [];
+
+    const staleOldRecords = [];
+    const missingNewRecords = [];
+    let fixed = 0;
+
+    for (const slug of slice) {
+      // (a) new record present?
+      let present = false;
+      try { present = !!(await kv.get(newPfx + slug)); } catch {}
+      if (!present) missingNewRecords.push({ slug, section: sec, expectedKey: newPfx + slug });
+      // (b) stale record in a plausible source section?
+      for (const src of sources) {
+        const staleKey = prefixes[src] + slug;
+        let stale = false;
+        try { stale = !!(await kv.get(staleKey)); } catch {}
+        if (stale) {
+          staleOldRecords.push({ slug, nowIn: sec, staleIn: src, staleKey });
+          if (doFix) { try { await kv.delete(staleKey); fixed++; } catch {} }
         }
       }
     }
 
+    const nextOffset = offset + limit;
+    const done = nextOffset >= allSlugs.length;
     return json({
-      phase: 'reconcile', readOnly: true, sections,
+      phase: 'reconcile', readOnly: !doFix, section: sec,
+      batch: { offset, size: slice.length, total: allSlugs.length },
       staleOldRecordCount: staleOldRecords.length,
       missingNewRecordCount: missingNewRecords.length,
+      fixedStaleRecords: fixed,
       staleOldRecords: staleOldRecords.slice(0, 100),
       missingNewRecords: missingNewRecords.slice(0, 100),
-      guidance: 'staleOldRecords: old URL still serves — needs the old-section KV key deleted. ' +
-                'missingNewRecords: new URL 404s — needs the page/record recreated. ' +
-                'Add &fix=1 to delete stale old-section KV records (safe: registry already points elsewhere).'
+      done,
+      next: done ? null : `?trigger=1&phase=reconcile&section=${sec}&offset=${nextOffset}&limit=${limit}${doFix ? '&fix=1' : ''}`,
+      guidance: 'staleOldRecords: old URL still serves — &fix=1 deletes the stale key (safe; registry points elsewhere). ' +
+                'missingNewRecords: new URL 404s — needs the page/record recreated (separate step).'
     }, 200);
   }
 
