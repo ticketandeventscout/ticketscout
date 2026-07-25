@@ -927,8 +927,30 @@ export async function onRequestGet({ request, env }) {
     }
     if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
 
-    // One atomic commit: write the new path, delete the old one.
+    const github = new GitHubAPI(githubToken, owner, repo, branch);
+
+    // Fetch the current tree ONCE and build a set of existing paths. The move
+    // deletes the old path, but a delete (sha:null) for a path NOT in the tree
+    // makes GitHub throw GitRPC::BadObjectState and reject the WHOLE commit.
+    // The 228 theatre entities included ex-hardcoded-array shows that never had
+    // a committed concert/*.html file — their phantom delete-paths 422'd the
+    // entire batch (confirmed 25 Jul). So: only emit a delete for a path that
+    // actually exists.
+    let existingPaths = new Set();
+    try {
+      const ref  = await github.request('GET', `/repos/${owner}/${repo}/git/ref/heads/${branch}`);
+      const head = await github.request('GET', `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`);
+      const full = await github.request('GET', `/repos/${owner}/${repo}/git/trees/${head.tree.sha}?recursive=1`);
+      for (const node of (full.tree || [])) {
+        if (node.type === 'blob') existingPaths.add(node.path);
+      }
+    } catch (err) {
+      return json({ error: 'Could not read repo tree to validate move', detail: String(err) }, 500);
+    }
+
+    // One atomic commit: write the new path, delete the old one (if it exists).
     const files = [];
+    let skippedPhantomDeletes = 0;
     for (const m of misfiled) {
       const gen = categoryToHtmlGenerator(m.to);
       const target = m.toSlug || m.slug;
@@ -938,14 +960,16 @@ export async function onRequestGet({ request, env }) {
         if (meta) enrich = JSON.parse(meta);
       } catch {}
       files.push({ path: `${m.to}/${target}.html`, content: gen(target, enrich || { name: m.name }) });
-      // Only delete the old path if it actually differs — a same-path write
-      // followed by a delete of that same path would remove the new file.
+      const oldPath = `${m.from}/${m.slug}.html`;
+      // Delete only if the path differs AND actually exists in the repo tree.
       if (`${m.from}/${m.slug}` !== `${m.to}/${target}`) {
-        files.push({ path: `${m.from}/${m.slug}.html`, content: null });
+        if (existingPaths.has(oldPath)) {
+          files.push({ path: oldPath, content: null });
+        } else {
+          skippedPhantomDeletes++;
+        }
       }
     }
-
-    const github = new GitHubAPI(githubToken, owner, repo, branch);
     let commitSha = null;
     try {
       commitSha = await github.commitFilesBatch(files,
@@ -999,6 +1023,8 @@ export async function onRequestGet({ request, env }) {
     return json({
       message: 'Mis-categorised entities moved.',
       commitSha, movedCount: misfiled.length,
+      skippedPhantomDeletes,
+      filesInCommit: files.length,
       filesChanged: files.length,
       sample: moved.slice(0, 20),
       next: misfiled.length >= limit
