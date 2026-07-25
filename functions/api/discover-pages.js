@@ -599,6 +599,8 @@ export async function onRequestGet({ request, env }) {
     const missingNewRecords = [];
     let fixed = 0;
 
+    const doRepair = url.searchParams.get('repair') === '1';
+    let skippedFixWouldOrphan = 0, repaired = 0;
     for (const slug of slice) {
       // (a) new record present?
       let present = false;
@@ -607,11 +609,30 @@ export async function onRequestGet({ request, env }) {
       // (b) stale record in a plausible source section?
       for (const src of sources) {
         const staleKey = prefixes[src] + slug;
-        let stale = false;
-        try { stale = !!(await kv.get(staleKey)); } catch {}
-        if (stale) {
+        let staleRaw = null;
+        try { staleRaw = await kv.get(staleKey); } catch {}
+        if (staleRaw) {
           staleOldRecords.push({ slug, nowIn: sec, staleIn: src, staleKey });
-          if (doFix) { try { await kv.delete(staleKey); fixed++; } catch {} }
+
+          if (!present && doRepair) {
+            // SPLIT-STATE REPAIR: new record missing but old survives. Copy the
+            // old record to the new key (fixing the 404), stamp the new section,
+            // then delete the old (fixing the duplicate). This is the cats case.
+            try {
+              const rec = JSON.parse(staleRaw);
+              rec.category = sec;
+              rec.slug = slug;
+              await kv.put(newPfx + slug, JSON.stringify(rec));
+              await kv.delete(staleKey);
+              repaired++;
+              present = true; // now present, so the fix branch below is satisfied
+            } catch {}
+          } else if (doFix && present) {
+            // Clean delete: new record exists, old is a leftover duplicate.
+            try { await kv.delete(staleKey); fixed++; } catch {}
+          } else if (doFix && !present) {
+            skippedFixWouldOrphan++;
+          }
         }
       }
     }
@@ -619,11 +640,13 @@ export async function onRequestGet({ request, env }) {
     const nextOffset = offset + limit;
     const done = nextOffset >= allSlugs.length;
     return json({
-      phase: 'reconcile', readOnly: !doFix, section: sec,
+      phase: 'reconcile', readOnly: !doFix && !doRepair, section: sec,
       batch: { offset, size: slice.length, total: allSlugs.length },
       staleOldRecordCount: staleOldRecords.length,
       missingNewRecordCount: missingNewRecords.length,
       fixedStaleRecords: fixed,
+      repairedSplitState: repaired,
+      skippedFixWouldOrphan,
       staleOldRecords: staleOldRecords.slice(0, 100),
       missingNewRecords: missingNewRecords.slice(0, 100),
       done,
