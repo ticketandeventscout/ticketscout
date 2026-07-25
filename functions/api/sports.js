@@ -18,13 +18,31 @@
 
 const KV_PREFIX = 'sports:team:';
 
-// Genres this section is allowed to serve. MUST MATCH the sports genres in
-// discover-pages.js SE365_QUEUEABLE_GENRES — if a genre isn't here, its pages
-// shouldn't have been created and we don't want to serve them.
-const SPORTS_GENRES = new Set([
-  'Basketball', 'MMA', 'Ice Hockey', 'Rugby', 'Handball', 'American Football',
-  'Baseball', 'Boxing', 'Tennis', 'Cricket', 'Motorsport', 'Golf', 'Wrestling'
-]);
+// Canonical genre map. CASE-INSENSITIVE: keys are lowercase, values are the
+// display label shown on the hub chips.
+//
+// WHY THIS EXISTS: the ?phase=genreaudit repair in discover-pages.js writes
+// LOWERCASE genres ('tennis', 'motorsport', 'winter sports') to match
+// genreToCategory()'s lowercase convention. The hub previously compared against
+// a capitalised Set ('Tennis'), so every re-genred entity failed the check and
+// fell through to 'Other' — the counts looked unchanged even though the write
+// succeeded (26 Jul). Comparing lowercase-to-lowercase fixes it, and the map
+// also carries the newer sports (darts/snooker/horse racing/winter sports/
+// esports) the old Set never had.
+const GENRE_LABELS = {
+  'basketball': 'Basketball', 'mma': 'MMA', 'ice hockey': 'Ice Hockey',
+  'rugby': 'Rugby', 'handball': 'Handball', 'american football': 'American Football',
+  'baseball': 'Baseball', 'boxing': 'Boxing', 'tennis': 'Tennis',
+  'cricket': 'Cricket', 'motorsport': 'Motorsport', 'golf': 'Golf',
+  'wrestling': 'Wrestling', 'darts': 'Darts', 'snooker': 'Snooker',
+  'horse racing': 'Horse Racing', 'winter sports': 'Winter Sports',
+  'esports': 'Esports', 'volleyball': 'Volleyball', 'football': 'Football'
+};
+// Returns the display label for any-case genre, or null if unrecognised.
+function canonicalGenre(g) {
+  if (!g) return null;
+  return GENRE_LABELS[String(g).toLowerCase().trim()] || null;
+}
 
 export async function onRequestGet({ request, env }) {
   const url  = new URL(request.url);
@@ -77,7 +95,7 @@ export async function onRequestGet({ request, env }) {
       name:        entity.name || toTitleCase(slug.replace(/-/g, ' ')),
       search:      entity.search || entity.name || slug.replace(/-/g, ' '),
       tmSearch:    entity.tmSearch || entity.search || entity.name || '',
-      genre:       SPORTS_GENRES.has(entity.genre) ? entity.genre : 'Sport',
+      genre:       canonicalGenre(entity.genre) || 'Sport',
       description: entity.description || '',
       facts,
       found:       true
@@ -156,7 +174,8 @@ async function listEntities(env, url) {
       if (raw) {
         const rec = JSON.parse(raw);
         if (rec.name) name = rec.name;
-        if (SPORTS_GENRES.has(rec.genre)) genre = rec.genre;
+        const label = canonicalGenre(rec.genre);
+        if (label) genre = label;
       }
     } catch { /* keep the de-slugged fallback */ }
     entities.push({ slug: s, name, genre, url: '/sports/' + s });
