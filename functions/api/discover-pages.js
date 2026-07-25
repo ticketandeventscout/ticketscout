@@ -847,8 +847,15 @@ export async function onRequestGet({ request, env }) {
         //
         // Vetoed entities are reported with reason 'musician-veto' and left
         // exactly where they are — their GENRE is wrong, not their section.
+        // VETO SCOPE (fixed 25 Jul): the veto exists to stop real MUSICIANS being
+        // dragged concert->SPORTS by the SE365 1023 genre corruption. It must NOT
+        // block concert->THEATRE moves: a jukebox musical or tribute show ('A
+        // Beautiful Noise' = Neil Diamond, 'Beautiful' = Carole King) matches a
+        // MusicBrainz artist, but the SHOW is theatre. For theatre we have
+        // STRONGER evidence than MusicBrainz — TM returned segment 'Arts &
+        // Theatre' explicitly. So the veto only guards the sports direction.
         let musicianVeto = false;
-        if (catWrong && fromCat === 'concert') {
+        if (catWrong && fromCat === 'concert' && shouldBeCat === 'sports') {
           try {
             const metaRaw = await kv.get(`entity:meta:concert:${slug}`);
             if (metaRaw) {
