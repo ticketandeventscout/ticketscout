@@ -377,7 +377,18 @@ function extractPerformerName(fullName) {
   if (!fullName) return '';
   // Strip subtitle after colon (e.g. "Metallica: Life Burns Faster" -> "Metallica")
   const colonIdx = fullName.indexOf(':');
-  if (colonIdx > 0) return fullName.slice(0, colonIdx).trim();
+  if (colonIdx > 0) {
+    // A fixture can sit AFTER a series/venue prefix, e.g.
+    // "NFL London 2026: Houston Texans v Jacksonville Jaguars" — there the
+    // fixture IS the event, so parse the home team from the part after the
+    // colon rather than searching sellers for the prefix "NFL London 2026".
+    // Only triggers when the after-part is itself a vs/v fixture, so
+    // "Metallica: Life Burns Faster" is unaffected.
+    const after   = fullName.slice(colonIdx + 1).trim();
+    const afterVs = after.match(/^(.+?)\s+vs?\.?\s+.+$/i);
+    if (afterVs) return afterVs[1].trim();
+    return fullName.slice(0, colonIdx).trim();
+  }
   // Strip " vs " / " vs. " / " v " — football match names (keep home team only)
   // e.g. "FC Bayern Munich vs. RB Leipzig" -> "FC Bayern Munich"
   // e.g. "Real Madrid CF vs Real Sociedad" -> "Real Madrid CF"
@@ -550,6 +561,22 @@ async function comparePrices(eventName, venueCity, eventDate, venueName, categor
       }
       const result = await adapter.normalise(data, performerName);
       // result is null if adapter found no match
+
+      // Central geo/date corroboration — drop a match that positively
+      // contradicts the event being compared (wrong city / grossly wrong
+      // date). Applies to every adapter; fail-open on missing data. Skips
+      // fallback links (no price claim) and array results (already best-per-
+      // merchant from one feed with their own dedup).
+      let geoReason = null;
+      if (result && !Array.isArray(result) && !result.isFallback && data && data.match) {
+        geoReason = matchContradiction(data.match, venueCity, eventDate);
+      }
+      if (geoReason) {
+        signalBeacon('geoveto&s=' + encodeURIComponent(adapter.source));
+        if (dbg) { dbg.outcome = 'rejected-geo'; dbg.note = geoReason; }
+        return null;
+      }
+
       if (dbg) {
         if (result == null) {
           dbg.outcome = 'no-match';
@@ -935,6 +962,43 @@ function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
 }
 
+// ── Geo/date corroboration gate (all adapters) ─────────────────────────────
+// Some adapters (VividSeats, TicketNetwork) treat city only as a ranking
+// BOOST, not a hard filter — so when the correct event is absent from their
+// feed, a same-substring event in a different city can win with a misleading
+// price (e.g. query "Birmingham City" → "Birmingham Legion FC at Louisville
+// City FC", £6, Louisville). This gate runs once, centrally, on the raw match
+// every adapter returns, and DROPS a match that positively contradicts the
+// event the user is comparing. FAIL-OPEN: any missing field passes, so an
+// adapter that returns no city/date is never penalised and legitimate matches
+// are never dropped for lack of data. Converts a wrong price into a safe
+// "Check site", never the reverse.
+function normCity(str) {
+  return (str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function isoDayDiff(a, b) {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(a || '') || !/^\d{4}-\d{2}-\d{2}/.test(b || '')) return null;
+  const ta = new Date(a.slice(0, 10)).getTime(), tb = new Date(b.slice(0, 10)).getTime();
+  if (isNaN(ta) || isNaN(tb)) return null;
+  return Math.abs(ta - tb) / 86400000;
+}
+// Returns null if the match corroborates (or there isn't enough data to judge),
+// otherwise a short human reason string explaining the contradiction.
+function matchContradiction(rawMatch, queryCity, queryDate) {
+  if (!rawMatch || rawMatch.isFallback) return null;   // fallbacks carry no claim
+  const mCity = normCity(rawMatch.city), qCity = normCity(queryCity);
+  if (mCity && qCity && !mCity.includes(qCity) && !qCity.includes(mCity)) {
+    return 'city "' + rawMatch.city + '" \u2260 "' + queryCity + '"';
+  }
+  // Gross date gate only — a near-date (\u00b1 a few days) can be a legitimate
+  // adjacent fixture, but >10 days apart is a different occurrence entirely.
+  const d = isoDayDiff(rawMatch.date, queryDate);
+  if (d != null && d > 10) {
+    return 'date ' + String(rawMatch.date).slice(0, 10) + ' \u2260 ' + queryDate + ' (' + Math.round(d) + 'd)';
+  }
+  return null;
+}
 
 // ===========================
 // Phase 1.4B — client copy of the event slug builder
