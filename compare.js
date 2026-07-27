@@ -473,6 +473,26 @@ async function comparePrices(eventName, venueCity, eventDate, venueName, categor
   // Use performer name (stripped of subtitles) for adapter searches
   const performerName = extractPerformerName(eventName);
 
+  // ── Diagnostic instrument (read-only, opt-in) ────────────────────────────
+  // Enabled by ?cmpdebug=1 in the query string OR the hash fragment (the
+  // hash route carries params after the event id). When on, every adapter's
+  // sent query and returned match are captured into window.__CMP_DEBUG__ and
+  // rendered as a panel, so cross-affiliate mismatches are visible in one
+  // place without touching any matching logic. No effect on normal renders.
+  const CMP_DEBUG = /[?&]cmpdebug=1/.test(location.search + location.hash);
+  const dbgRecords = [];
+  if (CMP_DEBUG) {
+    window.__CMP_DEBUG__ = {
+      rawEventName: eventName,
+      performerNameSent: performerName,
+      venueCity: venueCity || null,
+      eventDate: eventDate || null,
+      venueName: venueName || null,
+      category: category || null,
+      adapters: dbgRecords
+    };
+  }
+
   // Phase 6.3: skip suspended merchants entirely; count adapter attempts
   // (site-wide denominator for the reliability score)
   await loadMerchantStatus();
@@ -482,10 +502,20 @@ async function comparePrices(eventName, venueCity, eventDate, venueName, categor
 
   const settled = await Promise.allSettled(
     activeAdapters.map(async adapter => {
+      // Diagnostic record — pushed synchronously and in adapter order so
+      // dbgRecords[i] lines up with activeAdapters[i] for the rejected sweep.
+      const dbg = CMP_DEBUG
+        ? { source: adapter.source, qSent: performerName, url: null,
+            outcome: 'pending', matchName: null, matchPrice: null,
+            matchDate: null, matchCity: null, isFallback: null, note: null }
+        : null;
+      if (dbg) dbgRecords.push(dbg);
+
       // Pass performerName for search queries, but keep full eventName for normalise matching.
       // category (optional) lets an adapter tailor its URL — e.g. Soldout appends
       // 'fc' for UK football clubs. Undefined for callers that don't supply it.
       const url = adapter.buildUrl(performerName, venueCity, eventDate, venueName, category);
+      if (dbg) dbg.url = url;
 
       // Adapters with a custom fetch() method (e.g. deep-link adapters that
       // don't make network calls) bypass the standard JSON fetch path
@@ -498,17 +528,42 @@ async function comparePrices(eventName, venueCity, eventDate, venueName, categor
         if (!ct.includes('application/json')) {
           console.warn('[compare]', adapter.source, 'returned non-JSON:', response.status, ct);
           signalBeacon('err&s=' + encodeURIComponent(adapter.source));
+          if (dbg) { dbg.outcome = 'non-json'; dbg.note = response.status + ' ' + ct; }
           return null;
         }
         data = await response.json().catch(e => {
           console.warn('[compare]', adapter.source, 'JSON parse error:', e);
           signalBeacon('err&s=' + encodeURIComponent(adapter.source));
+          if (dbg) { dbg.outcome = 'json-error'; dbg.note = String(e); }
           return null;
         });
       }
       if (!data) return null;
+      // Capture the raw match the server/adapter returned BEFORE normalise, so
+      // we can see a server-side fallback even when normalise later drops it.
+      if (dbg && data && data.match) {
+        dbg.matchName  = data.match.name  ?? null;
+        dbg.matchPrice = data.match.price ?? null;
+        dbg.matchDate  = data.match.date  ?? null;
+        dbg.matchCity  = data.match.city  ?? null;
+        dbg.isFallback = data.match.isFallback === true;
+      }
       const result = await adapter.normalise(data, performerName);
       // result is null if adapter found no match
+      if (dbg) {
+        if (result == null) {
+          dbg.outcome = 'no-match';
+        } else if (Array.isArray(result)) {
+          dbg.outcome = 'matched(' + result.length + ')';
+          const r0 = result[0] || {};
+          dbg.matchName  = dbg.matchName  ?? (r0.name  ?? null);
+          dbg.matchPrice = dbg.matchPrice ?? (r0.price ?? null);
+        } else {
+          dbg.outcome    = dbg.isFallback ? 'fallback-link' : 'matched';
+          dbg.matchName  = dbg.matchName  ?? (result.name  ?? null);
+          dbg.matchPrice = dbg.matchPrice ?? (result.price ?? null);
+        }
+      }
       return result;
     })
   );
@@ -518,13 +573,62 @@ async function comparePrices(eventName, venueCity, eventDate, venueName, categor
     if (r.status === 'rejected') {
       console.warn('[compare]', activeAdapters[i].source, 'adapter failed:', r.reason);
       signalBeacon('err&s=' + encodeURIComponent(activeAdapters[i].source));
+      if (CMP_DEBUG && dbgRecords[i]) {
+        dbgRecords[i].outcome = 'threw';
+        dbgRecords[i].note = String(r.reason);
+      }
     }
   });
+
+  if (CMP_DEBUG) renderCmpDebugPanel();
 
   return settled
     .filter(r => r.status === 'fulfilled' && r.value !== null)
     // Adapters may return a single result OR an array (e.g. awin best-per-merchant)
     .flatMap(r => Array.isArray(r.value) ? r.value : [r.value]);
+}
+
+// Render the ?cmpdebug=1 panel. Read-only; shows what every affiliate was
+// sent and what it returned, so a shared mangled query (extractPerformerName)
+// or a per-adapter fallback stands out at a glance. Also logs a console table.
+function renderCmpDebugPanel() {
+  const d = window.__CMP_DEBUG__;
+  if (!d) return;
+  try { console.table(d.adapters); } catch {}
+  document.getElementById('cmp-debug-panel')?.remove();
+  const esc = s => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const rows = d.adapters.map(a => {
+    const flag = (a.outcome === 'fallback-link' || a.outcome === 'no-match'
+      || a.outcome === 'threw' || a.outcome === 'non-json' || a.outcome === 'json-error');
+    return '<tr style="color:' + (flag ? '#b00' : '#060') + '">'
+      + '<td>' + esc(a.source) + '</td>'
+      + '<td><b>' + esc(a.outcome) + '</b></td>'
+      + '<td>' + esc(a.qSent) + '</td>'
+      + '<td>' + esc(a.matchName) + '</td>'
+      + '<td>' + (a.matchPrice == null ? '—' : esc(a.matchPrice)) + '</td>'
+      + '<td>' + esc(a.matchDate) + '</td>'
+      + '<td>' + esc(a.matchCity) + '</td>'
+      + '<td>' + esc(a.note) + '</td></tr>';
+  }).join('');
+  const panel = document.createElement('div');
+  panel.id = 'cmp-debug-panel';
+  panel.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;'
+    + 'max-height:46vh;overflow:auto;background:#fff;border:2px solid #333;'
+    + 'border-radius:8px;padding:10px 12px;font:12px/1.4 monospace;'
+    + 'box-shadow:0 4px 24px rgba(0,0,0,.35)';
+  panel.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+    + '<b>cmpdebug</b> — raw: "' + esc(d.rawEventName) + '" → q sent: "' + esc(d.performerNameSent)
+    + '" · city:' + esc(d.venueCity) + ' · date:' + esc(d.eventDate) + ' · cat:' + esc(d.category)
+    + '<button onclick="this.closest(\'#cmp-debug-panel\').remove()" '
+    + 'style="margin-left:8px;cursor:pointer">×</button></div>'
+    + '<table style="border-collapse:collapse;width:100%">'
+    + '<thead><tr style="text-align:left;border-bottom:1px solid #ccc">'
+    + '<th>source</th><th>outcome</th><th>q sent</th><th>match name</th>'
+    + '<th>price</th><th>date</th><th>city</th><th>note</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table>';
+  document.body.appendChild(panel);
 }
 
 
