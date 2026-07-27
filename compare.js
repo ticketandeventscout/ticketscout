@@ -562,22 +562,28 @@ async function comparePrices(eventName, venueCity, eventDate, venueName, categor
       const result = await adapter.normalise(data, performerName);
       // result is null if adapter found no match
 
-      // Central geo/date corroboration — drop a match that positively
-      // contradicts the event being compared (wrong city / grossly wrong
-      // date). Applies to every adapter; fail-open on missing data. Skips
-      // fallback links (no price claim) and array results (already best-per-
-      // merchant from one feed with their own dedup).
-      let geoReason = null;
-      if (result && !Array.isArray(result) && !result.isFallback && data && data.match) {
-        geoReason = matchContradiction(data.match, venueCity, eventDate);
-      }
-      if (geoReason) {
-        signalBeacon('geoveto&s=' + encodeURIComponent(adapter.source));
-        if (dbg) { dbg.outcome = 'rejected-geo'; dbg.note = geoReason; }
-        return null;
+      // Central match-trust classification — runs on the raw match every
+      // adapter returns. 'drop' hides a wrong-event match; 'fallback' keeps
+      // the seller as a "Check site" link but strips an unconfirmed price;
+      // 'price' shows it. Applies to single-object results only (array
+      // results are already best-per-merchant with their own dedup). Skips
+      // adapter-native fallbacks (they carry no price claim).
+      if (result && !Array.isArray(result) && !result.isFallback && eventName && data && data.match) {
+        const trust = matchTrust(eventName, data.match, venueCity, eventDate);
+        if (trust.tier === 'drop') {
+          signalBeacon('trustdrop&s=' + encodeURIComponent(adapter.source));
+          if (dbg) { dbg.outcome = 'rejected'; dbg.note = trust.reason; }
+          return null;
+        }
+        if (trust.tier === 'fallback') {
+          // Right entity, unconfirmed price → surface as a click-through only.
+          result.price = null;
+          result.isFallback = true;
+          if (dbg) { dbg.outcome = 'demoted-fallback'; dbg.note = trust.reason; dbg.matchPrice = null; }
+        }
       }
 
-      if (dbg) {
+      if (dbg && dbg.outcome === 'pending') {
         if (result == null) {
           dbg.outcome = 'no-match';
         } else if (Array.isArray(result)) {
@@ -744,9 +750,13 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
       }
     });
 
-    // Include VS and other sources even without price — affiliate click still earns commission
+    // Keep every available seller, with or without a price — a price-less row
+    // renders as a "Check site" click-through (still earns commission and is
+    // honest when we can't confirm the exact price). Previously a hardcoded
+    // source allowlist silently dropped price-less rows from other sellers
+    // (e.g. a correct SportsEvents365 match with no price).
     const withPrices = results
-      .filter(r => r.available && (r.price || r.source === 'Vivid Seats' || r.source === 'Ticombo' || r.source === 'TicketNetwork' || r.source === 'Eventim' || r.source === 'Soldout'))
+      .filter(r => r.available)
       .sort((a, b) => {
         // Sort by price ascending (best/lowest first)
         // Items without price go to the bottom
@@ -962,42 +972,106 @@ function normaliseName(str) {
   return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
 }
 
-// ── Geo/date corroboration gate (all adapters) ─────────────────────────────
-// Some adapters (VividSeats, TicketNetwork) treat city only as a ranking
-// BOOST, not a hard filter — so when the correct event is absent from their
-// feed, a same-substring event in a different city can win with a misleading
-// price (e.g. query "Birmingham City" → "Birmingham Legion FC at Louisville
-// City FC", £6, Louisville). This gate runs once, centrally, on the raw match
-// every adapter returns, and DROPS a match that positively contradicts the
-// event the user is comparing. FAIL-OPEN: any missing field passes, so an
-// adapter that returns no city/date is never penalised and legitimate matches
-// are never dropped for lack of data. Converts a wrong price into a safe
-// "Check site", never the reverse.
-function normCity(str) {
-  return (str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ').trim();
+// ── Match trust engine (all adapters) ──────────────────────────────────────
+// Adapters score candidates with a loose substring/every-word name match and
+// treat city only as a ranking BOOST, so two failure modes leak through:
+//   • wrong matches — "Sting" hits "Willmar Stingers"/"...Wine Tasting";
+//     "Lincoln City" hits "Lincoln Stars vs Sioux City Musketeers" (both
+//     tokens scattered across two US teams, same-name city passes the geo
+//     boost). These show a MISLEADING PRICE for a different event.
+//   • no fallback — a correct match with no price is dropped instead of shown
+//     as a "Check site" link.
+// This engine runs once, centrally, on the raw match every adapter returns and
+// classifies it into one of three tiers:
+//   'price'    — name corroborates AND city/date don't contradict → show price
+//   'fallback' — right entity but unconfirmed price (no price, or a different
+//                occurrence: date far off / seller titled by home club only
+//                without city+date backup) → show a "Check site" link, no price
+//   'drop'     — the match names a DIFFERENT event entirely → hide it
+// Matching is PHRASE-based (whole-word bounded), not substring, and a fixture
+// requires BOTH teams (or the home team + corroborating city & date). FAIL-OPEN
+// on missing data: a match is only ever demoted/dropped on positive evidence.
+const PRICE_DATE_WINDOW = 4;               // days; wider ⇒ 'fallback', not a lie
+const NAME_STOPWORDS = new Set(['fc','afc','cf','sc','ac','the','vs','v','at','and','de']);
+
+function normPhrase(str) {
+  return ' ' + (str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim() + ' ';
+}
+// Whole-word-bounded phrase presence: " sting " is NOT in " willmar stingers ".
+function phrasePresent(haystackPadded, needle) {
+  const nRaw = normPhrase(needle);
+  const sig = nRaw.trim().split(' ').filter(t => t && !NAME_STOPWORDS.has(t));
+  if (!sig.length) return false;
+  return haystackPadded.includes(' ' + sig.join(' ') + ' ');
 }
 function isoDayDiff(a, b) {
   if (!/^\d{4}-\d{2}-\d{2}/.test(a || '') || !/^\d{4}-\d{2}-\d{2}/.test(b || '')) return null;
-  const ta = new Date(a.slice(0, 10)).getTime(), tb = new Date(b.slice(0, 10)).getTime();
+  const ta = new Date(String(a).slice(0, 10)).getTime(), tb = new Date(String(b).slice(0, 10)).getTime();
   if (isNaN(ta) || isNaN(tb)) return null;
   return Math.abs(ta - tb) / 86400000;
 }
-// Returns null if the match corroborates (or there isn't enough data to judge),
-// otherwise a short human reason string explaining the contradiction.
-function matchContradiction(rawMatch, queryCity, queryDate) {
-  if (!rawMatch || rawMatch.isFallback) return null;   // fallbacks carry no claim
-  const mCity = normCity(rawMatch.city), qCity = normCity(queryCity);
-  if (mCity && qCity && !mCity.includes(qCity) && !qCity.includes(mCity)) {
-    return 'city "' + rawMatch.city + '" \u2260 "' + queryCity + '"';
+function citiesContradict(a, b) {
+  const x = normPhrase(a).trim(), y = normPhrase(b).trim();
+  if (!x || !y) return false;                          // fail-open on missing
+  return !((' '+x+' ').includes(' '+y+' ') || (' '+y+' ').includes(' '+x+' '));
+}
+function citiesAgree(a, b) {
+  const x = normPhrase(a).trim(), y = normPhrase(b).trim();
+  if (!x || !y) return false;
+  return (' '+x+' ').includes(' '+y+' ') || (' '+y+' ').includes(' '+x+' ');
+}
+// Split a raw event title into home/away phrases if it is a fixture, else null.
+// Handles a series prefix before a colon, e.g.
+// "NFL London 2026: Houston Texans v Jacksonville Jaguars".
+function parseFixtureSides(rawName) {
+  if (!rawName) return null;
+  let s = rawName;
+  const c = s.indexOf(':');
+  if (c > 0 && /\s+vs?\.?\s+/i.test(s.slice(c + 1))) s = s.slice(c + 1);
+  const m = s.match(/^(.+?)\s+vs?\.?\s+(.+)$/i);
+  if (!m) return null;
+  return { home: m[1].trim(), away: m[2].trim() };
+}
+// Performer phrase for non-fixture titles (reuses the same subtitle stripping).
+function performerPhrase(rawName) {
+  return extractPerformerName(rawName);
+}
+// Classify a raw match against the event the user is comparing.
+// Returns { tier:'price'|'fallback'|'drop', reason }.
+function matchTrust(rawEventName, m, queryCity, queryDate) {
+  if (!m || !m.name) return { tier: 'drop', reason: 'no match name' };
+  if (m.isFallback) return { tier: 'fallback', reason: 'adapter fallback' };
+  const hay = normPhrase(m.name);
+  const priced = m.price != null && m.price !== '';
+  const dGap = isoDayDiff(m.date, queryDate);
+  const dateFar = dGap != null && dGap > PRICE_DATE_WINDOW;
+
+  const sides = parseFixtureSides(rawEventName);
+  if (sides) {
+    const homeOK = phrasePresent(hay, sides.home);
+    const awayOK = phrasePresent(hay, sides.away);
+    if (!homeOK && !awayOK) return { tier: 'drop', reason: 'neither team named ("' + m.name + '")' };
+    if (citiesContradict(m.city, queryCity))
+      return { tier: 'drop', reason: 'wrong city ' + m.city + ' \u2260 ' + queryCity + ' ("' + m.name + '")' };
+    const bothTeams = homeOK && awayOK;
+    if (!priced) return { tier: 'fallback', reason: 'no price' };
+    if (dateFar)  return { tier: 'fallback', reason: 'date ' + String(m.date).slice(0,10) + ' \u2260 ' + queryDate };
+    if (bothTeams) return { tier: 'price', reason: 'both teams + ok' };
+    // Only one team named — trust the price only if city AND date corroborate.
+    if (citiesAgree(m.city, queryCity) && dGap != null && dGap <= PRICE_DATE_WINDOW)
+      return { tier: 'price', reason: 'one team + city/date ok' };
+    return { tier: 'fallback', reason: 'only one team named, weak corroboration' };
   }
-  // Gross date gate only — a near-date (\u00b1 a few days) can be a legitimate
-  // adjacent fixture, but >10 days apart is a different occurrence entirely.
-  const d = isoDayDiff(rawMatch.date, queryDate);
-  if (d != null && d > 10) {
-    return 'date ' + String(rawMatch.date).slice(0, 10) + ' \u2260 ' + queryDate + ' (' + Math.round(d) + 'd)';
-  }
-  return null;
+
+  // Non-fixture (concert/show): the performer must be named as whole words.
+  if (!phrasePresent(hay, performerPhrase(rawEventName)))
+    return { tier: 'drop', reason: 'performer not named ("' + m.name + '")' };
+  if (citiesContradict(m.city, queryCity))
+    return { tier: 'drop', reason: 'wrong city ' + m.city + ' \u2260 ' + queryCity + ' ("' + m.name + '")' };
+  if (!priced) return { tier: 'fallback', reason: 'no price' };
+  if (dateFar)  return { tier: 'fallback', reason: 'different date ' + String(m.date).slice(0,10) + ' \u2260 ' + queryDate };
+  return { tier: 'price', reason: 'performer + ok' };
 }
 
 // ===========================
