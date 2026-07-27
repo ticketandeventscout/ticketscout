@@ -36,33 +36,41 @@ const ADAPTERS = [
       return `/api/seatgeek?${params.toString()}`;
     },
 
-    // Parse the raw proxy response into a normalised result
-    // Returns null if no usable price was found
-    normalise(data, eventName) {
+    // Parse the raw proxy response into a normalised result.
+    // SeatGeek's payload is {events:[...]}, not the {match} shape the central
+    // trust gate reads — so we pick the best NAME-matching event (priced
+    // preferred, else cheapest) and attach a _match descriptor. Crucially we
+    // do NOT require a price: SeatGeek often returns an event with empty
+    // event-level stats (no lowest_price) even when it clearly lists the
+    // event (e.g. the NFL International Series game). The central gate turns a
+    // price-less-but-correct event into a "Check site" link instead of
+    // dropping a seller that genuinely has it.
+    normalise(data, eventName, ctx) {
       if (data.error || !data.events?.length) return null;
-
-      // Pick the best-matching event by name similarity then lowest price
-      const normQuery = normaliseName(eventName);
-      const candidates = data.events
-        .filter(e => e.stats?.lowest_price)
-        .sort((a, b) => {
-          const aMatch = normaliseName(a.title).includes(normQuery) ? 0 : 1;
-          const bMatch = normaliseName(b.title).includes(normQuery) ? 0 : 1;
-          if (aMatch !== bMatch) return aMatch - bMatch;
-          return a.stats.lowest_price - b.stats.lowest_price;
-        });
-
-      if (!candidates.length) return null;
-
-      const event = candidates[0];
-      const price = Math.round(event.stats.lowest_price);
-
+      const raw = ctx?.raw || eventName;
+      const scored = data.events.map(e => {
+        const price = e.stats?.lowest_price != null ? Math.round(e.stats.lowest_price) : null;
+        const m = {
+          name: e.title || e.short_title || '',
+          city: e.venue?.city || null,
+          date: (e.datetime_local || '').slice(0, 10) || null,
+          price
+        };
+        const tier = matchTrust(raw, m, ctx?.city, ctx?.date).tier;
+        return { e, m, price, tier };
+      });
+      const rank = { price: 0, fallback: 1, drop: 2 };
+      scored.sort((a, b) =>
+        (rank[a.tier] - rank[b.tier]) || ((a.price ?? Infinity) - (b.price ?? Infinity)));
+      const top = scored[0];
+      if (!top || top.tier === 'drop') return null;   // nothing corroborates
       return {
         source: 'SeatGeek',
-        price,
+        price: top.price,
         currency: 'GBP',
-        url: event.url,
-        available: true
+        url: top.e.url,
+        available: true,
+        _match: top.m
       };
     }
   },
@@ -559,17 +567,24 @@ async function comparePrices(eventName, venueCity, eventDate, venueName, categor
         dbg.matchCity  = data.match.city  ?? null;
         dbg.isFallback = data.match.isFallback === true;
       }
-      const result = await adapter.normalise(data, performerName);
+      const result = await adapter.normalise(data, performerName, { raw: eventName, city: venueCity, date: eventDate });
       // result is null if adapter found no match
 
       // Central match-trust classification — runs on the raw match every
-      // adapter returns. 'drop' hides a wrong-event match; 'fallback' keeps
-      // the seller as a "Check site" link but strips an unconfirmed price;
-      // 'price' shows it. Applies to single-object results only (array
-      // results are already best-per-merchant with their own dedup). Skips
-      // adapter-native fallbacks (they carry no price claim).
-      if (result && !Array.isArray(result) && !result.isFallback && eventName && data && data.match) {
-        const trust = matchTrust(eventName, data.match, venueCity, eventDate);
+      // adapter returns. Adapters whose payload isn't the {match} shape can
+      // instead attach result._match {name,city,date} so they get validated
+      // too (e.g. SeatGeek). 'drop' hides a wrong-event match; 'fallback'
+      // keeps the seller as a "Check site" link but strips an unconfirmed
+      // price; 'price' shows it. Single-object results only (array results are
+      // best-per-merchant with their own dedup). Skips adapter-native fallbacks.
+      const rawMatch = (data && data.match) || (result && result._match) || null;
+      if (dbg && rawMatch) {
+        dbg.matchName  = dbg.matchName  ?? (rawMatch.name  ?? null);
+        dbg.matchDate  = dbg.matchDate  ?? (rawMatch.date  ?? null);
+        dbg.matchCity  = dbg.matchCity  ?? (rawMatch.city  ?? null);
+      }
+      if (result && !Array.isArray(result) && !result.isFallback && eventName && rawMatch) {
+        const trust = matchTrust(eventName, rawMatch, venueCity, eventDate);
         if (trust.tier === 'drop') {
           signalBeacon('trustdrop&s=' + encodeURIComponent(adapter.source));
           if (dbg) { dbg.outcome = 'rejected'; dbg.note = trust.reason; }

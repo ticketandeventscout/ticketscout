@@ -106,7 +106,11 @@ export async function onRequestGet({ request, env }) {
 // ===========================
 
 function normaliseName(str) {
-  return (str || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+  // Punctuation → space (not deleted), then collapse. Deleting hyphens made
+  // "JAY-Z" → "jayz" which never matched the feed's "Jay Z" → "jay z", so
+  // every hyphenated act (Jay-Z, Wham!, AC/DC…) silently missed. Both sides
+  // now normalise to the same spaced form.
+  return (str || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function scoreRow(row, query) {
