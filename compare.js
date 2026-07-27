@@ -444,10 +444,7 @@ const MERCHANT_IDS = {
   'SeatGeek': 'seatgeek', 'Theatre Tickets Direct': 'ttd',
   'Football TicketNet UK': 'ftn', 'Ticombo': 'ticombo',
   'TicketNetwork': 'ticketnetwork', 'Eventim': 'eventim_uk', 'Eventim PL': 'eventim_pl',
-  'Soldout': 'soldout',
-  // Awin advertiser 119227 — surfaces via the Awin category feed. Both spacing
-  // variants mapped until the feed's exact merchant_name is confirmed (?find=).
-  'LiveFootballTickets': 'lft', 'Live Football Tickets': 'lft'
+  'Soldout': 'soldout'
 };
 
 // Route outbound affiliate links through /api/go for attribution, the
@@ -461,7 +458,6 @@ const GO_HOSTS = [
   'ticketmaster.co.uk', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
   'eventim.co.uk', 'eventim.pl', 'theatreticketsdirect.co.uk',
   'ticketnetwork.com', 'vividseats.com', 'skiddle.com', 'seatgeek.com',
-  'livefootballtickets.com',
   'hotels.com', 'trivago.co.uk', 'awin1.com', 'prf.hn',
   'pxf.io', 'sjv.io', 'evyy.net',
   'anrdoezrs.net', 'dpbolvw.net', 'jdoqocy.com', 'kqzyfj.com', 'tkqlhce.com'
