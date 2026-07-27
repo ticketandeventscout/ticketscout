@@ -775,7 +775,14 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
       .sort((a, b) => {
         // Sort by price ascending (best/lowest first)
         // Items without price go to the bottom
-        if (!a.price && !b.price) return 0;
+        if (!a.price && !b.price) {
+          // Among the price-less "Check site" rows, SeatGeek sinks last —
+          // its inventory is mostly US, so a UK visitor sees the more
+          // relevant sellers' fallback links first.
+          const aSG = a.source === 'SeatGeek' ? 1 : 0;
+          const bSG = b.source === 'SeatGeek' ? 1 : 0;
+          return aSG - bSG;
+        }
         if (!a.price) return 1;
         if (!b.price) return -1;
         return a.price - b.price;
