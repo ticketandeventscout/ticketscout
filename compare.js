@@ -37,14 +37,13 @@ const ADAPTERS = [
     },
 
     // Parse the raw proxy response into a normalised result.
-    // SeatGeek's payload is {events:[...]}, not the {match} shape the central
-    // trust gate reads — so we pick the best NAME-matching event (priced
-    // preferred, else cheapest) and attach a _match descriptor. Crucially we
-    // do NOT require a price: SeatGeek often returns an event with empty
-    // event-level stats (no lowest_price) even when it clearly lists the
-    // event (e.g. the NFL International Series game). The central gate turns a
-    // price-less-but-correct event into a "Check site" link instead of
-    // dropping a seller that genuinely has it.
+    // SeatGeek's /2/events never returns a price for us (stats.lowest_price is
+    // empty for every event — US and international alike), and its inventory is
+    // US-centric, so we only surface it as a "Check site" link for events that
+    // are physically IN THE US. We read the country straight off SeatGeek's own
+    // matched venue, so no country needs threading from the caller. A price-less
+    // US event still shows (bottom-sorted) and earns a click-through; a UK/intl
+    // event (e.g. the NFL London game, venue.country "UK") is dropped here.
     normalise(data, eventName, ctx) {
       if (data.error || !data.events?.length) return null;
       const raw = ctx?.raw || eventName;
@@ -64,6 +63,9 @@ const ADAPTERS = [
         (rank[a.tier] - rank[b.tier]) || ((a.price ?? Infinity) - (b.price ?? Infinity)));
       const top = scored[0];
       if (!top || top.tier === 'drop') return null;   // nothing corroborates
+      // US-only: SeatGeek is US-centric and price-less for us — only worth a
+      // click-through when the event itself is in the US.
+      if ((top.e.venue?.country || '').toUpperCase() !== 'US') return null;
       return {
         source: 'SeatGeek',
         price: top.price,
@@ -346,7 +348,12 @@ const ADAPTERS = [
       return `/api/soldout?q=${encodeURIComponent(eventName)}${catParam}`;
     },
 
-    normalise(data, eventName) {
+    normalise(data, eventName, ctx) {
+      // US-only: Soldout is a US ticket site, so only surface its click-through
+      // when the event is in the US. Soldout has no match data of its own, so
+      // it relies on the event country passed from the caller; unknown country
+      // is treated as non-US (suppressed) since TicketScout traffic is UK-first.
+      if ((ctx?.country || '').toUpperCase() !== 'US') return null;
       const match = data?.match;
       if (!match || !match.url) return null;
       return {
@@ -437,7 +444,10 @@ const MERCHANT_IDS = {
   'SeatGeek': 'seatgeek', 'Theatre Tickets Direct': 'ttd',
   'Football TicketNet UK': 'ftn', 'Ticombo': 'ticombo',
   'TicketNetwork': 'ticketnetwork', 'Eventim': 'eventim_uk', 'Eventim PL': 'eventim_pl',
-  'Soldout': 'soldout'
+  'Soldout': 'soldout',
+  // Awin advertiser 119227 — surfaces via the Awin category feed. Both spacing
+  // variants mapped until the feed's exact merchant_name is confirmed (?find=).
+  'LiveFootballTickets': 'lft', 'Live Football Tickets': 'lft'
 };
 
 // Route outbound affiliate links through /api/go for attribution, the
@@ -451,6 +461,7 @@ const GO_HOSTS = [
   'ticketmaster.co.uk', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
   'eventim.co.uk', 'eventim.pl', 'theatreticketsdirect.co.uk',
   'ticketnetwork.com', 'vividseats.com', 'skiddle.com', 'seatgeek.com',
+  'livefootballtickets.com',
   'hotels.com', 'trivago.co.uk', 'awin1.com', 'prf.hn',
   'pxf.io', 'sjv.io', 'evyy.net',
   'anrdoezrs.net', 'dpbolvw.net', 'jdoqocy.com', 'kqzyfj.com', 'tkqlhce.com'
@@ -488,7 +499,7 @@ async function loadMerchantStatus() {
   return MERCHANT_STATUS;
 }
 
-async function comparePrices(eventName, venueCity, eventDate, venueName, category) {
+async function comparePrices(eventName, venueCity, eventDate, venueName, category, country) {
   // Use performer name (stripped of subtitles) for adapter searches
   const performerName = extractPerformerName(eventName);
 
@@ -567,7 +578,7 @@ async function comparePrices(eventName, venueCity, eventDate, venueName, categor
         dbg.matchCity  = data.match.city  ?? null;
         dbg.isFallback = data.match.isFallback === true;
       }
-      const result = await adapter.normalise(data, performerName, { raw: eventName, city: venueCity, date: eventDate });
+      const result = await adapter.normalise(data, performerName, { raw: eventName, city: venueCity, date: eventDate, country: country });
       // result is null if adapter found no match
 
       // Central match-trust classification — runs on the raw match every
@@ -686,7 +697,7 @@ function renderCmpDebugPanel() {
 // (TM data comes from the event detail fetch, not a separate adapter call)
 // ===========================
 
-function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, eventDate, venueName, category) {
+function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, eventDate, venueName, category, country) {
   if (!container) return;
 
   // Render the shell immediately with a loading state — TM row is NOT
@@ -742,7 +753,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
   // ready by the time results arrive (falls back silently if it fails).
   loadFxRates();
 
-  comparePrices(eventName, venueCity, eventDate, venueName, category).then(async results => {
+  comparePrices(eventName, venueCity, eventDate, venueName, category, country).then(async results => {
     const slot = document.getElementById('adapter-prices');
     if (!slot) return;
 

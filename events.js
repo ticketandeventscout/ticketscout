@@ -782,6 +782,7 @@ async function showEventDetail(rawEventId) {
     const venue = event._embedded?.venues?.[0];
     const venueName = venue?.name || '';
     const city = venue?.city?.name || '';
+    const country = venue?.country?.countryCode || '';   // "US","GB"… for US-only sellers
     const address = venue?.address?.line1 || '';
     const date = formatDate(event.dates?.start?.localDate);
     const time = event.dates?.start?.localTime ? event.dates.start.localTime.slice(0, 5) : '';
@@ -812,7 +813,9 @@ async function showEventDetail(rawEventId) {
       tmUrl,
       city || 'London',
       eventDate,
-      venueName
+      venueName,
+      undefined,   // category (unchanged — derived per-adapter)
+      country      // US-only sellers (SeatGeek/Soldout) gate on this
     );
 
     // Hotel card — shown when event has a city and date

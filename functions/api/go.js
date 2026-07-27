@@ -42,7 +42,7 @@ const ALLOWED_HOSTS = [
   'ticketmaster.co.uk', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
   'eventim.co.uk', 'eventim.pl', 'theatreticketsdirect.co.uk',
   'ticketnetwork.com', 'vividseats.com', 'skiddle.com', 'seatgeek.com',
-  'hotels.com', 'trivago.co.uk', 'soldout.com',
+  'hotels.com', 'trivago.co.uk', 'soldout.com', 'livefootballtickets.com',
   // Awin
   'awin1.com',
   // Partnerize
@@ -68,7 +68,11 @@ const SOURCE_TO_MERCHANT = {
   'TicketNetwork':           'ticketnetwork',
   'Eventim':                 'eventim_uk',
   'Eventim PL':              'eventim_pl',
-  'Soldout':                 'soldout'
+  'Soldout':                 'soldout',
+  // Awin advertiser 119227 — both spacing variants until the feed's exact
+  // merchant_name is confirmed via awin-category-cache ?find=.
+  'LiveFootballTickets':     'lft',
+  'Live Football Tickets':   'lft'
 };
 
 export async function onRequestGet(context) {
