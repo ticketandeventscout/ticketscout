@@ -239,6 +239,195 @@ export async function onRequestGet(ctx) {
     }, 200);
   }
 
+  // ── One-time correction: ?fixcategory=1&trigger=1 ────────────────────────
+  // tsTmCategory() used to map EVERY TM 'Sports' segment event to 'football'
+  // (fixed above via genre). Rows written before that fix — rugby, tennis,
+  // motorsport etc. registered by the ?sweep=1 backfill or organic capture —
+  // are stuck under category='football' with a football-*  slug. This walks
+  // exactly that candidate set (source='tm' AND category='football'),
+  // re-checks each against TM's OWN classification (never guesses from
+  // name/venue text), and moves genuinely mis-filed rows to category='sports'
+  // with a freshly built slug. Handles the case where a correctly-tagged
+  // 'sports' row for the same event already exists (e.g. from SE365) — then
+  // it just removes the erroneous football-slug duplicate rather than
+  // creating a second copy. Dry by default; &confirm=yes to write.
+  if (new URL(request.url).searchParams.get('fixcategory') === '1'
+      && new URL(request.url).searchParams.get('trigger') === '1') {
+    const url = new URL(request.url);
+    const limit   = Math.min(parseInt(url.searchParams.get('limit') || '15', 10) || 15, 30);
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    const dryRun  = !confirm;
+    const kv = env.GIGSBERG_KV, db = env.PRICE_DB, apiKey = env.TM_API_KEY;
+    if (!db)     return jsonResponse({ error: 'Missing PRICE_DB' }, 500);
+    if (!apiKey) return jsonResponse({ error: 'Missing TM_API_KEY' }, 500);
+
+    let breakerOpen = false;
+    try { breakerOpen = !!(kv && await kv.get('tm:quota:exhausted')); } catch {}
+    if (breakerOpen) {
+      return jsonResponse({ fixcategory: true, quotaBreakerOpen: true,
+        note: 'TM quota breaker is open — no calls made, cursor not advanced. Retry later.' }, 200);
+    }
+
+    // Keyset (seek) pagination, NOT offset — this WHERE set shrinks as rows
+    // get reclassified/deleted out of it, and a numeric OFFSET would then
+    // silently skip whatever shifted into that position (undercounting the
+    // sweep). Tracking the last slug actually examined is immune to that:
+    // deleted rows simply vanish from every future query, and untouched rows
+    // are never skipped or re-checked.
+    const cursorKey = 'fixcat:lastslug';
+    let lastSlug = '';
+    if (!dryRun) { try { const c = kv ? await kv.get(cursorKey) : null; lastSlug = c || ''; } catch {} }
+
+    let rows = [];
+    try {
+      const { results } = await db.prepare(
+        "SELECT * FROM event_pages WHERE source = 'tm' AND category = 'football' " +
+        "AND event_date >= date('now') AND slug > ?1 ORDER BY slug LIMIT ?2"
+      ).bind(lastSlug, limit).all();
+      rows = results || [];
+    } catch (e) {
+      return jsonResponse({ error: 'candidate read failed: ' + String(e) }, 500);
+    }
+
+    let beforeFootball = null, beforeSports = null;
+    try {
+      const r = await db.prepare(
+        "SELECT " +
+        "  (SELECT COUNT(*) FROM event_pages WHERE category='football' AND event_date >= date('now')) AS f, " +
+        "  (SELECT COUNT(*) FROM event_pages WHERE category='sports'   AND event_date >= date('now')) AS s"
+      ).first();
+      beforeFootball = r?.f ?? null; beforeSports = r?.s ?? null;
+    } catch {}
+
+    const details = [];
+    let checked = 0, confirmedFootball = 0, recategorized = 0, duplicatesRemoved = 0, unverifiable = 0;
+    let quotaBreakerHit = false, stoppedAt = null;
+
+    for (let i = 0; i < rows.length; i++) {
+      if (i > 0) await new Promise(res => setTimeout(res, 250));
+      const row = rows[i];
+      checked++;
+
+      // Re-verify against TM's OWN classification for the SAME event — never
+      // infer from stored name/venue text. Bound tightly to the exact stored
+      // date to avoid picking up an unrelated same-name fixture.
+      const dateStart = row.event_date + 'T00:00:00Z';
+      const dateEnd   = row.event_date + 'T23:59:59Z';
+      const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
+      tmUrl.searchParams.set('apikey', apiKey);
+      tmUrl.searchParams.set('keyword', row.name);
+      tmUrl.searchParams.set('startDateTime', dateStart);
+      tmUrl.searchParams.set('endDateTime', dateEnd);
+      tmUrl.searchParams.set('size', '5');
+      tmUrl.searchParams.set('sort', 'relevance,desc');
+
+      let trueCategory = null, genre = null;
+      try {
+        const r = await fetch(tmUrl.toString());
+        if (r.status === 429) {
+          quotaBreakerHit = true; stoppedAt = i;
+          try { if (kv) await kv.put('tm:quota:exhausted', new Date().toISOString(), { expirationTtl: 600 }); } catch {}
+          break;
+        }
+        if (!r.ok) { details.push({ slug: row.slug, error: 'HTTP ' + r.status }); unverifiable++; continue; }
+        const data = await r.json();
+        const ev = data?._embedded?.events?.[0];
+        if (!ev) { details.push({ slug: row.slug, name: row.name, note: 'no TM match for this name+date — left unchanged' }); unverifiable++; continue; }
+        genre = ev?.classifications?.[0]?.genre?.name || null;
+        trueCategory = tsTmCategory(ev);
+      } catch (e) {
+        details.push({ slug: row.slug, error: String(e) }); unverifiable++; continue;
+      }
+
+      if (trueCategory === 'football' || !trueCategory) {
+        confirmedFootball++;
+        continue; // genuinely football (or TM gave nothing classifiable) — leave as-is
+      }
+
+      // Mis-filed — trueCategory is 'sports' (the only other value tsTmCategory
+      // can produce for a Sports-segment event after the genre fix).
+      const newSlug = tsEventSlug(trueCategory, row.event_date, row.name);
+      if (!newSlug) { details.push({ slug: row.slug, note: 'could not build corrected slug — left unchanged' }); unverifiable++; continue; }
+
+      if (dryRun) {
+        recategorized++;
+        details.push({ oldSlug: row.slug, newSlug, name: row.name, genre, action: 'would-recategorize' });
+        continue;
+      }
+
+      try {
+        const dup = await db.prepare('SELECT slug FROM event_pages WHERE slug = ?1').bind(newSlug).first();
+        if (dup) {
+          // A correctly-tagged row for this event already exists (e.g. from
+          // SE365) — just remove the erroneous football-slug duplicate.
+          await db.batch([ db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(row.slug) ]);
+          duplicatesRemoved++;
+          details.push({ oldSlug: row.slug, newSlug, name: row.name, genre, action: 'duplicate-removed' });
+        } else {
+          const hasCreatedAt = Object.prototype.hasOwnProperty.call(row, 'created_at');
+          const insertSql = hasCreatedAt
+            ? 'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)'
+            : 'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)';
+          const binds = [newSlug, trueCategory, row.name, row.event_date, row.venue, row.city,
+                         row.price, row.currency, row.tm_url, row.image, row.source, row.updated_at];
+          if (hasCreatedAt) binds.push(row.created_at ?? row.updated_at);
+          await db.batch([
+            db.prepare(insertSql).bind(...binds),
+            db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(row.slug)
+          ]);
+          recategorized++;
+          details.push({ oldSlug: row.slug, newSlug, name: row.name, genre, action: 'recategorized' });
+        }
+      } catch (e) {
+        details.push({ slug: row.slug, error: 'correction write failed: ' + String(e) });
+      }
+    }
+
+    const processed = quotaBreakerHit ? stoppedAt : rows.length;
+    // The cursor advances to the slug of the LAST row actually examined —
+    // if a 429 stopped us at index `stoppedAt`, that's rows[stoppedAt-1]
+    // (the row AT stoppedAt itself was never checked, so it must be retried,
+    // not skipped). If stoppedAt is 0, nothing this run succeeded — leave
+    // the cursor exactly where it was.
+    const lastExaminedSlug = processed > 0 ? rows[processed - 1]?.slug : null;
+    const nextCursor = lastExaminedSlug || lastSlug;
+    const done = rows.length < limit && !quotaBreakerHit; // fewer rows than asked for = reached the end
+    if (!dryRun && kv) {
+      try {
+        if (done) await kv.delete(cursorKey);
+        else await kv.put(cursorKey, nextCursor);
+      } catch {}
+    }
+
+    let afterFootball = null, afterSports = null;
+    if (!dryRun) {
+      try {
+        const r = await db.prepare(
+          "SELECT " +
+          "  (SELECT COUNT(*) FROM event_pages WHERE category='football' AND event_date >= date('now')) AS f, " +
+          "  (SELECT COUNT(*) FROM event_pages WHERE category='sports'   AND event_date >= date('now')) AS s"
+        ).first();
+        afterFootball = r?.f ?? null; afterSports = r?.s ?? null;
+      } catch {}
+    }
+
+    return jsonResponse({
+      fixcategory: true, dryRun, limit,
+      resumeFrom: lastSlug || null,
+      checked, confirmedFootball, recategorized, duplicatesRemoved, unverifiable,
+      footballCountBefore: beforeFootball, footballCountAfter: afterFootball,
+      sportsCountBefore: beforeSports, sportsCountAfter: afterSports,
+      quotaBreakerHit, done, nextCursor: done ? null : nextCursor,
+      // Note: this URL doesn't need an explicit cursor param — the endpoint
+      // reads fixcat:lastslug from KV itself. Re-hitting the same URL
+      // resumes correctly as long as &confirm=yes is present (dry runs never
+      // read or advance the cursor, so a bare dry-run retry always restarts
+      // from the beginning — that's intentional, dry runs are for preview).
+      next: done ? null : `?fixcategory=1&trigger=1&limit=${limit}${confirm ? '&confirm=yes' : ''}`,
+      details: details.slice(0, 60)
+    }, 200);
+  }
+
   // ── Edge cache: identical queries answered from the Cloudflare colo ──
   // for 10 minutes instead of hitting TM's API (5k calls/day quota).
   // One viral event page = at most ~6 TM calls/colo/hour instead of
