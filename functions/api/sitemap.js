@@ -52,6 +52,44 @@ export async function onRequestGet({ request, env }) {
   const kv  = env.GIGSBERG_KV;
   if (!kv) return xml('<error>Missing GIGSBERG_KV</error>', 500);
 
+  // ── Registration-coverage diagnostic (read-only) ────────────────────────
+  // Sizes the gap between events we LINK to (one per registry entity's
+  // upcoming shows) and events actually REGISTERED in event_pages — an
+  // unregistered /event/{slug} self-renders with noindex, so this ratio is the
+  // real ceiling on how many event pages Google can index. Pure reads.
+  if (url.searchParams.get('coverage') === '1') {
+    const db = env.PRICE_DB;
+    const out = { generatedAt: new Date().toISOString(), registeredEvents: {}, registryEntities: {}, freshness: {}, notes: [] };
+    if (!db) { out.error = 'Missing PRICE_DB'; return json(out, 503); }
+    try {
+      const total = await db.prepare("SELECT COUNT(*) AS n FROM event_pages WHERE event_date >= date('now')").first();
+      out.registeredEvents.upcomingTotal = total?.n ?? 0;
+      const byCat = await db.prepare("SELECT category, COUNT(*) AS n FROM event_pages WHERE event_date >= date('now') GROUP BY category").all();
+      for (const r of (byCat.results || [])) out.registeredEvents[r.category || 'null'] = r.n;
+      // Freshness — is registration actively happening, or stale?
+      const fresh = await db.prepare(
+        "SELECT " +
+        "  (SELECT COUNT(*) FROM event_pages WHERE updated_at >= date('now','-1 day'))  AS last1d, " +
+        "  (SELECT COUNT(*) FROM event_pages WHERE updated_at >= date('now','-7 day'))  AS last7d, " +
+        "  (SELECT MAX(updated_at) FROM event_pages) AS newest"
+      ).first();
+      out.freshness = { registeredLast24h: fresh?.last1d ?? 0, registeredLast7d: fresh?.last7d ?? 0, newestWrite: fresh?.newest ?? null };
+    } catch (e) {
+      out.error = 'event_pages read failed: ' + String(e);
+      return json(out, 500);
+    }
+    // Registry entity counts per section.
+    try {
+      const r = await kv.get('sitemap:registry');
+      const reg = r ? JSON.parse(r) : null;
+      if (reg?.sections) for (const s of Object.keys(reg.sections)) out.registryEntities[s] = Object.keys(reg.sections[s] || {}).length;
+    } catch (e) { out.notes.push('registry read failed: ' + String(e)); }
+    // Rough coverage read. NB: TM "Sports" registers under category 'football'
+    // in event_pages, so the football/sports split won't line up 1:1.
+    out.notes.push('registeredEvents are upcoming rows in event_pages; registryEntities are linkable hubs. A low events:entity ratio, or registeredLast7d≈0, indicates the capture hook is not keeping up and a backfill sweep is needed.');
+    return json(out, 200);
+  }
+
   // ── Sitemap index (also mirrored by the static /sitemap.xml file) ──────
   if (sec === 'index') {
     const entries = SECTIONS.map(s =>
@@ -153,6 +191,13 @@ export async function onRequestGet({ request, env }) {
 function urlset(entries) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</urlset>`;
+}
+
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj, null, 2), {
+    status,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
+  });
 }
 
 function xml(body, status = 200) {
