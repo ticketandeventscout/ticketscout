@@ -32,7 +32,12 @@
 
 const HOST = 'https://ticketscout.co.uk';
 
-const SLUG_RE = /^(football|concert|theatre)-(\d{4}-\d{2}-\d{2})-([a-z0-9][a-z0-9-]*)$/;
+// 'sports' was missing here even though CATEGORY_META already defines a full
+// entry for it — any correctly-registered sports-category event (SE365
+// writes these when its caller passes cat='sports', e.g. rugby/tennis/
+// motorsport pages) hit this regex FIRST and 404'd before the DB was ever
+// queried, regardless of whether the row existed and was correct.
+const SLUG_RE = /^(football|concert|theatre|sports)-(\d{4}-\d{2}-\d{2})-([a-z0-9][a-z0-9-]*)$/;
 
 const CATEGORY_META = {
   football: { label: 'Football',  hub: '/football/', schemaType: 'SportsEvent',  noun: 'match'  },

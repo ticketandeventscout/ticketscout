@@ -176,11 +176,32 @@ export async function onRequestGet(ctx) {
         details.push({ slug, error: String(e) });
         continue;
       }
-      eventsFoundTotal += recs.length;
+
+      // Keyword search on an entity name is loose — an ambiguous name can
+      // return a completely unrelated TM event that happens to share a word
+      // (e.g. "london lions" keyword matching "Disney's The Lion King";
+      // "london irish" matching an unrelated Irish music act). TM's own
+      // classification for each hit is trustworthy; the ENTITY-to-CATEGORY
+      // relevance is not. So only keep hits whose classified category
+      // belongs to the same family as the section being swept — a stray
+      // concert/theatre match on a sports/football entity is discarded
+      // rather than seeding an unrelated page under the wrong section.
+      const FAMILY = { football: ['football', 'sports'], sports: ['football', 'sports'],
+                       concert: ['concert'], theatre: ['theatre'] };
+      const allowed = FAMILY[category] || [category];
+      const byCategory = {};
+      for (const rec of recs) byCategory[rec.category] = (byCategory[rec.category] || 0) + 1;
+      const kept = recs.filter(rec => allowed.includes(rec.category));
+      const discarded = recs.length - kept.length;
+
+      eventsFoundTotal += kept.length;
       if (recs.length) {
-        details.push({ slug, keyword, eventsFound: recs.length, sample: recs[0]?.name });
-        if (!dryRun) {
-          try { await tsRegisterEvents(env, recs); eventsRegisteredTotal += recs.length; }
+        details.push({
+          slug, keyword, eventsFound: recs.length, kept: kept.length, discardedOffTopic: discarded,
+          byCategory, sample: kept[0]?.name || recs[0]?.name
+        });
+        if (!dryRun && kept.length) {
+          try { await tsRegisterEvents(env, kept); eventsRegisteredTotal += kept.length; }
           catch (e) { details.push({ slug, error: 'register failed: ' + String(e) }); }
         }
       }
@@ -405,9 +426,22 @@ function tsEventSlug(category, date, name) {
 }
 
 // TM segment → TicketScout category. Unknown segments are skipped.
+//
+// IMPORTANT FIX: this previously mapped EVERY 'Sports' segment event to
+// 'football' — meaning rugby, tennis, motorsport, cricket, etc. were all
+// silently filed as football. That's why a sports-registry backfill sweep
+// showed d1RowCountDelta=0 for category='sports': matches were being written
+// successfully, just under 'football' instead. Genre-level TM classification
+// distinguishes real football/soccer from other sports; 'Soccer' is TM's
+// standard genre label for association football globally.
+// CAVEAT: this hasn't been confirmed against a live non-football TM payload
+// from this account — if a real rugby/tennis event still comes back
+// category='football', check event.classifications[0].genre.name in that
+// response and adjust the check below to match what TM actually sends.
 function tsTmCategory(event) {
-  const seg = event?.classifications?.[0]?.segment?.name || '';
-  if (seg === 'Sports') return 'football';
+  const seg   = event?.classifications?.[0]?.segment?.name || '';
+  const genre = event?.classifications?.[0]?.genre?.name || '';
+  if (seg === 'Sports') return (genre === 'Soccer') ? 'football' : 'sports';
   if (seg === 'Music') return 'concert';
   if (seg === 'Arts & Theatre') return 'theatre';
   return null;
