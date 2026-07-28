@@ -305,6 +305,27 @@
       if (e.key === 'Enter') handleSearch();
     });
 
+    // FROZEN mirror of tsEventSlug() (functions/api/ticketmaster.js +
+    // compare.js) so venue event links point at the crawlable SSR
+    // /event/{slug} page. The v1 slug format is frozen — keep in sync.
+    function tsEventSlug(category, date, name) {
+      if (!category || !date || !name) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      var norm = String(name).toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80).replace(/-+$/g, '');
+      return norm ? category + '-' + date + '-' + norm : null;
+    }
+    function tmSegmentCategory(segment) {
+      if (segment === 'Sports')         return 'football';
+      if (segment === 'Music')          return 'concert';
+      if (segment === 'Arts & Theatre') return 'theatre';
+      return '';
+    }
+
     function formatDate(dateStr) {
       if (!dateStr) return 'Date TBC';
       return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -613,7 +634,11 @@
                       ? e.dates.start.localTime.slice(0, 5) : '';
       var minPrice  = e.priceRanges && e.priceRanges[0] ? e.priceRanges[0].min : null;
       var priceHtml = minPrice ? '<div class="event-list-price">From \u00a3' + Math.round(minPrice) + '</div>' : '';
-      return '<a class="event-list-item" href="/#/event/' + e.id + '">' +
+      var _cat  = tmSegmentCategory(e.classifications && e.classifications[0] && e.classifications[0].segment ? e.classifications[0].segment.name : '');
+      var _iso  = e.dates && e.dates.start ? e.dates.start.localDate : '';
+      var _slug = _cat ? tsEventSlug(_cat, _iso, e.name) : '';
+      var _href = _slug ? '/event/' + _slug : '/#/event/' + e.id;
+      return '<a class="event-list-item" href="' + _href + '">' +
         '<div class="event-list-left">' +
           '<div class="event-list-name">' + e.name + '</div>' +
           '<div class="event-list-meta">' + date + (time ? ' \u00b7 ' + time : '') + '</div>' +

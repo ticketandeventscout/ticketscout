@@ -537,6 +537,16 @@ async function showArtistEvents(attractionId, name) {
 // Shared — render a grid of event cards (each links to its own detail page)
 // ===========================
 
+// Ticketmaster segment → SSR slug category. MUST match tsTmCategory() in
+// functions/api/ticketmaster.js so the /event/{slug} link resolves to the
+// same page the server registers in event_pages (and lists in the sitemap).
+function tmSegmentCategory(segment) {
+  if (segment === 'Sports')         return 'football';
+  if (segment === 'Music')          return 'concert';
+  if (segment === 'Arts & Theatre') return 'theatre';
+  return '';
+}
+
 function renderEventCards(grid, events) {
   grid.innerHTML = '';
 
@@ -565,7 +575,15 @@ function renderEventCards(grid, events) {
       card.target = '_blank';
       card.rel = 'noopener noreferrer';
     } else {
-      card.href = `#/event/${event.id}`;
+      // Prefer the crawlable SSR /event/{slug} page (matching the slug the
+      // server registers in event_pages + lists in the sitemap) so search
+      // results are indexable. Fall back to the legacy hash route only when
+      // the category can't be resolved — never risk a wrong-category slug.
+      const cat  = tmSegmentCategory(event.classifications?.[0]?.segment?.name);
+      const iso  = event.dates?.start?.localDate || '';
+      const slug = (cat && typeof tsEventSlug === 'function')
+        ? tsEventSlug(cat, iso, event.name) : '';
+      card.href = slug ? `/event/${slug}` : `#/event/${event.id}`;
     }
 
     const merchantBadge = event._merchant

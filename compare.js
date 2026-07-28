@@ -388,6 +388,23 @@ const GENERIC_PREFIXES = new Set([
   'day 1', 'day 2', 'day 3', 'day 4', 'weekend', 'weekend pass'
 ]);
 
+// Festival/series prefix detection for extractPerformerName. High-precision:
+// a 4-digit year in the prefix, or a strong festival/series keyword. Kept
+// deliberately small — a miss just yields the current behaviour, and a false
+// positive is caught downstream by the trust gate.
+function looksLikeFestivalPrefix(s) {
+  const t = ' ' + (s || '').toLowerCase() + ' ';
+  if (/\b(19|20)\d{2}\b/.test(t)) return true;
+  return /\b(festival|sessions|presents|weekender|fringe|proms|all points east|british summer time|summer series|winter series)\b/.test(t);
+}
+// The suffix after a festival prefix should be an act, not a day/ticket/round
+// label — otherwise keep the festival name (it's the sellable entity).
+function looksLikePerformerSuffix(s) {
+  const t = (s || '').toLowerCase().trim();
+  if (!t) return false;
+  return !/^(day\s*\d|day\s+(one|two|three|four|five)|saturday|sunday|friday|monday|tuesday|wednesday|thursday|weekend|vip|ga\b|general admission|parking|hospitality|camping|final|semi[\s-]?final|quarter[\s-]?final|round\b|group\s|ceremony|heat\b|qualifier|practice|session\b|early entry|add[\s-]?on)/i.test(t);
+}
+
 function extractPerformerName(fullName) {
   if (!fullName) return '';
   // Strip subtitle after colon (e.g. "Metallica: Life Burns Faster" -> "Metallica")
@@ -402,7 +419,17 @@ function extractPerformerName(fullName) {
     const after   = fullName.slice(colonIdx + 1).trim();
     const afterVs = after.match(/^(.+?)\s+vs?\.?\s+.+$/i);
     if (afterVs) return afterVs[1].trim();
-    return fullName.slice(0, colonIdx).trim();
+    // Festival/series prefix — "Southampton Summer Sessions: Bowling For Soup"
+    // → the sellable act is AFTER the colon, not before. Only flip when the
+    // prefix clearly reads as a festival/series (keyword or year) AND the
+    // suffix reads as a performer (not a day/ticket/round label). Conservative
+    // by design: a wrong flip only mis-queries, and the trust gate catches any
+    // resulting mismatch — but "Metallica: M72 Tour" etc. are left untouched.
+    const before = fullName.slice(0, colonIdx).trim();
+    if (looksLikeFestivalPrefix(before) && looksLikePerformerSuffix(after)) {
+      return after;
+    }
+    return before;
   }
   // Strip " vs " / " vs. " / " v " — football match names (keep home team only)
   // e.g. "FC Bayern Munich vs. RB Leipzig" -> "FC Bayern Munich"
