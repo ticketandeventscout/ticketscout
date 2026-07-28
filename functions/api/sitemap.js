@@ -59,24 +59,53 @@ export async function onRequestGet({ request, env }) {
   // real ceiling on how many event pages Google can index. Pure reads.
   if (url.searchParams.get('coverage') === '1') {
     const db = env.PRICE_DB;
-    const out = { generatedAt: new Date().toISOString(), registeredEvents: {}, registryEntities: {}, freshness: {}, notes: [] };
+    const out = { generatedAt: new Date().toISOString(), registeredEvents: {}, registryEntities: {}, activity: {}, newPages: {}, notes: [] };
     if (!db) { out.error = 'Missing PRICE_DB'; return json(out, 503); }
     try {
       const total = await db.prepare("SELECT COUNT(*) AS n FROM event_pages WHERE event_date >= date('now')").first();
       out.registeredEvents.upcomingTotal = total?.n ?? 0;
       const byCat = await db.prepare("SELECT category, COUNT(*) AS n FROM event_pages WHERE event_date >= date('now') GROUP BY category").all();
       for (const r of (byCat.results || [])) out.registeredEvents[r.category || 'null'] = r.n;
-      // Freshness — is registration actively happening, or stale?
-      const fresh = await db.prepare(
+      // "activity" = updated_at churn — bumps on ANY content change (a price
+      // tick from price-sampler/price-rollup counts too), so this measures
+      // capture ACTIVITY, not new-page creation. Renamed from the earlier
+      // 'freshness' naming, which was misleading: a high number here does NOT
+      // mean that many new pages are awaiting indexing — most of it is price
+      // refreshes on pages Google already knows about.
+      const act = await db.prepare(
         "SELECT " +
         "  (SELECT COUNT(*) FROM event_pages WHERE updated_at >= date('now','-1 day'))  AS last1d, " +
         "  (SELECT COUNT(*) FROM event_pages WHERE updated_at >= date('now','-7 day'))  AS last7d, " +
         "  (SELECT MAX(updated_at) FROM event_pages) AS newest"
       ).first();
-      out.freshness = { registeredLast24h: fresh?.last1d ?? 0, registeredLast7d: fresh?.last7d ?? 0, newestWrite: fresh?.newest ?? null };
+      out.activity = { rowsChangedLast24h: act?.last1d ?? 0, rowsChangedLast7d: act?.last7d ?? 0, newestChange: act?.newest ?? null };
     } catch (e) {
       out.error = 'event_pages read failed: ' + String(e);
       return json(out, 500);
+    }
+    // Genuinely NEW pages — created_at is set once, at first registration, and
+    // never touched again (see tsRegisterEvents). This is the number that
+    // actually predicts indexing lag: how much new inventory is Google being
+    // asked to discover, as opposed to price churn on pages it already knows.
+    // Isolated try/catch: on a fresh deploy before the
+    // "ALTER TABLE event_pages ADD COLUMN created_at TEXT;" migration has run,
+    // this column doesn't exist yet — that should degrade ONLY this section,
+    // not the whole diagnostic.
+    try {
+      const np = await db.prepare(
+        "SELECT " +
+        "  (SELECT COUNT(*) FROM event_pages WHERE created_at >= date('now','-1 day')) AS last1d, " +
+        "  (SELECT COUNT(*) FROM event_pages WHERE created_at >= date('now','-7 day')) AS last7d, " +
+        "  (SELECT COUNT(*) FROM event_pages WHERE created_at IS NULL) AS legacyUnknownVintage"
+      ).first();
+      out.newPages = {
+        genuinelyNewLast24h: np?.last1d ?? 0,
+        genuinelyNewLast7d: np?.last7d ?? 0,
+        legacyRowsPredatingCreatedAt: np?.legacyUnknownVintage ?? 0
+      };
+    } catch (e) {
+      out.newPages = { unavailable: true,
+        note: 'created_at column not present yet — run: ALTER TABLE event_pages ADD COLUMN created_at TEXT; (Cloudflare dashboard → D1 → Console). Existing rows will show NULL/legacy until they are next touched by a real content change; only rows registered after the migration get a true created_at.' };
     }
     // Registry entity counts per section.
     try {
@@ -86,7 +115,7 @@ export async function onRequestGet({ request, env }) {
     } catch (e) { out.notes.push('registry read failed: ' + String(e)); }
     // Rough coverage read. NB: TM "Sports" registers under category 'football'
     // in event_pages, so the football/sports split won't line up 1:1.
-    out.notes.push('registeredEvents are upcoming rows in event_pages; registryEntities are linkable hubs. A low events:entity ratio, or registeredLast7d≈0, indicates the capture hook is not keeping up and a backfill sweep is needed.');
+    out.notes.push('registeredEvents are upcoming rows in event_pages; registryEntities are linkable hubs. A low events:entity ratio indicates a coverage gap (see the ticketmaster.js ?sweep=1 backfill). "activity" is refresh churn (includes price ticks on already-indexed pages) — use "newPages" (created_at-based) to judge how much genuinely new inventory Google has to discover.');
     return json(out, 200);
   }
 

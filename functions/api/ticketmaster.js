@@ -141,6 +141,14 @@ export async function onRequestGet(ctx) {
     let quotaBreakerHit = false, stoppedAt = null;
 
     for (let i = 0; i < batch.length; i++) {
+      // Space out calls — the diag=1 evidence (429 cleared within ~8 minutes,
+      // far too fast for a genuine 5k/day quota reset) points to a per-second
+      // burst limit, not daily exhaustion. A sweep firing calls back-to-back
+      // can trip that limit on its own, or combine with organic site traffic
+      // in the same window. A small gap costs little (25 entities ≈ 5s extra)
+      // and meaningfully reduces that risk.
+      if (i > 0) await new Promise(res => setTimeout(res, 250));
+
       const slug = batch[i];
       const keyword = slug.replace(/-/g, ' ');
       const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
@@ -439,9 +447,15 @@ async function tsRegisterEvents(env, records) {
   const db = env.PRICE_DB;
   if (!db || !records || !records.length) return;
   const now = new Date().toISOString();
+  // created_at is bound in the INSERT values but deliberately OMITTED from the
+  // ON CONFLICT DO UPDATE SET clause — SQLite leaves an omitted column
+  // untouched on conflict, so a row's created_at is set exactly once, at
+  // first registration, and never overwritten by later refreshes. This is
+  // what lets the coverage diagnostic tell "genuinely new page" apart from
+  // "existing page, price refreshed" — updated_at alone conflated the two.
   const stmt = db.prepare(
-    'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) ' +
-    'VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ' +
+    'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at, created_at) ' +
+    'VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13) ' +
     'ON CONFLICT(slug) DO UPDATE SET ' +
     'name=excluded.name, ' +
     'venue=COALESCE(excluded.venue, event_pages.venue), ' +
@@ -456,6 +470,7 @@ async function tsRegisterEvents(env, records) {
     'OR event_pages.city IS NOT COALESCE(excluded.city, event_pages.city) ' +
     'OR event_pages.price IS NOT COALESCE(excluded.price, event_pages.price) ' +
     'THEN excluded.updated_at ELSE event_pages.updated_at END'
+    // created_at intentionally absent here — see comment above.
   );
   const seen = new Set();
   const batch = [];
@@ -467,11 +482,59 @@ async function tsRegisterEvents(env, records) {
       r.venue || null, r.city || null,
       r.price || null, r.currency || null,
       r.tmUrl || null, r.image || null,
-      r.source || null, now
+      r.source || null, now, now
     ));
     if (batch.length >= 400) break; // per-request safety cap
   }
-  if (batch.length) await db.batch(batch);
+  if (!batch.length) return;
+  try {
+    await db.batch(batch);
+  } catch (e) {
+    // Deploy-order safety net: if the created_at column hasn't been added yet
+    // (ALTER TABLE event_pages ADD COLUMN created_at TEXT; — see rollout
+    // notes), the 13-column INSERT above fails on every row. Rather than
+    // registration silently going dark until someone notices, fall back to
+    // the pre-migration 12-column statement so events keep registering; we
+    // just won't have created_at until the column is added and this code
+    // path stops being needed.
+    console.error('tsRegisterEvents: 13-col insert failed, falling back to legacy schema:', e);
+    const legacyStmt = db.prepare(
+      'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) ' +
+      'VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ' +
+      'ON CONFLICT(slug) DO UPDATE SET ' +
+      'name=excluded.name, ' +
+      'venue=COALESCE(excluded.venue, event_pages.venue), ' +
+      'city=COALESCE(excluded.city, event_pages.city), ' +
+      'price=COALESCE(excluded.price, event_pages.price), ' +
+      'currency=COALESCE(excluded.currency, event_pages.currency), ' +
+      'tm_url=COALESCE(excluded.tm_url, event_pages.tm_url), ' +
+      'image=COALESCE(excluded.image, event_pages.image), ' +
+      'source=excluded.source, ' +
+      'updated_at=CASE WHEN event_pages.name IS NOT excluded.name ' +
+      'OR event_pages.venue IS NOT COALESCE(excluded.venue, event_pages.venue) ' +
+      'OR event_pages.city IS NOT COALESCE(excluded.city, event_pages.city) ' +
+      'OR event_pages.price IS NOT COALESCE(excluded.price, event_pages.price) ' +
+      'THEN excluded.updated_at ELSE event_pages.updated_at END'
+    );
+    // Rebuild independently (don't try to re-slice `batch`, which is already
+    // deduped/capped against different bind params) — same seen-set + cap
+    // logic as the primary path above, just without created_at.
+    const legacySeen = new Set();
+    const legacyBatch = [];
+    for (const r of records) {
+      if (!r || !r.slug || legacySeen.has(r.slug)) continue;
+      legacySeen.add(r.slug);
+      legacyBatch.push(legacyStmt.bind(
+        r.slug, r.category, r.name, r.date,
+        r.venue || null, r.city || null,
+        r.price || null, r.currency || null,
+        r.tmUrl || null, r.image || null,
+        r.source || null, now
+      ));
+      if (legacyBatch.length >= 400) break;
+    }
+    if (legacyBatch.length) await db.batch(legacyBatch);
+  }
 }
 
 // Cache-API throttle: at most one registry write per markerId per 6h per

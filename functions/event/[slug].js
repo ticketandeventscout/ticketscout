@@ -73,6 +73,27 @@ export async function onRequestGet(ctx) {
   const today  = new Date().toISOString().slice(0, 10);
   const isPast = eventDate < today;
 
+  // ── Past event → 410 Gone ────────────────────────────────────────────────
+  // A 410 is a much stronger signal than the existing noindex: it tells
+  // Google the URL is INTENTIONALLY, PERMANENTLY gone, prompting it to drop
+  // the entry from the index on the next crawl rather than just declining to
+  // (re-)index it. Runs whether or not a registry row exists — the event
+  // date is parsed straight from the (frozen-format) slug, so a past date is
+  // known even for a self-rendered/unregistered page. This is what lets
+  // GSC's indexed count actually shrink for events that have already
+  // happened, instead of them lingering indexed indefinitely.
+  if (isPast) {
+    const resp = goneResponse({
+      cat,
+      name:  row?.name  || titleCaseFromSlug(nameSlug),
+      eventDate,
+      venue: row?.venue || '',
+      city:  row?.city  || ''
+    });
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
   // Best-effort fields when no registry row exists (or to fill gaps)
   const name  = row?.name  || titleCaseFromSlug(nameSlug);
   const venue = row?.venue || '';
@@ -665,6 +686,29 @@ function titleCaseFromSlug(nameSlug) {
     if (i > 0 && connectors.includes(w)) return w;
     return w.charAt(0).toUpperCase() + w.slice(1);
   }).join(' ');
+}
+
+function goneResponse({ cat, name, eventDate, venue, city }) {
+  const where = [venue, city].filter(Boolean).join(', ');
+  const body = `<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${esc(name)} has taken place | TicketScout</title><meta name="robots" content="noindex" />
+<link rel="stylesheet" href="/styles.css" /></head>
+<body><main class="container" style="max-width:700px; margin:60px auto; padding:0 16px; text-align:center;">
+<h1 style="color:#0c2d5a;">This event has already taken place</h1>
+<p><strong>${esc(name)}</strong>${where ? ' · ' + esc(where) : ''} was on ${esc(prettyDate(eventDate))}.</p>
+<p><a href="${esc(cat.hub)}">Browse upcoming ${esc(cat.label.toLowerCase())} →</a></p>
+<p><a href="/">← Back to TicketScout</a> · <a href="/football/">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
+</main></body></html>`;
+  return new Response(body, {
+    status: 410,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      // Permanent state for a given slug (the date is frozen in the slug
+      // itself) — safe to cache generously, unlike the noindex/best-effort path.
+      'Cache-Control': 'public, max-age=3600, s-maxage=86400'
+    }
+  });
 }
 
 function notFound() {
