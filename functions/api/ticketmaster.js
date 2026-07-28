@@ -153,7 +153,11 @@ export async function onRequestGet(ctx) {
       const keyword = slug.replace(/-/g, ' ');
       const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
       tmUrl.searchParams.set('apikey', apiKey);
-      tmUrl.searchParams.set('countryCode', 'GB');
+      // No countryCode restriction — the registry tracks international entities
+      // (US baseball, international teams, etc; confirmed by the fixcategory
+      // pass itself finding plenty of them), so gating this to GB would have
+      // silently missed real events for exactly the entities most likely to
+      // be sparse in a UK-only search.
       tmUrl.searchParams.set('keyword', keyword);
       tmUrl.searchParams.set('size', '50');
       tmUrl.searchParams.set('sort', 'date,asc');
@@ -311,11 +315,24 @@ export async function onRequestGet(ctx) {
       // Re-verify against TM's OWN classification for the SAME event — never
       // infer from stored name/venue text. Bound tightly to the exact stored
       // date to avoid picking up an unrelated same-name fixture.
+      //
+      // Strip a promo-night suffix before searching — many stored names carry
+      // giveaway/theme-night text after a colon ("...: Beach Week", "...:
+      // Bobblehead Night") that TM's own listing almost certainly doesn't
+      // include verbatim, which was causing real events to come back
+      // "unverifiable" simply because the keyword was too specific. The tight
+      // per-day date window (below) is what disambiguates the correct
+      // occurrence, so loosening the keyword here is safe — it can't cause a
+      // wrong-day match, only a same-day one.
+      const searchKeyword = (() => {
+        const c = row.name.indexOf(':');
+        return c > 0 ? row.name.slice(0, c).trim() : row.name;
+      })();
       const dateStart = row.event_date + 'T00:00:00Z';
       const dateEnd   = row.event_date + 'T23:59:59Z';
       const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
       tmUrl.searchParams.set('apikey', apiKey);
-      tmUrl.searchParams.set('keyword', row.name);
+      tmUrl.searchParams.set('keyword', searchKeyword);
       tmUrl.searchParams.set('startDateTime', dateStart);
       tmUrl.searchParams.set('endDateTime', dateEnd);
       tmUrl.searchParams.set('size', '5');
@@ -332,7 +349,7 @@ export async function onRequestGet(ctx) {
         if (!r.ok) { details.push({ slug: row.slug, error: 'HTTP ' + r.status }); unverifiable++; continue; }
         const data = await r.json();
         const ev = data?._embedded?.events?.[0];
-        if (!ev) { details.push({ slug: row.slug, name: row.name, note: 'no TM match for this name+date — left unchanged' }); unverifiable++; continue; }
+        if (!ev) { details.push({ slug: row.slug, name: row.name, searchedAs: searchKeyword, note: 'no TM match for this name+date — left unchanged' }); unverifiable++; continue; }
         genre = ev?.classifications?.[0]?.genre?.name || null;
         trueCategory = tsTmCategory(ev);
       } catch (e) {
