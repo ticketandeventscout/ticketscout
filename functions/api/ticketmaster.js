@@ -78,6 +78,138 @@ export async function onRequestGet(ctx) {
     });
   }
 
+  // ── Registration-coverage backfill: ?sweep=1&trigger=1&category=X ───────
+  // Registration into event_pages is otherwise 100% traffic-driven (only a
+  // fresh cache-miss proxy call captures events, see tsCaptureThrottled
+  // below) — so low-traffic registry entities (most of 'sports', many of
+  // 'football') never get an upcoming event registered even though entity
+  // pages link to /event/{slug} for them, and those links then noindex.
+  // This sweep walks the registry directly and registers via keyword search
+  // — ONE TM call per entity (not attractionId resolve + fetch) to fit many
+  // more entities inside the 5k/day quota. Cursor-batched across runs, same
+  // pattern as discover-pages.js ?phase=regenerate. Dry by default — pass
+  // &confirm=yes to write, matching the ?phase=genreaudit convention.
+  if (new URL(request.url).searchParams.get('sweep') === '1'
+      && new URL(request.url).searchParams.get('trigger') === '1') {
+    const url = new URL(request.url);
+    const category = url.searchParams.get('category');
+    const VALID_CATS = new Set(['concert', 'football', 'theatre', 'sports']);
+    if (!VALID_CATS.has(category)) {
+      return jsonResponse({ error: `category must be one of: ${[...VALID_CATS].join(', ')}` }, 400);
+    }
+    const limit   = Math.min(parseInt(url.searchParams.get('limit') || '25', 10) || 25, 40);
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    const dryRun  = !confirm;
+    const kv = env.GIGSBERG_KV, db = env.PRICE_DB, apiKey = env.TM_API_KEY;
+    if (!kv)     return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
+    if (!db)     return jsonResponse({ error: 'Missing PRICE_DB' }, 500);
+    if (!apiKey) return jsonResponse({ error: 'Missing TM_API_KEY' }, 500);
+
+    // Respect the existing circuit breaker — never burn calls on guaranteed 429s.
+    let breakerOpen = false;
+    try { breakerOpen = !!(await kv.get('tm:quota:exhausted')); } catch {}
+    if (breakerOpen) {
+      return jsonResponse({ sweep: true, category, quotaBreakerOpen: true,
+        note: 'TM quota breaker is open — no calls made, cursor not advanced. Retry later.' }, 200);
+    }
+
+    let registry = null;
+    try { const r = await kv.get('sitemap:registry'); if (r) registry = JSON.parse(r); }
+    catch (e) { return jsonResponse({ error: 'registry read failed: ' + String(e) }, 500); }
+    const allSlugs = Object.keys(registry?.sections?.[category] || {});
+    if (!allSlugs.length) {
+      return jsonResponse({ error: `no registry entities for category "${category}" — has build-registry run?` }, 200);
+    }
+
+    const cursorKey = `regsweep:cursor:${category}`;
+    let offset = 0;
+    if (!dryRun) { try { const c = await kv.get(cursorKey); offset = c ? (parseInt(c, 10) || 0) : 0; } catch {} }
+    const batch = allSlugs.slice(offset, offset + limit);
+
+    // Verify D1 writes actually land (waitUntil writes have failed silently
+    // before) — count this category's upcoming rows before and after.
+    let beforeCount = null;
+    try {
+      const r = await db.prepare(
+        "SELECT COUNT(*) AS n FROM event_pages WHERE category = ?1 AND event_date >= date('now')"
+      ).bind(category).first();
+      beforeCount = r?.n ?? null;
+    } catch {}
+
+    const details = [];
+    let entitiesQueried = 0, eventsFoundTotal = 0, eventsRegisteredTotal = 0;
+    let quotaBreakerHit = false, stoppedAt = null;
+
+    for (let i = 0; i < batch.length; i++) {
+      const slug = batch[i];
+      const keyword = slug.replace(/-/g, ' ');
+      const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/events.json');
+      tmUrl.searchParams.set('apikey', apiKey);
+      tmUrl.searchParams.set('countryCode', 'GB');
+      tmUrl.searchParams.set('keyword', keyword);
+      tmUrl.searchParams.set('size', '50');
+      tmUrl.searchParams.set('sort', 'date,asc');
+      tmUrl.searchParams.set('startDateTime', new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'));
+
+      entitiesQueried++;
+      let recs = [];
+      try {
+        const r = await fetch(tmUrl.toString());
+        if (r.status === 429) {
+          quotaBreakerHit = true;
+          stoppedAt = i;
+          try { await kv.put('tm:quota:exhausted', new Date().toISOString(), { expirationTtl: 600 }); } catch {}
+          break; // stop the batch; cursor stays at this entity so the next run retries it
+        }
+        if (!r.ok) { details.push({ slug, error: 'HTTP ' + r.status }); continue; }
+        const data = await r.json();
+        recs = tsExtractTmRecords(data);
+      } catch (e) {
+        details.push({ slug, error: String(e) });
+        continue;
+      }
+      eventsFoundTotal += recs.length;
+      if (recs.length) {
+        details.push({ slug, keyword, eventsFound: recs.length, sample: recs[0]?.name });
+        if (!dryRun) {
+          try { await tsRegisterEvents(env, recs); eventsRegisteredTotal += recs.length; }
+          catch (e) { details.push({ slug, error: 'register failed: ' + String(e) }); }
+        }
+      }
+    }
+
+    const processed = quotaBreakerHit ? stoppedAt : batch.length;
+    const nextOffset = offset + processed;
+    const done = nextOffset >= allSlugs.length;
+    if (!dryRun) {
+      try {
+        if (done) await kv.delete(cursorKey);
+        else await kv.put(cursorKey, String(nextOffset));
+      } catch {}
+    }
+
+    let afterCount = null, verified = null;
+    if (!dryRun) {
+      try {
+        const r = await db.prepare(
+          "SELECT COUNT(*) AS n FROM event_pages WHERE category = ?1 AND event_date >= date('now')"
+        ).bind(category).first();
+        afterCount = r?.n ?? null;
+        verified = (afterCount !== null && beforeCount !== null) ? (afterCount - beforeCount) : null;
+      } catch {}
+    }
+
+    return jsonResponse({
+      sweep: true, category, dryRun, offset, limit,
+      totalRegistryEntities: allSlugs.length,
+      entitiesQueried, eventsFoundTotal, eventsRegisteredTotal,
+      d1RowCountBefore: beforeCount, d1RowCountAfter: afterCount, d1RowCountDelta: verified,
+      quotaBreakerHit, done, nextOffset: done ? null : nextOffset,
+      next: done ? null : `?sweep=1&trigger=1&category=${category}&limit=${limit}${confirm ? '&confirm=yes' : ''}`,
+      details: details.slice(0, 60)
+    }, 200);
+  }
+
   // ── Edge cache: identical queries answered from the Cloudflare colo ──
   // for 10 minutes instead of hitting TM's API (5k calls/day quota).
   // One viral event page = at most ~6 TM calls/colo/hour instead of
