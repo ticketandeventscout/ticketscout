@@ -102,6 +102,155 @@ export async function onRequestGet({ request, env }) {
 
   if (!kv) return json({ error: 'Missing GIGSBERG_KV' }, 500);
 
+  // ── RECONCILE-VENUES PHASE — finds venues with NO backing data anywhere ──
+  // repair-known-venues assumes a venue was at least marked "known" at some
+  // point. "707-nightlife" proved that assumption wrong: it has a committed
+  // static page and a sitemap entry, but is absent from the static array,
+  // absent from the known-set, and has no venue:auto: KV record — it was
+  // never touched by ANY commit path this session has found, likely a
+  // leftover from an earlier version of this pipeline predating current
+  // tracking entirely. repair-known-venues cannot find these; there's
+  // nothing to compare knownVenues against for a slug that was never marked
+  // known in the first place.
+  //
+  // This instead reads the REAL repo file tree (same method as
+  // ?phase=build-registry) to get the TRUE set of committed venue pages,
+  // and compares that against everywhere data could resolve (the static
+  // array UNION every venue:auto:* KV key). The difference is a genuine
+  // orphan: a live page with nothing backing it, anywhere.
+  //
+  // Dry run (default): reports the orphan list only.
+  // &confirm=yes: for up to &limit= (default 10) orphans, attempts a live
+  // Ticketmaster venue-name search to recover REAL venueId/city/country and
+  // writes a venue:auto: record if found. An orphan the search can't match
+  // is left alone and reported as unresolved — this never guesses or writes
+  // fabricated data.
+  if (phase === 'reconcile-venues') {
+    if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
+    const github = new GitHubAPI(githubToken, owner, repo, branch);
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '10', 10) || 10, 25);
+    const doWrite = url.searchParams.get('confirm') === 'yes';
+
+    let tree;
+    try {
+      const ref  = await github.request('GET', `/repos/${owner}/${repo}/git/ref/heads/${branch}`);
+      const head = await github.request('GET', `/repos/${owner}/${repo}/git/commits/${ref.object.sha}`);
+      tree = await github.request('GET', `/repos/${owner}/${repo}/git/trees/${head.tree.sha}?recursive=1`);
+    } catch (err) {
+      return json({ error: 'GitHub tree fetch failed', detail: String(err) }, 500);
+    }
+    const venueRe = /^venue\/([a-z0-9-]+)\.html$/;
+    const repoVenueSlugs = [];
+    for (const node of (tree.tree || [])) {
+      if (node.type !== 'blob') continue;
+      const m = venueRe.exec(node.path);
+      if (m) repoVenueSlugs.push(m[1]);
+    }
+
+    let venueJsContent;
+    try { venueJsContent = await github.getFileContent('functions/api/venue.js'); }
+    catch (e) { return json({ error: 'could not read functions/api/venue.js: ' + String(e) }, 500); }
+    const staticSlugs = new Set(
+      [...venueJsContent.matchAll(/slug:\s*'([^']+)'/g)].map(m => m[1])
+    );
+
+    let autoKvSlugs = new Set();
+    try {
+      let cursor;
+      do {
+        const page = await kv.list({ prefix: 'venue:auto:', cursor });
+        for (const k of page.keys) autoKvSlugs.add(k.name.replace('venue:auto:', ''));
+        cursor = page.cursor;
+        if (page.list_complete) break;
+      } while (cursor);
+    } catch (e) {
+      return json({ error: 'venue:auto: KV list failed: ' + String(e) }, 500);
+    }
+
+    const orphans = repoVenueSlugs.filter(s => !staticSlugs.has(s) && !autoKvSlugs.has(s));
+
+    if (!doWrite) {
+      return json({
+        dryRun: true,
+        repoVenuePages: repoVenueSlugs.length,
+        resolvableViaStaticArray: staticSlugs.size,
+        resolvableViaAutoKv: autoKvSlugs.size,
+        orphanCount: orphans.length,
+        orphanSample: orphans.slice(0, 40),
+        note: orphans.length
+          ? `${orphans.length} venue page(s) exist in the repo with no data anywhere (not static array, not known-set, not venue:auto: KV). Add &confirm=yes&limit=N to attempt live TM recovery for up to N of them.`
+          : 'No true orphans found — every committed venue page resolves via the static array or a venue:auto: record.'
+      }, 200);
+    }
+
+    const apiKey = env.TM_API_KEY;
+    if (!apiKey) return json({ error: 'Missing TM_API_KEY — needed to attempt recovery' }, 500);
+
+    let breakerOpen = false;
+    try { breakerOpen = !!(await kv.get('tm:quota:exhausted')); } catch {}
+    if (breakerOpen) {
+      return json({ quotaBreakerOpen: true, note: 'TM quota breaker is open — no calls made. Retry later.' }, 200);
+    }
+
+    const batch = orphans.slice(0, limit);
+    const recovered = [], unresolved = [];
+    for (let i = 0; i < batch.length; i++) {
+      if (i > 0) await new Promise(res => setTimeout(res, 250));
+      const slug = batch[i];
+      const keyword = slug.replace(/-/g, ' ');
+      let venueData = null;
+      try {
+        const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/venues.json');
+        tmUrl.searchParams.set('apikey', apiKey);
+        tmUrl.searchParams.set('keyword', keyword);
+        tmUrl.searchParams.set('size', '5');
+        const r = await fetch(tmUrl.toString());
+        if (r.status === 429) {
+          try { await kv.put('tm:quota:exhausted', new Date().toISOString(), { expirationTtl: 600 }); } catch {}
+          unresolved.push({ slug, reason: 'quota hit — stopped batch here, retry later' });
+          break;
+        }
+        if (r.ok) {
+          const data = await r.json();
+          const hit = (data?._embedded?.venues || [])[0];
+          if (hit) {
+            venueData = {
+              slug, name: hit.name || keyword,
+              city: hit.city?.name || '', country: hit.country?.name || '',
+              venueId: hit.id || null,
+              description: `Compare ${hit.name || keyword} ticket prices across verified sellers on TicketScout.`
+            };
+          }
+        }
+      } catch (e) {
+        unresolved.push({ slug, reason: 'TM fetch error: ' + String(e) });
+        continue;
+      }
+      if (venueData) {
+        try {
+          await kv.put(`venue:auto:${slug}`, JSON.stringify(venueData));
+          recovered.push(venueData);
+        } catch (e) {
+          unresolved.push({ slug, reason: 'KV write failed: ' + String(e) });
+        }
+      } else {
+        unresolved.push({ slug, reason: 'no TM venue match for this name — needs manual attention or deletion' });
+      }
+    }
+
+    return json({
+      dryRun: false,
+      attempted: batch.length,
+      recoveredCount: recovered.length,
+      recovered,
+      unresolvedCount: unresolved.length,
+      unresolved,
+      remainingOrphans: orphans.length - batch.length,
+      next: orphans.length - batch.length > 0
+        ? `?phase=reconcile-venues&trigger=1&confirm=yes&limit=${limit}` : null
+    }, 200);
+  }
+
   // ── REPAIR-KNOWN-VENUES PHASE — recovery for the venue-data-file bug ────
   // Fixes the fallout from the computeVenueDataFileUpdate bug (see that
   // function's comment): venues whose static page committed and got marked
