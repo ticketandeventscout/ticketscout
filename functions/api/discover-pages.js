@@ -102,6 +102,78 @@ export async function onRequestGet({ request, env }) {
 
   if (!kv) return json({ error: 'Missing GIGSBERG_KV' }, 500);
 
+  // ── REPAIR-KNOWN-VENUES PHASE — recovery for the venue-data-file bug ────
+  // Fixes the fallout from the computeVenueDataFileUpdate bug (see that
+  // function's comment): venues whose static page committed and got marked
+  // "known" (excluding them from all future discovery) but whose real data
+  // (venueId/city/country) never actually made it into venue.js's VENUES
+  // array, because the old insertion logic silently no-op'd. Those venues
+  // are stuck forever under the OLD code, since "known" venues are never
+  // re-offered by discovery.
+  //
+  // Self-correcting rather than a hardcoded list: reads the REAL venue.js
+  // file to see which slugs actually have data, reads the "known" set to
+  // see which slugs were marked as handled, and the difference IS the stuck
+  // set — this also catches any future recurrence of the same failure mode
+  // automatically, not just this one incident.
+  //
+  // Dry-run by default (reports the stuck list only). &confirm=yes removes
+  // exactly those slugs from the known-set, so the NEXT discover+commit
+  // sweep finds them again — with FRESH real data pulled from live TM
+  // events, since the original discovery data for the stuck batch was
+  // already cleared (PENDING_KEY is deleted at the end of every commit,
+  // succeeded or not) and can't be recovered directly.
+  if (phase === 'repair-known-venues') {
+    if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
+    const github = new GitHubAPI(githubToken, owner, repo, branch);
+
+    let venueJsContent;
+    try {
+      venueJsContent = await github.getFileContent('functions/api/venue.js');
+    } catch (e) {
+      return json({ error: 'could not read functions/api/venue.js: ' + String(e) }, 500);
+    }
+    const realSlugs = new Set(
+      [...venueJsContent.matchAll(/slug:\s*'([^']+)'/g)].map(m => m[1])
+    );
+
+    let knownVenues = [];
+    try {
+      const k = await kv.get(KNOWN_VENUES_KEY);
+      if (k) knownVenues = JSON.parse(k);
+    } catch (e) {
+      return json({ error: 'could not read ' + KNOWN_VENUES_KEY + ': ' + String(e) }, 500);
+    }
+
+    const stuck = knownVenues.filter(slug => !realSlugs.has(slug));
+
+    if (dryRun) {
+      return json({
+        dryRun: true,
+        realVenuesInDataFile: realSlugs.size,
+        totalMarkedKnown: knownVenues.length,
+        stuckCount: stuck.length,
+        stuckSample: stuck.slice(0, 30),
+        note: stuck.length
+          ? `${stuck.length} venue(s) are marked "known" but have no entry in venue.js — they have a static page and sitemap listing but their API 404s. Add &confirm=yes to un-stick them for rediscovery.`
+          : 'Nothing stuck — known-set matches the real data file exactly.'
+      }, 200);
+    }
+
+    const repaired = knownVenues.filter(slug => realSlugs.has(slug));
+    try {
+      await kv.put(KNOWN_VENUES_KEY, JSON.stringify(repaired));
+    } catch (e) {
+      return json({ error: 'write failed: ' + String(e) }, 500);
+    }
+    return json({
+      dryRun: false,
+      removedFromKnown: stuck.length,
+      removedSample: stuck.slice(0, 30),
+      note: 'These will be re-offered by the next ?phase=discover run, with fresh real data — their static pages already exist so the new commit will just update, not duplicate, them.'
+    }, 200);
+  }
+
   // ── COMMIT PHASE ──────────────────────────────────────────────────────────
   if (phase === 'commit') {
     if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
@@ -2420,7 +2492,8 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, 
     }
   }
 
-  // Commit venue pages
+  // Commit venue pages (static HTML stubs)
+  const staticCommitOk = new Set();
   for (const venue of venues) {
     try {
       await github.createFile(
@@ -2429,15 +2502,32 @@ async function commitPendingPages(kv, githubToken, owner, repo, branch, dryRun, 
         `Auto-add venue page: ${venue.name} [${venue.source}]`
       );
       committed.venues.push(venue.slug);
-      knownVenues.add(venue.slug);
+      staticCommitOk.add(venue.slug);
     } catch (err) {
       committed.errors.push({ type: 'venue', slug: venue.slug, error: String(err) });
     }
   }
 
+  let venueDataFileOk = false;
   if (venues.length > 0) {
-    try { await updateVenueDataFile(github, venues); } catch (err) {
+    try { await updateVenueDataFile(github, venues); venueDataFileOk = true; } catch (err) {
       committed.errors.push({ type: 'venue-data', error: String(err) });
+    }
+  }
+
+  // FIX: previously marked a venue "known" (excluding it from all future
+  // discovery) the moment its STATIC PAGE committed — before the data-file
+  // update was even attempted. Combined with the bug above, that's how ~250+
+  // venues got silently stranded: static page live, sitemap listed, marked
+  // "known" so the discovery sweep would never offer them again, but the
+  // one piece of data the API actually needs (venueId) never made it
+  // anywhere durable. Now: only mark "known" once the shared venue.js data
+  // file update has ALSO been confirmed to succeed, so a partial failure
+  // leaves the venue eligible to be rediscovered (with fresh, real data)
+  // next sweep instead of stuck forever.
+  if (venueDataFileOk) {
+    for (const venue of venues) {
+      if (staticCommitOk.has(venue.slug)) knownVenues.add(venue.slug);
     }
   }
 
@@ -2519,9 +2609,34 @@ async function computeVenueDataFileUpdate(github, venues) {
     `  { slug: '${esc(v.slug)}', name: '${esc(v.name)}', city: '${esc(v.city)}', country: '${esc(v.country)}', venueId: '${esc(v.venueId)}', description: '${esc(v.description)}' },`
   ).join('\n');
 
-  const updated = isNew
-    ? content.replace('// VENUES_PLACEHOLDER', entries)
-    : content.replace(/(\];\s*\n\nexport async function)/, `${entries}\n];\n\nexport async function`);
+  let updated;
+  if (isNew) {
+    updated = content.replace('// VENUES_PLACEHOLDER', entries);
+  } else {
+    // FIX: previously matched /(\];\s*\n\nexport async function)/ — assumed
+    // the VENUES array's closing "];" was immediately followed by "export
+    // async function onRequestGet". venue.js has since grown a SECOND array
+    // (VENUE_TYPE_RULES) plus venueType()/listVenues() between the VENUES
+    // array and onRequestGet, so that pattern no longer exists ANYWHERE in
+    // the file. content.replace() found no match and silently returned the
+    // ORIGINAL content UNCHANGED — no error, nothing to see in the commit
+    // response — while the static page commit below succeeded independently
+    // every time. That's exactly how venues ended up with a live page and a
+    // sitemap entry but a 404 API: venueId/city/country were never actually
+    // saved anywhere. Now: find the VENUES array's OWN closing bracket
+    // specifically (the first "];" after "const VENUES = ["), and throw
+    // rather than silently do nothing if that structure isn't found — a
+    // loud failure in committed.errors beats an invisible no-op.
+    const arrayStart = content.indexOf('const VENUES = [');
+    if (arrayStart === -1) {
+      throw new Error('venue.js: could not find "const VENUES = [" — refusing to silently no-op.');
+    }
+    const closeIdx = content.indexOf('\n];', arrayStart);
+    if (closeIdx === -1) {
+      throw new Error('venue.js: found the VENUES array start but no closing "];" after it — structure has changed again.');
+    }
+    updated = content.slice(0, closeIdx) + '\n' + entries + content.slice(closeIdx + 1);
+  }
 
   return { path, content: updated };
 }
