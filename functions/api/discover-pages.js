@@ -145,6 +145,24 @@ export async function onRequestGet({ request, env }) {
       return json({ error: 'could not read ' + KNOWN_VENUES_KEY + ': ' + String(e) }, 500);
     }
 
+    // ?inspect=<slug> — direct, single-slug diagnostic. Bypasses the whole
+    // known-set/stuck computation and just reports every place this ONE
+    // slug's data could plausibly live, so a confusing case can be checked
+    // directly instead of inferred from the aggregate repair numbers.
+    const inspectSlug = url.searchParams.get('inspect');
+    if (inspectSlug) {
+      const s = inspectSlug.toLowerCase();
+      let kvAutoRaw = null;
+      try { kvAutoRaw = await kv.get(`venue:auto:${s}`); } catch {}
+      return json({
+        slug: s,
+        inStaticVenuesArray: realSlugs.has(s),
+        inKnownVenuesSet: knownVenues.includes(s),
+        kvAutoRecordExists: !!kvAutoRaw,
+        kvAutoRecord: kvAutoRaw ? JSON.parse(kvAutoRaw) : null
+      }, 200);
+    }
+
     // A venue is genuinely fine if it's in the static array OR has a
     // venue:auto:{slug} KV record — the latter is now the NORMAL path for
     // anything committed via commitPendingPagesBatch (the default commit
@@ -161,7 +179,15 @@ export async function onRequestGet({ request, env }) {
       stuck.push(slug);
     }
 
-    if (dryRun) {
+    // FIX: this used to branch on the file-wide `dryRun` variable (defined
+    // once at the top of onRequestGet from ?dry=1), NOT on this phase's own
+    // documented &confirm=yes convention. Since neither of those are the
+    // same query param, calling this phase with &confirm=yes had ZERO
+    // effect — every call, with or without it, ran the WRITE path (dry=1
+    // was never set), and "the dry run" was silently never a dry run at
+    // all. Now gated on its own explicit, local check.
+    const doWrite = url.searchParams.get('confirm') === 'yes';
+    if (!doWrite) {
       return json({
         dryRun: true,
         realVenuesInDataFile: realSlugs.size,
