@@ -110,8 +110,31 @@ export async function onRequestGet({ request, env }) {
   if (url.searchParams.get('list') === '1') return listVenues();
 
   if (!slug) return jsonResponse({ error: 'slug is required' }, 400);
+  const normSlug = slug.toLowerCase();
 
-  const venue = VENUES.find(v => v.slug === slug.toLowerCase());
+  let venue = VENUES.find(v => v.slug === normSlug);
+
+  // FIX: auto-discovered venues (committed by discover-pages.js's default
+  // commit path) were never added to this static array at all — by design,
+  // to avoid the double-splice build failures that hand-curated array edits
+  // caused for other categories — but this KV fallback was never added to
+  // match, so a committed venue had a real static page and sitemap entry
+  // with NO way for this endpoint to ever find its data. Mirrors exactly
+  // how concert.js/football.js/sports.js already read their own auto-
+  // discovered entities from KV as a fallback below the hardcoded list.
+  if (!venue && env.GIGSBERG_KV) {
+    try {
+      const raw = await env.GIGSBERG_KV.get(`venue:auto:${normSlug}`);
+      if (raw) {
+        const auto = JSON.parse(raw);
+        venue = {
+          slug: auto.slug || normSlug, name: auto.name, city: auto.city,
+          country: auto.country, venueId: auto.venueId, description: auto.description
+        };
+      }
+    } catch { /* fall through to not-found */ }
+  }
+
   if (!venue)  return jsonResponse({ error: 'Venue not found' }, 404);
 
   const apiKey = env.TM_API_KEY;

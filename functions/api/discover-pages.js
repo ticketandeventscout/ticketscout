@@ -145,7 +145,21 @@ export async function onRequestGet({ request, env }) {
       return json({ error: 'could not read ' + KNOWN_VENUES_KEY + ': ' + String(e) }, 500);
     }
 
-    const stuck = knownVenues.filter(slug => !realSlugs.has(slug));
+    // A venue is genuinely fine if it's in the static array OR has a
+    // venue:auto:{slug} KV record — the latter is now the NORMAL path for
+    // anything committed via commitPendingPagesBatch (the default commit
+    // function), not a sign of anything wrong. Only flag as stuck if
+    // NEITHER exists — that's the actual "known but data saved nowhere"
+    // dead end this phase exists to find.
+    const stuck = [];
+    for (const slug of knownVenues) {
+      if (realSlugs.has(slug)) continue;
+      try {
+        const raw = await kv.get(`venue:auto:${slug}`);
+        if (raw) continue; // has a valid KV record — not stuck
+      } catch {}
+      stuck.push(slug);
+    }
 
     if (dryRun) {
       return json({
@@ -160,7 +174,8 @@ export async function onRequestGet({ request, env }) {
       }, 200);
     }
 
-    const repaired = knownVenues.filter(slug => realSlugs.has(slug));
+    const stuckSet = new Set(stuck);
+    const repaired = knownVenues.filter(slug => !stuckSet.has(slug));
     try {
       await kv.put(KNOWN_VENUES_KEY, JSON.stringify(repaired));
     } catch (e) {
@@ -2345,7 +2360,39 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
       }
     }
   }
-  for (const venue of venues) knownVenues.add(venue.slug);
+  for (const venue of venues) {
+    // FIX (the real bug — the earlier venue.js-splice fix targeted the
+    // LEGACY commitPendingPages function, which this default path never
+    // calls). This function was deliberately redesigned to route artist
+    // data through KV instead of splicing concert.js/football.js/theatre.js
+    // (see the comment above, "permanently eliminates the double-splice
+    // build failures") — but venues never got the equivalent KV write, so a
+    // venue committed here had its static page created and was marked
+    // "known", with its actual data (venueId, city, country) saved
+    // NOWHERE the API could ever read it. venue.js's onRequestGet only
+    // checked its static VENUES array — with no KV fallback at all, unlike
+    // every other category — so this was a structural dead end, not a
+    // one-off glitch. Now writes venue:auto:{slug}, matching the same
+    // pattern as concert:artist:/football:team:/sports:team:; venue.js's
+    // onRequestGet needs a matching KV-fallback read (see that file).
+    try {
+      await kv.put(`venue:auto:${venue.slug}`, JSON.stringify({
+        slug:        venue.slug,
+        name:        venue.name,
+        city:        venue.city || '',
+        country:     venue.country || '',
+        venueId:     venue.venueId || null,
+        description: venue.description || `Compare ${venue.name} ticket prices across verified sellers on TicketScout.`
+      }));
+      knownVenues.add(venue.slug);
+    } catch (err) {
+      committed.errors.push({ type: 'venue-kv', slug: venue.slug, error: String(err) });
+      // Deliberately NOT added to knownVenues on failure — same principle
+      // as the legacy-path fix: only mark "known" once the data is actually
+      // saved somewhere retrievable, so a failure here leaves the venue
+      // eligible for rediscovery next sweep instead of silently stranded.
+    }
+  }
 
   // ── Requeue remainder or clear ────────────────────────────────────────
   if (remainderArtists.length || remainderVenues.length) {
