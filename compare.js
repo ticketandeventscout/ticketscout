@@ -405,6 +405,19 @@ function looksLikePerformerSuffix(s) {
   return !/^(day\s*\d|day\s+(one|two|three|four|five)|saturday|sunday|friday|monday|tuesday|wednesday|thursday|weekend|vip|ga\b|general admission|parking|hospitality|camping|final|semi[\s-]?final|quarter[\s-]?final|round\b|group\s|ceremony|heat\b|qualifier|practice|session\b|early entry|add[\s-]?on)/i.test(t);
 }
 
+// When a colon-less fixture name still carries a series/league prefix (e.g.
+// TM sometimes returns "Nfl London 2026 Houston Texans v Jacksonville
+// Jaguars" with no colon at all — a title-cased de-slugified name, or a
+// reissued TM title), the general vs-extraction below greedily captures the
+// WHOLE prefix as the "home team" ("Nfl London 2026 Houston Texans"),
+// sending every affiliate a query no seller can match. A 4-digit year
+// followed by real text marks where a series/edition prefix ends and the
+// actual team/act name begins, so cut there. No-op when there's no year.
+function stripSeriesYearPrefix(text) {
+  const m = text.match(/\b(19|20)\d{2}\b\s+(.+)$/);
+  return (m && m[2].trim()) ? m[2].trim() : text;
+}
+
 function extractPerformerName(fullName) {
   if (!fullName) return '';
   // Strip subtitle after colon (e.g. "Metallica: Life Burns Faster" -> "Metallica")
@@ -435,7 +448,7 @@ function extractPerformerName(fullName) {
   // e.g. "FC Bayern Munich vs. RB Leipzig" -> "FC Bayern Munich"
   // e.g. "Real Madrid CF vs Real Sociedad" -> "Real Madrid CF"
   const vsMatch = fullName.match(/^(.+?)\s+vs?\.?\s+.+$/i);
-  if (vsMatch) return vsMatch[1].trim();
+  if (vsMatch) return stripSeriesYearPrefix(vsMatch[1].trim());
   // Strip subtitle after " - " ONLY if the part before is not a generic day/type word
   const dashIdx = fullName.indexOf(' - ');
   if (dashIdx > 0) {

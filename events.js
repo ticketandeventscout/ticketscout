@@ -661,6 +661,19 @@ async function showEventDetail(rawEventId) {
     let city  = decodeURIComponent(hashParams.get('city')  || '');
     let image = '';
 
+    // Soldout (US-only seller) needs a country signal, but this path has no
+    // true country field — SE365's own adapter doesn't expose one, and
+    // threading a real one through football.html's event construction + the
+    // hash link + here would touch several files for what's currently a
+    // nice-to-have, not a reported bug. This is a lightweight, HONEST
+    // stand-in: US sports venues are near-universally rendered as
+    // "City, ST" (state code) — e.g. "Miami, FL", "Landover, MD", matching
+    // exactly what showed up in the Miami Dolphins/Heat screenshots. A false
+    // negative here just means Soldout doesn't show for a US event (same as
+    // today); it can never wrongly show Soldout for a non-US one, since the
+    // pattern is specific to the US state-code convention.
+    const country = /,\s*[A-Z]{2}$/.test(city) ? 'US' : '';
+
     // Only fetch for image enrichment (Awin) — don't use it for venue/city
     if (!venue || !city) {
       try {
@@ -719,7 +732,8 @@ async function showEventDetail(rawEventId) {
 
     renderComparePrices(
       document.getElementById('detail-compare'),
-      eventName, null, '#', city, eventDate, venue
+      eventName, null, '#', city, eventDate, venue,
+      undefined, country
     );
 
     if (city && eventDate) {

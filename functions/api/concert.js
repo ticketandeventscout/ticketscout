@@ -376,17 +376,28 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
-  // Fallback — check Awin events for any unknown slug
+  // Fallback — check Awin for any unknown slug
   if (!artist) {
     const name = normSlug.replace(/-/g, ' ');
     try {
       const origin  = new URL(request.url).origin;
-      const awinUrl = `${origin}/api/awin-events?name=${encodeURIComponent(name)}&size=1`;
+      // Switched from /api/awin-events to /api/awin-category: the older
+      // adapter matched on product_name + free-text description, and a
+      // venue literally named after an artist (Avicii Arena) could satisfy
+      // a description-text match even when the actual performer was someone
+      // else entirely (The Neighbourhood, A$AP Rocky...) playing AT that
+      // venue. awin-category.js scores ONLY primary_artist/event_name/
+      // product_name — venue text is never part of the match at all, so
+      // this venue-named-after-an-artist case can't false-positive here.
+      // No date param: this is a broad "tell me about this artist" lookup,
+      // not a specific dated event, so we want any/all matching rows.
+      const awinUrl  = `${origin}/api/awin-category?q=${encodeURIComponent(name)}`;
       const awinResp = await fetch(awinUrl);
       if (awinResp.ok) {
         const awinData = await awinResp.json();
-        if (awinData.events && awinData.events.length > 0) {
-          const ev          = awinData.events[0];
+        const matches  = awinData.matches || [];
+        if (matches.length > 0) {
+          const ev          = matches[0];
           const displayName = toTitleCase(name);
           const rawDesc     = (ev.description || '').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/<[^>]*>/g, '').trim();
           artist = {

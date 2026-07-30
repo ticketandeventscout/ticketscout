@@ -65,10 +65,10 @@
 
       suggestions.innerHTML = attractions.map(a => {
         const img     = getSmallImage(a.images);
-        const genre   = a.classifications?.[0]?.segment?.name || '';
         const segment = a.classifications?.[0]?.segment?.name || '';
+        const genre   = a.classifications?.[0]?.genre?.name || '';
         const tmId    = a.id || '';
-        return `<div class="suggestion-item" data-name="${esc(a.name)}" data-segment="${esc(segment)}" data-tmid="${esc(tmId)}">
+        return `<div class="suggestion-item" data-name="${esc(a.name)}" data-segment="${esc(segment)}" data-genre="${esc(genre)}" data-tmid="${esc(tmId)}">
           ${img
             ? `<img src="${img}" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;" />`
             : `<div style="width:36px;height:36px;background:#e8f2fc;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1a6fc4" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>`
@@ -88,16 +88,28 @@
         item.addEventListener('click', function() {
           const name    = this.dataset.name;
           const segment = (this.dataset.segment || '').toLowerCase();
+          const genre   = this.dataset.genre || '';
           hideSuggestions();
 
           // Normalise name to slug — handle umlauts and special chars
           const slug = normaliseToSlug(name);
 
-          // Route sports directly to football page, bypass handleSearch slug issues
+          // Route sports directly to the right hub. MUST MATCH the segment/
+          // genre split in ticketmaster.js's tsTmCategory() — that function
+          // was fixed to distinguish real football (genre 'Soccer') from
+          // other sports (basketball, baseball, tennis...), but this COPY of
+          // the same decision wasn't updated at the time, so every
+          // Sports-segment suggestion (Miami Heat, NY Jets, US Open...) was
+          // still routed to /football/ regardless of sport, 404ing since
+          // those entities are registered under /sports/.
           if (segment === 'sports') {
-            // Check alias map first, then fall back to normalised slug
-            const footballSlug = FOOTBALL_SLUG_ALIASES[slug] || slug;
-            window.location.href = '/football/' + footballSlug;
+            const isFootball = genre === 'Soccer';
+            if (isFootball) {
+              const footballSlug = FOOTBALL_SLUG_ALIASES[slug] || slug;
+              window.location.href = '/football/' + footballSlug;
+            } else {
+              window.location.href = '/sports/' + slug;
+            }
             return;
           }
 
@@ -221,4 +233,10 @@ const FOOTBALL_SLUG_ALIASES = {
   'as-monaco': 'monaco',
   'ogc-nice': 'nice',
   'sc-braga': 'braga',
+  // Live TM attraction search returns "Brighton and Hove Albion" (the word
+  // "and", not "&") — our curated tmSearch in football.js uses "&", which
+  // normaliseToSlug simply strips (not "and"), producing a DIFFERENT slug
+  // than what live search actually generates. Static audits comparing our
+  // own curated strings can't catch this class of gap — only live data can.
+  'brighton-and-hove-albion': 'brighton',
 };

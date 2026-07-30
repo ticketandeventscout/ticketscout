@@ -207,7 +207,12 @@ function toResult(row) {
     merchant_name: row.merchant_name,
     event_name:    row.event_name || null,
     venue_name:    row.venue_name || null,
-    event_city:    row.event_city || null
+    event_city:    row.event_city || null,
+    // Added for callers needing descriptive text (e.g. concert.js's "About
+    // the artist" fallback card) — additive fields, existing callers that
+    // only read the properties above are unaffected.
+    description:   row.description || null,
+    category:      row.merchant_category || row.category_name || null
   };
 }
 
