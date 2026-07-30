@@ -222,13 +222,23 @@ export async function onRequestGet({ request, env }) {
           return { attraction: a, score };
         }).sort((a, b) => b.score - a.score);
 
-        const best = scored[0].attraction;
-        attractionId = best.id;
-        const images = best.images || [];
-        const sixteenNine = images
-          .filter(img => img.ratio === '16_9' && img.width > 500)
-          .sort((a, b) => (b.width || 0) - (a.width || 0));
-        tmImage = sixteenNine[0]?.url || images.find(img => img.width > 500)?.url || images[0]?.url || null;
+        const best = scored[0];
+        // Zero-score means NONE of the returned attractions had any textual
+        // relationship to the search term at all (not exact, not a prefix,
+        // not even a substring) — TM's own keyword relevance ranking still
+        // returns ITS best guess regardless, which is how an unrelated
+        // attraction (e.g. a Pickleball tournament for a "Champions League
+        // Final" search) got assigned and then had its OWN fixtures listed
+        // as if they belonged to this entity. Leave attractionId unset
+        // rather than trust a match we have zero textual basis for.
+        if (best.score > 0) {
+          attractionId = best.attraction.id;
+          const images = best.attraction.images || [];
+          const sixteenNine = images
+            .filter(img => img.ratio === '16_9' && img.width > 500)
+            .sort((a, b) => (b.width || 0) - (a.width || 0));
+          tmImage = sixteenNine[0]?.url || images.find(img => img.width > 500)?.url || images[0]?.url || null;
+        }
       }
     } catch (err) {
       console.error('TM attraction lookup error:', err);

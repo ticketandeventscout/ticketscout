@@ -39,10 +39,10 @@
 // Direct merchant domains + the four networks' tracking domains.
 const ALLOWED_HOSTS = [
   // Direct merchants
-  'ticketmaster.co.uk', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
+  'ticketmaster.co.uk', 'ticketmaster.com', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
   'eventim.co.uk', 'eventim.pl', 'theatreticketsdirect.co.uk',
   'ticketnetwork.com', 'vividseats.com', 'skiddle.com', 'seatgeek.com',
-  'hotels.com', 'trivago.co.uk', 'soldout.com', 'livefootballtickets.com',
+  'hotels.com', 'trivago.co.uk', 'soldout.com',
   // Awin
   'awin1.com',
   // Partnerize
@@ -68,11 +68,7 @@ const SOURCE_TO_MERCHANT = {
   'TicketNetwork':           'ticketnetwork',
   'Eventim':                 'eventim_uk',
   'Eventim PL':              'eventim_pl',
-  'Soldout':                 'soldout',
-  // Awin advertiser 119227 — both spacing variants until the feed's exact
-  // merchant_name is confirmed via awin-category-cache ?find=.
-  'LiveFootballTickets':     'lft',
-  'Live Football Tickets':   'lft'
+  'Soldout':                 'soldout'
 };
 
 export async function onRequestGet(context) {

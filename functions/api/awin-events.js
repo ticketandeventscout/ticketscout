@@ -51,8 +51,19 @@ export async function onRequestGet(ctx) {
       if (!chunk) continue;
       for (const row of chunk) {
         const productName = (row.product_name || '').toLowerCase();
-        const description = (row.description || '').toLowerCase();
-        if (!productName.includes(name) && !description.includes(name)) continue;
+        // Matching used to also check `description` — free text that
+        // commonly mentions the VENUE ("...coming to Avicii Arena,
+        // Stockholm") regardless of who's actually performing. That's how
+        // searching the artist "Avicii" (deceased 2018) surfaced unrelated
+        // acts (The Neighbourhood, A$AP Rocky, Deep Purple...) playing AT a
+        // venue that happens to be NAMED AFTER him. product_name alone is
+        // still not a full fix — if a listing's own title embeds the venue
+        // name, this can still false-positive — but it removes the biggest,
+        // clearest source of it. A fuller fix would score primary_artist/
+        // event_name above product_name the way awin-category.js already
+        // does; that's a larger adapter change (different response shape)
+        // best done as its own tested piece of work, not folded in here.
+        if (!productName.includes(name)) continue;
         if (!rowInCategory(row)) continue;   // wrong-category guard
         matches.push({
           id:           `awin-${row.merchant_id}-${encodeURIComponent(row.aw_deep_link).slice(-20)}`,

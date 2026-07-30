@@ -509,33 +509,17 @@ function renderPage(d) {
     var trendTxt = { up: 'trending up', down: 'trending down', flat: 'holding steady' }[trend] || 'holding steady';
     var trendArrow = { up: '\u25b2', down: '\u25bc', flat: '\u25ac' }[trend] || '';
 
-    // Tracked history isn't comparable to what sellers are listing right now.
-    // Show the live price, say plainly that there's no reliable trend, and
-    // draw no line — a chart here would imply a price move that never
-    // happened. See phReconcile for how this is detected.
+    // Tracked history isn't comparable to what sellers are listing right now
+    // (see phReconcile). Previously this rendered a "no trend" disclaimer
+    // card; per product decision, when there's no graph to show, show
+    // nothing at all rather than an explanatory card that reads oddly.
     if (data._inconsistent) {
-      container.innerHTML =
-        '<div class="ts-pricehist ts-ph-sparse">' +
-          '<div class="ts-ph-head"><h3 class="ts-ph-title">Price history</h3>' +
-            '<span class="ts-ph-scope">' + phEsc(scopeTag) + '</span></div>' +
-          '<div class="ts-ph-figs"><span class="ts-ph-current"><span class="cur">\u00a3</span>' + phNum(data._livePrice) + '</span></div>' +
-          '<div class="ts-ph-foot"><span class="anchor">' + phEsc(anchorLine) + '.</span> ' +
-            'That\\'s the cheapest price sellers are listing right now. Our tracked ' +
-            'history for this event doesn\\'t line up with current listings, so we\\'re ' +
-            'not showing a price trend rather than show you a misleading one.</div>' +
-        '</div>';
+      container.innerHTML = '';
       return;
     }
 
     if (series.length < 4) {
-      container.innerHTML =
-        '<div class="ts-pricehist ts-ph-sparse">' +
-          '<div class="ts-ph-head"><h3 class="ts-ph-title">Price history</h3>' +
-            '<span class="ts-ph-scope">' + phEsc(scopeTag) + '</span></div>' +
-          '<div class="ts-ph-figs"><span class="ts-ph-current"><span class="cur">\u00a3</span>' + phNum(current) + '</span></div>' +
-          '<div class="ts-ph-foot"><span class="anchor">' + phEsc(anchorLine) + '.</span> ' +
-            'We\\'ve only been tracking this ' + (scope === 'event' ? 'event' : 'act') + ' for ' + series.length + ' day' + (series.length === 1 ? '' : 's') + ' \u2014 a price trend will appear once we have more history.</div>' +
-        '</div>';
+      container.innerHTML = '';
       return;
     }
 

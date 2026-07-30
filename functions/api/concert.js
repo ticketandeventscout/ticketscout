@@ -125,6 +125,104 @@ async function listEntities(env, url) {
   return jsonResponse({ ...payload, cached: false }, 200);
 }
 
+// ── Full hub rebuild: ?rebuild_full=1&trigger=1&limit=N ──────────────────
+// The on-demand listEntities() above caps at HUB_BUILD_CAP (600) per call —
+// that's a real Cloudflare CPU/subrequest budget limit (one KV read per
+// entity within a single request), not a product choice, so raising it
+// directly risks a timeout. With 2,597 concert entities, that cap meant
+// everything past position 600 (alphabetically) was silently invisible on
+// the hub page forever.
+//
+// This walks the FULL registry across as many small calls as it takes,
+// accumulating into a separate "building" KV key, and only PROMOTES the
+// result to the live HUB_INDEX_KEY once every entity has been read — so the
+// public hub page never serves a partial rebuild mid-flight. Until the first
+// full build completes, listEntities() keeps serving its existing capped
+// fallback, so the page is never empty while this runs in the background.
+const HUB_BUILDING_KEY = 'concert:hub:building';
+const HUB_CURSOR_KEY   = 'concert:hub:cursor';
+
+async function rebuildFullHub(env, url) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '600', 10) || 600, 600);
+
+  let slugs = [];
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    slugs = Object.keys((reg && reg.sections && reg.sections.concert) || {}).sort();
+  } catch (e) {
+    return jsonResponse({ error: 'registry read failed: ' + String(e) }, 500);
+  }
+  if (!slugs.length) return jsonResponse({ error: 'no concert entities in registry' }, 200);
+
+  let cursor = '';
+  try { cursor = (await kv.get(HUB_CURSOR_KEY)) || ''; } catch {}
+
+  let acc = { entities: [], genreCounts: {} };
+  if (cursor) {
+    try {
+      const raw = await kv.get(HUB_BUILDING_KEY, 'json');
+      if (raw && Array.isArray(raw.entities)) acc = { entities: raw.entities, genreCounts: raw.genreCounts || {} };
+    } catch {}
+  }
+
+  // Keyset resume: this is a static snapshot for one full pass (nothing is
+  // deleted mid-build, unlike the D1 reclassify job), so a simple position
+  // lookup in the sorted array is safe here.
+  const startIdx = cursor ? slugs.findIndex(s => s > cursor) : 0;
+  const batch = startIdx < 0 ? [] : slugs.slice(startIdx, startIdx + limit);
+
+  for (const s of batch) {
+    let name = toTitleCase(s.replace(/-/g, ' '));
+    let genre = 'Other';
+    try {
+      const raw = await kv.get('concert:artist:' + s);
+      if (raw) {
+        const rec = JSON.parse(raw);
+        if (rec.name) name = rec.name;
+        genre = canonicalGenre(rec.genre);
+      }
+    } catch { /* keep the de-slugged fallback */ }
+    acc.entities.push({ slug: s, name, genre, url: '/concert/' + s });
+    acc.genreCounts[genre] = (acc.genreCounts[genre] || 0) + 1;
+  }
+
+  const lastSlug = batch.length ? batch[batch.length - 1] : cursor;
+  const done = (startIdx + batch.length) >= slugs.length;
+
+  if (done) {
+    const payload = {
+      count: acc.entities.length,
+      totalRegistered: slugs.length,
+      truncated: false,
+      genres: Object.entries(acc.genreCounts).map(([genre, count]) => ({ genre, count }))
+        .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
+      entities: acc.entities,
+      builtAt: new Date().toISOString()
+    };
+    try {
+      await kv.put(HUB_INDEX_KEY, JSON.stringify(payload), { expirationTtl: HUB_INDEX_TTL });
+      await kv.delete(HUB_BUILDING_KEY);
+      await kv.delete(HUB_CURSOR_KEY);
+    } catch (e) {
+      return jsonResponse({ error: 'promote failed: ' + String(e) }, 500);
+    }
+    return jsonResponse({ done: true, totalEntities: acc.entities.length, totalRegistered: slugs.length, promoted: true }, 200);
+  }
+
+  try {
+    await kv.put(HUB_BUILDING_KEY, JSON.stringify(acc));
+    await kv.put(HUB_CURSOR_KEY, lastSlug);
+  } catch (e) {
+    return jsonResponse({ error: 'progress save failed: ' + String(e) }, 500);
+  }
+  return jsonResponse({
+    done: false, processedSoFar: acc.entities.length, totalRegistered: slugs.length,
+    next: `?rebuild_full=1&trigger=1&limit=${limit}`
+  }, 200);
+}
+
 const HARDCODED_THEATRE_SLUGS = [
   'a-christmas-carol', 'little-shop-of-horrors', 'maybe-happy-ending', 'buena-vista-social-club',
   'blue-man-group', 'magic-mike-live', 'jabbawockeez', 'dolly',
@@ -254,6 +352,9 @@ export async function onRequestGet({ request, env }) {
   if (url.searchParams.get('inspect') === '1') return inspectRecords(env, 'concert', 'concert:artist:');
   if (url.searchParams.get('shadowcheck') === '1') return shadowCheck(env);
   if (url.searchParams.get('list') === '1') return listEntities(env, url);
+  if (url.searchParams.get('rebuild_full') === '1' && url.searchParams.get('trigger') === '1') {
+    return rebuildFullHub(env, url);
+  }
 
   if (!slug) {
     return jsonResponse({ error: 'slug is required' }, 400);

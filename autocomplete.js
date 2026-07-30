@@ -197,4 +197,28 @@ const FOOTBALL_SLUG_ALIASES = {
   'losc-lille': 'lille-osc',
   'rc-strasbourg-alsace': 'rc-strasbourg',
   'stade-brestois-29': 'stade-brestois',
+  // Added after a programmatic audit of every TEAMS entry (comparing
+  // normaliseToSlug(tmSearch) against the curated slug) — these 18 were
+  // the genuine gaps, confirmed against football.js's TEAMS array, not
+  // guessed. Premier League/Championship clubs dominate this list because
+  // our slugs deliberately drop a common suffix word ("Hotspur", "United",
+  // "Town"...) that normaliseToSlug's FC/CF-only stripping can't predict.
+  'tottenham-hotspur': 'tottenham',
+  'newcastle-united': 'newcastle',
+  'west-ham-united': 'west-ham',
+  'brighton-hove-albion': 'brighton',
+  'wolverhampton-wanderers': 'wolves',
+  'afc-bournemouth': 'bournemouth',
+  'ipswich-town': 'ipswich',
+  'sunderland-afc': 'sunderland',
+  'heart-of-midlothian': 'hearts',
+  'cd-leganes': 'leganes',
+  'tsg-hoffenheim': 'hoffenheim',
+  'fc-schalke-04': 'schalke-04',
+  'udinese-calcio': 'udinese',
+  'cagliari-calcio': 'cagliari',
+  'parma-calcio': 'parma',
+  'as-monaco': 'monaco',
+  'ogc-nice': 'nice',
+  'sc-braga': 'braga',
 };

@@ -482,7 +482,7 @@ const MERCHANT_IDS = {
 // ALLOWED_HOSTS in functions/api/go.js. Unrecognised affiliate domains
 // are console.warned — add them to BOTH lists when spotted.
 const GO_HOSTS = [
-  'ticketmaster.co.uk', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
+  'ticketmaster.co.uk', 'ticketmaster.com', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
   'eventim.co.uk', 'eventim.pl', 'theatreticketsdirect.co.uk',
   'ticketnetwork.com', 'vividseats.com', 'skiddle.com', 'seatgeek.com',
   'hotels.com', 'trivago.co.uk', 'awin1.com', 'prf.hn',
@@ -783,6 +783,27 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     // Ensure live rates are loaded before normalising (no-op if already done).
     await loadFxRates();
 
+    // TM display rules (unchanged in effect, just applied by MERGING it into
+    // the same sortable array everyone else uses, instead of always printing
+    // it first regardless of price):
+    //   1. No other seller found a price → include TM even without a price
+    //      (sole coverage; it'll sit among the no-price rows like everyone else)
+    //   2. Other sellers found prices AND TM has a price → include it, sorted
+    //      into its correct position by price like any other seller
+    //   3. Other sellers found prices AND TM has no price → omit it entirely
+    //      (no commission + no value)
+    // Previously TM was always inserted first in the DOM regardless of price,
+    // which is why a £50 Ticketmaster row could sit above a £32 "Best price"
+    // Ticombo row — the badge was computed correctly, but TM's POSITION never
+    // participated in the sort.
+    const otherHavePrices = results.some(r => r.price);
+    if (tmUrl && tmUrl !== '#' && (tmPrice || !otherHavePrices)) {
+      results.push({
+        source: 'Ticketmaster', price: tmPrice || null, currency: 'GBP',
+        url: tmUrl, available: true, isFallback: !tmPrice
+      });
+    }
+
     // ── Currency normalisation → GBP ────────────────────────────────────
     // Sellers report in their own currency (VS/TN in USD, Ticombo in EUR,
     // etc.). Comparing raw numbers made a cheap $67 look dearer than €177
@@ -870,20 +891,9 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     }
 
     slot.innerHTML = '';
-    const otherHavePrices = withPrices.some(r => r.price);
-    // Show TM when: it has a price, OR no other seller has a real price (sole coverage)
-    if (tmPrice || !otherHavePrices) {
-      if (tmUrl && tmUrl !== '#') {
-        slot.insertAdjacentHTML('beforeend', buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP'));
-      }
-    }
     withPrices.forEach(result => {
       slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url, result.currency, result.implausible));
     });
-    // Safety — if nothing rendered at all, show TM as fallback
-    if (!slot.innerHTML.trim() && tmUrl && tmUrl !== '#') {
-      slot.innerHTML = buildRow('Ticketmaster', tmPrice, tmUrl, 'GBP');
-    }
 
     highlightBestPrice();
   });

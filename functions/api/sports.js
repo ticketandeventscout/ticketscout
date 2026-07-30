@@ -55,6 +55,9 @@ export async function onRequestGet({ request, env }) {
   if (url.searchParams.get('list') === '1') {
     return listEntities(env, url);
   }
+  if (url.searchParams.get('rebuild_full') === '1' && url.searchParams.get('trigger') === '1') {
+    return rebuildFullHub(env, url);
+  }
 
   if (!slug) return json({ error: 'slug is required' }, 400);
 
@@ -195,4 +198,97 @@ async function listEntities(env, url) {
 
   try { await kv.put(HUB_INDEX_KEY, JSON.stringify(payload), { expirationTtl: HUB_INDEX_TTL }); } catch {}
   return json({ ...payload, cached: false }, 200);
+}
+
+// ── Full hub rebuild: ?rebuild_full=1&trigger=1&limit=N ──────────────────
+// See concert.js's rebuildFullHub for the full rationale — same fix, same
+// pattern, ported across (this file predates concert.js's copy, but the
+// 600-per-call CPU/subrequest constraint applies identically here: 1,027
+// sports entities means everything past position 600 was silently invisible
+// on the hub page forever). Accumulates across calls, promotes to the live
+// HUB_INDEX_KEY only once the full registry has been walked, so the public
+// hub page never serves a partial build and always has SOME data (the
+// existing capped listEntities()) until the first full pass completes.
+const HUB_BUILDING_KEY = 'sports:hub:building';
+const HUB_CURSOR_KEY   = 'sports:hub:cursor';
+
+async function rebuildFullHub(env, url) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return json({ error: 'Missing GIGSBERG_KV' }, 500);
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '600', 10) || 600, 600);
+
+  let slugs = [];
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    slugs = Object.keys((reg && reg.sections && reg.sections.sports) || {}).sort();
+  } catch (e) {
+    return json({ error: 'registry read failed: ' + String(e) }, 500);
+  }
+  if (!slugs.length) return json({ error: 'no sports entities in registry' }, 200);
+
+  let cursor = '';
+  try { cursor = (await kv.get(HUB_CURSOR_KEY)) || ''; } catch {}
+
+  let acc = { entities: [], genreCounts: {} };
+  if (cursor) {
+    try {
+      const raw = await kv.get(HUB_BUILDING_KEY, 'json');
+      if (raw && Array.isArray(raw.entities)) acc = { entities: raw.entities, genreCounts: raw.genreCounts || {} };
+    } catch {}
+  }
+
+  // Static snapshot for one full pass (nothing removed mid-build) — a simple
+  // position lookup in the sorted array is safe, unlike a mutating D1 table.
+  const startIdx = cursor ? slugs.findIndex(s => s > cursor) : 0;
+  const batch = startIdx < 0 ? [] : slugs.slice(startIdx, startIdx + limit);
+
+  for (const s of batch) {
+    let name = toTitleCase(s.replace(/-/g, ' '));
+    let genre = 'Other';
+    try {
+      const raw = await kv.get(KV_PREFIX + s);
+      if (raw) {
+        const rec = JSON.parse(raw);
+        if (rec.name) name = rec.name;
+        const label = canonicalGenre(rec.genre);
+        if (label) genre = label;
+      }
+    } catch { /* keep the de-slugged fallback */ }
+    acc.entities.push({ slug: s, name, genre, url: '/sports/' + s });
+    acc.genreCounts[genre] = (acc.genreCounts[genre] || 0) + 1;
+  }
+
+  const lastSlug = batch.length ? batch[batch.length - 1] : cursor;
+  const done = (startIdx + batch.length) >= slugs.length;
+
+  if (done) {
+    const payload = {
+      count: acc.entities.length,
+      totalRegistered: slugs.length,
+      truncated: false,
+      genres: Object.entries(acc.genreCounts).map(([genre, count]) => ({ genre, count }))
+        .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
+      entities: acc.entities,
+      builtAt: new Date().toISOString()
+    };
+    try {
+      await kv.put(HUB_INDEX_KEY, JSON.stringify(payload), { expirationTtl: HUB_INDEX_TTL });
+      await kv.delete(HUB_BUILDING_KEY);
+      await kv.delete(HUB_CURSOR_KEY);
+    } catch (e) {
+      return json({ error: 'promote failed: ' + String(e) }, 500);
+    }
+    return json({ done: true, totalEntities: acc.entities.length, totalRegistered: slugs.length, promoted: true }, 200);
+  }
+
+  try {
+    await kv.put(HUB_BUILDING_KEY, JSON.stringify(acc));
+    await kv.put(HUB_CURSOR_KEY, lastSlug);
+  } catch (e) {
+    return json({ error: 'progress save failed: ' + String(e) }, 500);
+  }
+  return json({
+    done: false, processedSoFar: acc.entities.length, totalRegistered: slugs.length,
+    next: `?rebuild_full=1&trigger=1&limit=${limit}`
+  }, 200);
 }
