@@ -2174,15 +2174,30 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
   }
   artists = liquid;
 
-  // Cap the batch; keep the remainder queued for the next run
+  // Cap the batch; keep the remainder queued for the next run.
+  //
+  // FIX: this used to give artists first claim on the ENTIRE cap
+  // (artistCap = min(artists.length, CAP)), with venues only getting
+  // whatever was left over (CAP - artists.length, floored at 0). With a
+  // large pending-artist backlog — the normal state during any active
+  // backfill — artists alone reliably meet or exceed CAP every single run,
+  // so venues got committed ZERO times, run after run. This is the exact
+  // reason venue.js sat at 49 entries despite the discovery side of this
+  // pipeline (in the ticketmaster branch above) actively finding new venues
+  // the whole time — they were being silently starved at the commit step.
+  // Now venues get a GUARANTEED minimum slice of the cap first; artists take
+  // whatever remains. Venue counts are naturally much smaller than artist
+  // counts per run, so this costs artists little while finally letting
+  // venue coverage grow.
   let remainderArtists = [], remainderVenues = [];
   if (artists.length + venues.length > COMMIT_BATCH_CAP) {
-    const artistCap = Math.min(artists.length, COMMIT_BATCH_CAP);
-    remainderArtists = artists.slice(artistCap);
-    artists = artists.slice(0, artistCap);
-    const venueCap = Math.max(0, COMMIT_BATCH_CAP - artists.length);
+    const VENUE_MIN_SHARE = Math.min(venues.length, 50);
+    const venueCap  = Math.max(VENUE_MIN_SHARE, Math.min(venues.length, COMMIT_BATCH_CAP));
     remainderVenues = venues.slice(venueCap);
     venues = venues.slice(0, venueCap);
+    const artistCap = Math.max(0, COMMIT_BATCH_CAP - venues.length);
+    remainderArtists = artists.slice(artistCap);
+    artists = artists.slice(0, artistCap);
   }
 
   const github = new GitHubAPI(githubToken, owner, repo, branch);

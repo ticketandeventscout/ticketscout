@@ -117,7 +117,14 @@ const TEAMS = [
   { slug: 'porto', name: 'FC Porto', search: 'FC Porto', tmSearch: 'FC Porto', genre: 'Football', description: 'FC Porto are Portugal\'s most successful club in European terms, winning the Champions League in 1987 and 2004 under Jose Mourinho. Based at the Estadio do Dragao, Porto are consistently competitive in European football.' },
   { slug: 'benfica', name: 'Benfica', search: 'Benfica', tmSearch: 'SL Benfica', genre: 'Football', description: 'SL Benfica are one of Portugal\'s most successful clubs with 38 Primeira Liga titles and 2 European Cups. Based at the Estadio da Luz in Lisbon, Benfica are one of the most widely supported clubs in the world.' },
   { slug: 'sporting-cp', name: 'Sporting CP', search: 'Sporting CP', tmSearch: 'Sporting CP', genre: 'Football', description: 'Sporting CP are a major Lisbon club with 19 Primeira Liga titles. Known for one of football\'s most celebrated academies that produced Cristiano Ronaldo, Sporting play at the Jose Alvalade stadium.' },
-  { slug: 'braga', name: 'SC Braga', search: 'Braga', tmSearch: 'SC Braga', genre: 'Football', description: 'SC Braga are northern Portugal\'s biggest club and regular European participants, having reached the Europa League final in 2011. Playing at the spectacular Municipal de Braga stadium carved into a granite hillside, Braga are a consistent Portuguese force.' }
+  { slug: 'braga', name: 'SC Braga', search: 'Braga', tmSearch: 'SC Braga', genre: 'Football', description: 'SC Braga are northern Portugal\'s biggest club and regular European participants, having reached the Europa League final in 2011. Playing at the spectacular Municipal de Braga stadium carved into a granite hillside, Braga are a consistent Portuguese force.' },
+  // Added as a real curated entity (not just the generic slug-synthesised
+  // fallback) — a competition, not a club, but same TEAMS shape works fine
+  // since the whole pipeline (attraction search, description, meta) treats
+  // every entry the same way. "Champions League Final" already existed as
+  // its own separate entity; this is the broader competition (group stage
+  // through final), distinct tmSearch to avoid the two colliding in search.
+  { slug: 'champions-league', name: 'Champions League', search: 'Champions League', tmSearch: 'UEFA Champions League', genre: 'Football', description: 'The UEFA Champions League is European club football\'s premier competition, bringing together the continent\'s top teams each season. Compare ticket prices for group stage, knockout and final fixtures across verified sellers.' }
 
 ];
 
