@@ -58,6 +58,12 @@ export async function onRequestGet({ request, env }) {
   if (url.searchParams.get('rebuild_full') === '1' && url.searchParams.get('trigger') === '1') {
     return rebuildFullHub(env, url);
   }
+  if (url.searchParams.get('findslug')) {
+    return findSlug(env, url.searchParams.get('findslug'));
+  }
+  if (url.searchParams.get('kv_search')) {
+    return kvSearch(env, url.searchParams.get('kv_search'));
+  }
 
   if (!slug) return json({ error: 'slug is required' }, 400);
 
@@ -118,6 +124,53 @@ export async function onRequestGet({ request, env }) {
   }, 200);
 }
 
+// ── Read-only KV/registry search: ?kv_search=<term> ────────────────────────
+// Answers exactly the question "is this entity registered, does it have real
+// KV data, or neither?" — the three outcomes look identical from a browser
+// (a rendered page either way, thanks to the guaranteed synthesise-fallback
+// above), so the only way to tell them apart is checking the data directly.
+// Cloudflare's own KV dashboard browser has no fuzzy/substring search across
+// a namespace, so this does it via the registry (one JSON blob, filterable
+// in memory) plus a scoped kv.list() prefix scan for the per-entity records.
+async function kvSearch(env, term) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return json({ error: 'Missing GIGSBERG_KV' }, 500);
+  const needle = term.trim().toLowerCase();
+  if (!needle) return json({ error: 'kv_search term is empty' }, 400);
+
+  const out = { term: needle, registryMatches: [], entityRecordMatches: [], notes: [] };
+
+  // 1) Is it in the sitemap registry at all? (governs hub listing + sitemap)
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    const slugs = Object.keys((reg && reg.sections && reg.sections.sports) || {});
+    out.registryMatches = slugs.filter(s => s.includes(needle));
+    out.totalSportsRegistrySlugs = slugs.length;
+  } catch (e) {
+    out.notes.push('registry read failed: ' + String(e));
+  }
+
+  // 2) Does a per-entity KV record exist? (governs whether the page has real
+  // curated data or is falling back to the generic slug-synthesised stub —
+  // kv.list with a prefix is the closest thing to a substring search KV
+  // supports; it only anchors at the START of the key, so this checks the
+  // exact registry matches above rather than a blind namespace-wide scan.
+  try {
+    for (const slug of out.registryMatches) {
+      const raw = await kv.get(KV_PREFIX + slug);
+      out.entityRecordMatches.push({ slug, hasEntityRecord: !!raw });
+    }
+  } catch (e) {
+    out.notes.push('entity record read failed: ' + String(e));
+  }
+
+  if (out.registryMatches.length === 0) {
+    out.notes.push('Not in the registry under any slug containing "' + needle + '" — genuinely undiscovered yet, or registered under a slug that does not contain this substring at all (a naming/collision mismatch).');
+  }
+
+  return json(out, 200);
+}
+
 function toTitleCase(str) {
   return String(str || '')
     .split(' ')
@@ -145,6 +198,60 @@ function json(body, status) {
 const HUB_INDEX_KEY = 'sports:hub:index';
 const HUB_INDEX_TTL = 6 * 60 * 60;
 const HUB_BUILD_CAP = 600;          // reads per rebuild — keeps us inside CPU limits
+
+// ── ?findslug=<term> — answers the two questions that actually explain a
+// 404 for a slug that SHOULD route correctly (e.g. "us-open"):
+//   1. Is it registered at all, under exactly this slug or a DIFFERENT one
+//      (a collision — e.g. "us-open-tennis" vs the "us-open" our routing
+//      produces)? Searches the registry with a plain substring match, not an
+//      exact one, so a differently-disambiguated slug still shows up.
+//   2. For each match, does its KV entity record exist (sports:team:{slug})?
+//      If the slug IS registered but this is missing/empty, the static page
+//      was never committed — discover-pages.js's commit phase hasn't
+//      reached it yet, not a routing bug.
+// Read-only, no writes.
+async function findSlug(env, term) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return json({ error: 'no KV binding' }, 500);
+  const needle = (term || '').toLowerCase().trim();
+  if (!needle) return json({ error: 'findslug requires a search term, e.g. ?findslug=us-open' }, 400);
+
+  let allSlugs = [];
+  try {
+    const reg = await kv.get('sitemap:registry', 'json');
+    allSlugs = Object.keys((reg && reg.sections && reg.sections.sports) || {});
+  } catch (e) {
+    return json({ error: 'registry read failed: ' + String(e) }, 500);
+  }
+
+  const matches = allSlugs.filter(s => s.includes(needle)).sort();
+  const results = [];
+  for (const s of matches.slice(0, 25)) {
+    const row = { slug: s, inRegistry: true };
+    try {
+      const raw = await kv.get(KV_PREFIX + s);
+      row.kvEntityExists = !!raw;
+      if (raw) {
+        try { row.name = JSON.parse(raw).name; } catch {}
+      }
+    } catch (e) { row.kvReadError = String(e); }
+    row.expectedStaticFile = `sports/${s}.html`;
+    row.note = row.kvEntityExists
+      ? 'Has KV data — if this still 404s, the static file itself was never committed (check the repo for this exact path).'
+      : 'No KV entity record — registered but not yet committed. Will get a static page once discover-pages.js\'s commit phase reaches it.';
+    results.push(row);
+  }
+
+  return json({
+    searchTerm: needle,
+    totalRegisteredSports: allSlugs.length,
+    matchCount: matches.length,
+    matches: results,
+    note: matches.length === 0
+      ? 'No registry slug contains this term at all — it was never discovered, or discovery used a name that doesn\'t normalise to include this substring.'
+      : undefined
+  }, 200);
+}
 
 async function listEntities(env, url) {
   const kv = env.GIGSBERG_KV;

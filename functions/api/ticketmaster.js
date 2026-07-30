@@ -124,7 +124,27 @@ export async function onRequestGet(ctx) {
     const cursorKey = `regsweep:cursor:${category}`;
     let offset = 0;
     if (!dryRun) { try { const c = await kv.get(cursorKey); offset = c ? (parseInt(c, 10) || 0) : 0; } catch {} }
-    const batch = allSlugs.slice(offset, offset + limit);
+
+    // ── Priority queue — checked FIRST, ahead of the normal cursor ─────────
+    // Populated by /api/onsale-signals from an external on-sale-announcement
+    // page (configured via an env var there — signal only, never their
+    // content, see that file). An entity showing up here means public
+    // interest/on-sale timing suggests it's worth registering NOW rather
+    // than waiting for the cursor to reach it naturally, which could be days
+    // away on a large registry.
+    let prioritySlugs = [];
+    let queueSnapshot = [];
+    try {
+      const raw = await kv.get('priority:queue', 'json');
+      if (Array.isArray(raw)) queueSnapshot = raw;
+    } catch {}
+    const priorityForCategory = queueSnapshot.filter(q => q.category === category);
+    prioritySlugs = priorityForCategory.map(q => q.slug).slice(0, limit);
+
+    const remainingLimit = Math.max(0, limit - prioritySlugs.length);
+    const cursorBatch = allSlugs.slice(offset, offset + remainingLimit)
+      .filter(s => !prioritySlugs.includes(s)); // avoid double-processing if the cursor was about to reach the same slug anyway
+    const batch = [...prioritySlugs, ...cursorBatch];
 
     // Verify D1 writes actually land (waitUntil writes have failed silently
     // before) — count this category's upcoming rows before and after.
@@ -211,14 +231,33 @@ export async function onRequestGet(ctx) {
       }
     }
 
-    const processed = quotaBreakerHit ? stoppedAt : batch.length;
-    const nextOffset = offset + processed;
+    // `stoppedAt`/batch.length are an index into the COMBINED batch
+    // (priority slugs first, then cursor slugs) — the cursor must only ever
+    // advance by how much of the CURSOR portion was reached, never counting
+    // priority slugs (they aren't positions in allSlugs at all). Get this
+    // wrong and a run with priority items would skip that many real cursor
+    // entities every time.
+    const processedCombined = quotaBreakerHit ? stoppedAt : batch.length;
+    const priorityProcessed = Math.min(processedCombined, prioritySlugs.length);
+    const cursorProcessed   = Math.max(0, processedCombined - prioritySlugs.length);
+    const nextOffset = offset + cursorProcessed;
     const done = nextOffset >= allSlugs.length;
     if (!dryRun) {
       try {
         if (done) await kv.delete(cursorKey);
         else await kv.put(cursorKey, String(nextOffset));
       } catch {}
+      // Remove ONLY the priority slugs actually reached this run — not the
+      // whole requested set. If a 429 stopped us mid-priority-batch, the
+      // untouched remainder stays queued for the next run rather than being
+      // silently dropped without ever having been processed.
+      if (priorityProcessed > 0) {
+        try {
+          const consumedKeys = new Set(prioritySlugs.slice(0, priorityProcessed).map(s => category + ':' + s));
+          const remaining = queueSnapshot.filter(q => !consumedKeys.has(q.category + ':' + q.slug));
+          await kv.put('priority:queue', JSON.stringify(remaining));
+        } catch {}
+      }
     }
 
     let afterCount = null, verified = null;
@@ -235,6 +274,7 @@ export async function onRequestGet(ctx) {
     return jsonResponse({
       sweep: true, category, dryRun, offset, limit,
       totalRegistryEntities: allSlugs.length,
+      priorityQueue: { pendingForCategory: priorityForCategory.length, processedThisRun: priorityProcessed },
       entitiesQueried, eventsFoundTotal, eventsRegisteredTotal,
       d1RowCountBefore: beforeCount, d1RowCountAfter: afterCount, d1RowCountDelta: verified,
       quotaBreakerHit, done, nextOffset: done ? null : nextOffset,
