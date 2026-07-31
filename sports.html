@@ -483,7 +483,10 @@
         '@type': 'ItemList',
         'name': (entity && entity.name ? entity.name : 'Sports') + ' tickets',
         'itemListElement': nodes.map(function (n, i) {
-          return { '@type': 'ListItem', 'position': i + 1, 'url': n.url, 'item': n };
+          // schema.org ListItem: use ONE of item/name/url, never url+item
+          // together — Google's Rich Results Test flags that combination as
+          // "mutually-exclusive properties". n.url is already inside n itself.
+          return { '@type': 'ListItem', 'position': i + 1, 'item': n };
         })
       });
     }

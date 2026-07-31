@@ -715,7 +715,10 @@
           'itemListElement': schemaEvents.map((ev, i) => ({
             '@type': 'ListItem',
             'position': i + 1,
-            'url': ev.url,
+            // schema.org ListItem: use ONE of item/name/url, never url+item
+            // together — Google's Rich Results Test flags that combination as
+            // "mutually-exclusive properties". The event's own url is already
+            // inside `item`, so the ListItem carries `item` only.
             'item': ev
           }))
         }));
