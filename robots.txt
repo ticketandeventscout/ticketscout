@@ -1,52 +1,99 @@
 User-agent: *
 Allow: /
-# Section sitemaps are served by a function under /api/ — this Allow is
-# more specific than the Disallow below, so it wins (longest-match rule)
-Allow: /api/sitemap
-Disallow: /api/
 
-# Crawl-delay to be polite
-Crawl-delay: 2
+# Read-only data endpoints the page templates fetch at render time MUST be
+# crawlable, or Googlebot renders entity pages with no body and no JSON-LD.
+# Only write/admin/debug/redirect endpoints are blocked below.
+Disallow: /api/discover-pages
+Disallow: /api/entity-lifecycle
+Disallow: /api/registry-purge
+Disallow: /api/backfill-genres
+Disallow: /api/enrich-entities
+Disallow: /api/price-sampler
+Disallow: /api/price-rollup
+Disallow: /api/onsale-signals
+Disallow: /api/merchant-status
+Disallow: /api/affiliate-conversions
+Disallow: /api/contact
+Disallow: /api/go
+Disallow: /api/impact-debug
+Disallow: /api/sportsevents365-debug
+Disallow: /api/ticombo-debug
+Disallow: /api/vividseats-debug
+Disallow: /api/gigsberg-cache
+Disallow: /api/ticketnetwork-cache
+Disallow: /api/vividseats-cache
+Disallow: /api/sportsevents365-cache
+Disallow: /api/ticombo-cache
+Disallow: /api/awin-category-cache
 
-# AI crawlers — explicitly welcome (content only; /api/ endpoints excluded)
+# AI crawlers — explicitly welcome (content only; write/admin endpoints above still apply)
 User-agent: GPTBot
 Allow: /
-Allow: /api/sitemap
-Disallow: /api/
 
 User-agent: ClaudeBot
 Allow: /
-Allow: /api/sitemap
-Disallow: /api/
 
 User-agent: PerplexityBot
 Allow: /
-Allow: /api/sitemap
-Disallow: /api/
 
 User-agent: Google-Extended
 Allow: /
-Allow: /api/sitemap
-Disallow: /api/
 
 User-agent: anthropic-ai
 Allow: /
-Allow: /api/sitemap
-Disallow: /api/
 
-# Search crawlers — must also carry the /api/ Disallow, since a named group
-# fully replaces the "*" group (they don't inherit its rules). Without this,
-# Googlebot/Bingbot crawl /api/venue?slug= etc. and hit 4xx.
+# Search crawlers — named groups do NOT inherit the "*" group, so the same
+# Disallow set is repeated. Rendering needs the read-only /api/ data endpoints,
+# so we do NOT blanket-block /api/ here.
 User-agent: Googlebot
 Allow: /
-Allow: /api/sitemap
-Disallow: /api/
-Crawl-delay: 1
+Disallow: /api/discover-pages
+Disallow: /api/entity-lifecycle
+Disallow: /api/registry-purge
+Disallow: /api/backfill-genres
+Disallow: /api/enrich-entities
+Disallow: /api/price-sampler
+Disallow: /api/price-rollup
+Disallow: /api/onsale-signals
+Disallow: /api/merchant-status
+Disallow: /api/affiliate-conversions
+Disallow: /api/contact
+Disallow: /api/go
+Disallow: /api/impact-debug
+Disallow: /api/sportsevents365-debug
+Disallow: /api/ticombo-debug
+Disallow: /api/vividseats-debug
+Disallow: /api/gigsberg-cache
+Disallow: /api/ticketnetwork-cache
+Disallow: /api/vividseats-cache
+Disallow: /api/sportsevents365-cache
+Disallow: /api/ticombo-cache
+Disallow: /api/awin-category-cache
 
 User-agent: Bingbot
 Allow: /
-Allow: /api/sitemap
-Disallow: /api/
-Crawl-delay: 2
+Disallow: /api/discover-pages
+Disallow: /api/entity-lifecycle
+Disallow: /api/registry-purge
+Disallow: /api/backfill-genres
+Disallow: /api/enrich-entities
+Disallow: /api/price-sampler
+Disallow: /api/price-rollup
+Disallow: /api/onsale-signals
+Disallow: /api/merchant-status
+Disallow: /api/affiliate-conversions
+Disallow: /api/contact
+Disallow: /api/go
+Disallow: /api/impact-debug
+Disallow: /api/sportsevents365-debug
+Disallow: /api/ticombo-debug
+Disallow: /api/vividseats-debug
+Disallow: /api/gigsberg-cache
+Disallow: /api/ticketnetwork-cache
+Disallow: /api/vividseats-cache
+Disallow: /api/sportsevents365-cache
+Disallow: /api/ticombo-cache
+Disallow: /api/awin-category-cache
 
 Sitemap: https://ticketscout.co.uk/sitemap.xml
