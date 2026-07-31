@@ -440,13 +440,21 @@
       if (!dated.length) { el.textContent = ''; return; }
 
       var nodes = dated.slice(0, 5).map(function (e) {
+        // H4: each Event's canonical page is the SSR /event/{slug} page, NOT
+        // this entity page. Match the visible event-list link exactly — same
+        // tsEventSlug('sports', e.date, e.name) and same /#/event/sports- hash
+        // fallback used in the list map above. Never invent a slug.
+        var _evSlug = tsEventSlug('sports', e.date, e.name);
+        var _evUrl  = _evSlug
+          ? 'https://ticketscout.co.uk/event/' + _evSlug
+          : 'https://ticketscout.co.uk/#/event/sports-' + encodeURIComponent(e.name);
         var node = {
           '@type': 'SportsEvent',
           'name': e.name,
           'startDate': e.date,
           'eventStatus': 'https://schema.org/EventScheduled',
           'eventAttendanceMode': 'https://schema.org/OfflineEventAttendanceMode',
-          'url': 'https://ticketscout.co.uk/sports/' + slug
+          'url': _evUrl
         };
         if (e.venue) {
           node.location = {
@@ -461,13 +469,23 @@
             'price': Math.round(e.price),
             'priceCurrency': 'GBP',
             'availability': 'https://schema.org/InStock',
-            'url': 'https://ticketscout.co.uk/sports/' + slug
+            'url': _evUrl
           };
         }
         return node;
       });
 
-      el.textContent = JSON.stringify({ '@context': 'https://schema.org', '@graph': nodes });
+      // H4: entity page is a LIST of this entity's fixtures, not the canonical
+      // page for each fixture — emit ItemList so it stops competing with the
+      // SSR /event/ pages for the same events.
+      el.textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        'name': (entity && entity.name ? entity.name : 'Sports') + ' tickets',
+        'itemListElement': nodes.map(function (n, i) {
+          return { '@type': 'ListItem', 'position': i + 1, 'url': n.url, 'item': n };
+        })
+      });
     }
 
 

@@ -643,6 +643,34 @@
           if (e.dates?.start?.dateTime) {
             endISO = new Date(new Date(e.dates.start.dateTime).getTime() + 3 * 3600 * 1000).toISOString();
           }
+          // H4: each Event's canonical page is the SSR /event/{slug} page, NOT
+          // this entity page. Reproduce buildEventRow()'s link target EXACTLY per
+          // event shape so schema url === the visible list link. All dated events
+          // resolve to the same /event/{slug}; the branches differ only in the
+          // non-indexable /#/event/ hash fallback. Never invent a slug.
+          let _evUrl;
+          if (e._vs || e._se365) {
+            const _d = e.dates?.start?.localDate || '';
+            const _ssrSlug = tsEventSlug('football', _d, e.name || '');
+            const _evVenue = e._embedded?.venues?.[0]?.name || '';
+            const _evCity  = e._embedded?.venues?.[0]?.city?.name || '';
+            const _compareSlug = (_d + '-' + (e.name||'')).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+            const _venueParam = _evVenue ? '&venue=' + encodeURIComponent(_evVenue) : '';
+            const _cityParam  = _evCity  ? '&city='  + encodeURIComponent(_evCity)  : '';
+            _evUrl = _ssrSlug
+              ? ('https://ticketscout.co.uk/event/' + _ssrSlug)
+              : (window.location.origin + '/#/event/' + (e.id || _compareSlug) + '?date=' + _d + _venueParam + _cityParam);
+          } else if (e._awin) {
+            const _awSsrSlug = tsEventSlug('football', e._eventDate || '', e._eventName || e.name);
+            _evUrl = _awSsrSlug
+              ? ('https://ticketscout.co.uk/event/' + _awSsrSlug)
+              : (window.location.origin + '/#/event/awin-' + encodeURIComponent((e._eventDate||'') + '-' + (e._eventName||e.name)));
+          } else {
+            const _evSlug = tsEventSlug('football', e.dates?.start?.localDate || '', e.name);
+            _evUrl = _evSlug
+              ? ('https://ticketscout.co.uk/event/' + _evSlug)
+              : (window.location.origin + '/#/event/' + e.id);
+          }
           return {
             '@type': 'SportsEvent',
             'name': e.name,
@@ -650,7 +678,6 @@
             'startDate': startISO,
             'endDate': endISO,
             'eventStatus': 'https://schema.org/EventScheduled',
-            'organizer': { '@type': 'Organization', 'name': name, 'url': pageUrl },
             'image': image,
             // location is REQUIRED for Event rich results — always emit it,
             // with a named Place even when the venue is still TBC (GSC
@@ -672,15 +699,25 @@
               'price': minPrice,
               'priceCurrency': 'GBP',
               'availability': 'https://schema.org/InStock',
-              'url': pageUrl,
+              'url': _evUrl,
               'validFrom': new Date().toISOString().split('T')[0]
             } } : {}),
-            'url': pageUrl
+            'url': _evUrl
           };
         });
+        // H4: entity page is a LIST of this team's fixtures, not the canonical
+        // page for each fixture — emit ItemList so it stops competing with the
+        // SSR /event/ pages. organizer removed (team is the competitor, above).
         setEl('schema-org', null, JSON.stringify({
           '@context': 'https://schema.org',
-          '@graph': schemaEvents
+          '@type': 'ItemList',
+          'name': name + ' tickets',
+          'itemListElement': schemaEvents.map((ev, i) => ({
+            '@type': 'ListItem',
+            'position': i + 1,
+            'url': ev.url,
+            'item': ev
+          }))
         }));
       }
     }
