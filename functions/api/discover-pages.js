@@ -1206,6 +1206,7 @@ export async function onRequestGet({ request, env }) {
   if (phase === 'fix-categories') {
     const confirm = url.searchParams.get('confirm') === 'yes';
     const limit   = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 300);
+    const t0 = Date.now(); // instrumentation: start of the WHOLE request — detection + apply share this one timer
 
     let registry = null;
     try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
@@ -1213,95 +1214,129 @@ export async function onRequestGet({ request, env }) {
       return json({ error: 'sitemap:registry not built — run ?phase=build-registry first' }, 503);
     }
 
-    // Scan every category we hold and re-derive where each entity BELONGS.
+    // FIX (1 Aug 2026, later same session): this detection loop was fully
+    // sequential — up to 2 awaited kv.get() calls per candidate slug (genre
+    // lookup + musician-veto lookup), zero batching, for however many slugs
+    // it takes to accumulate `limit` misfiled hits. Early tonight this ran
+    // fast because dense clusters of misfiled entries meant few slugs needed
+    // checking before hitting the limit. After grinding through most of
+    // those clusters, remaining hits are sparser — combined with the
+    // registry having grown from tonight's own discovery/merge/canonical-
+    // creation activity, this loop now has to sequentially check far more
+    // slugs to find `limit` hits, which is very plausibly what's timing out
+    // now. Same anti-pattern already fixed three times tonight elsewhere,
+    // just never applied to THIS loop since the apply path was the
+    // suspected (and, at the time, correct) bottleneck.
+    //
+    // Chunked to 25 concurrent per batch. The limit check now happens
+    // BETWEEN chunks rather than per-item, so a final chunk can slightly
+    // overshoot `limit` before stopping — bounded to at most one chunk's
+    // worth of overshoot, same tradeoff already accepted in mergefragments'
+    // scan loop. Trimmed back to exactly `limit` afterward so callers see
+    // the same contract as before.
     const misfiled = [];
     let scanned = 0;
+    const DETECT_CHUNK = 25;
+    const DETECT_CHECKPOINT_EVERY = 10; // every ~250 slugs, matches mergefragments' interval
+    let detectChunksDone = 0;
+    outer:
     for (const fromCat of ['concert', 'football', 'theatre', 'sports']) {
       const slugs = Object.keys(registry.sections[fromCat] || {});
-      for (const slug of slugs) {
-        if (misfiled.length >= limit) break;
-        scanned++;
-        let rec = null;
-        try {
-          const raw = await kv.get(categoryToKvPrefix(fromCat) + slug);
-          if (raw) rec = JSON.parse(raw);
-        } catch {}
-        if (!rec || !rec.genre) continue;          // no genre = no evidence = leave alone
-        const shouldBeCat = genreToCategory(rec.genre);
-        // Stale slug: toSlug used to delete diacritics instead of
-        // transliterating them ("yair-rodrguez") and used to join words
-        // across a removed parenthetical ("ahavatgordon"). Both are fixed,
-        // so re-deriving from the stored NAME finds pages minted by the old
-        // rule. Left alone, the next discovery run would mint the corrected
-        // slug as a brand-new page and we'd have duplicates.
-        const shouldBeSlug = rec.name ? toSlug(rec.name) : slug;
-        let catWrong  = shouldBeCat !== fromCat;
-        const slugWrong = shouldBeSlug && shouldBeSlug !== slug;
-
-        // ── MUSICIAN VETO (24 Jul 2026) ───────────────────────────────────
-        // The concert section holds ~217 entities whose stored genre is the
-        // literal string 'Sports'. Most are genuinely misfiled tournament
-        // sessions — but some are REAL MUSICIANS (adele, arctic-monkeys,
-        // ariana-grande, alt-j), residue of the SE365 1023 mapping bug this
-        // file's own comments describe: "1023 (909 music acts) was missing
-        // entirely and fell through to 'Sports'". The mapping was fixed; the
-        // records written before the fix still carry the wrong genre.
-        //
-        // A bulk concert->sports move would drag Adele into /sports/. So before
-        // moving anything OUT of concert, ask the enrichment record: a
-        // MusicBrainz match means an external authority recognises this name as
-        // a recording artist. Genre is the corrupted field here; MusicBrainz is
-        // independent evidence, so it wins.
-        //
-        // Vetoed entities are reported with reason 'musician-veto' and left
-        // exactly where they are — their GENRE is wrong, not their section.
-        // VETO SCOPE (fixed 25 Jul): the veto exists to stop real MUSICIANS being
-        // dragged concert->SPORTS by the SE365 1023 genre corruption. It must NOT
-        // block concert->THEATRE moves: a jukebox musical or tribute show ('A
-        // Beautiful Noise' = Neil Diamond, 'Beautiful' = Carole King) matches a
-        // MusicBrainz artist, but the SHOW is theatre. For theatre we have
-        // STRONGER evidence than MusicBrainz — TM returned segment 'Arts &
-        // Theatre' explicitly. So the veto only guards the sports direction.
-        let musicianVeto = false;
-        if (catWrong && fromCat === 'concert' && shouldBeCat === 'sports') {
+      for (let i = 0; i < slugs.length; i += DETECT_CHUNK) {
+        const chunk = slugs.slice(i, i + DETECT_CHUNK);
+        await Promise.all(chunk.map(async slug => {
+          scanned++;
+          let rec = null;
           try {
-            const metaRaw = await kv.get(`entity:meta:concert:${slug}`);
-            if (metaRaw) {
-              const meta = JSON.parse(metaRaw);
-              // enrich-entities.js sets source='musicbrainz' UNCONDITIONALLY for
-              // every concert entity, BEFORE the lookup — so source alone vetoed
-              // everything, incl. tennis sessions (confirmed 25 Jul: 300/300
-              // vetoed). The real hit signal is facts.mbid: musicbrainzArtistFacts
-              // only returns an mbid on a score>=90 match, else {}. mbid present
-              // == a confident recording-artist match. That is the veto.
-              const hasMbid = meta?.facts?.mbid || meta?.mbid;
-              if (hasMbid) musicianVeto = true;
-            }
+            const raw = await kv.get(categoryToKvPrefix(fromCat) + slug);
+            if (raw) rec = JSON.parse(raw);
           } catch {}
-          if (musicianVeto) catWrong = false;
-        }
+          if (!rec || !rec.genre) return;          // no genre = no evidence = leave alone
+          const shouldBeCat = genreToCategory(rec.genre);
+          // Stale slug: toSlug used to delete diacritics instead of
+          // transliterating them ("yair-rodrguez") and used to join words
+          // across a removed parenthetical ("ahavatgordon"). Both are fixed,
+          // so re-deriving from the stored NAME finds pages minted by the old
+          // rule. Left alone, the next discovery run would mint the corrected
+          // slug as a brand-new page and we'd have duplicates.
+          const shouldBeSlug = rec.name ? toSlug(rec.name) : slug;
+          let catWrong  = shouldBeCat !== fromCat;
+          const slugWrong = shouldBeSlug && shouldBeSlug !== slug;
 
-        if (musicianVeto && !slugWrong) {
-          misfiled.push({
-            slug, from: fromCat, to: fromCat, toSlug: slug,
-            reason: 'musician-veto',
-            genre: rec.genre, name: rec.name || slug,
-            note: 'MusicBrainz match — genre is wrong, section is right. Not moved.'
-          });
-          continue;
-        }
+          // ── MUSICIAN VETO (24 Jul 2026) ───────────────────────────────────
+          // The concert section holds ~217 entities whose stored genre is the
+          // literal string 'Sports'. Most are genuinely misfiled tournament
+          // sessions — but some are REAL MUSICIANS (adele, arctic-monkeys,
+          // ariana-grande, alt-j), residue of the SE365 1023 mapping bug this
+          // file's own comments describe: "1023 (909 music acts) was missing
+          // entirely and fell through to 'Sports'". The mapping was fixed; the
+          // records written before the fix still carry the wrong genre.
+          //
+          // A bulk concert->sports move would drag Adele into /sports/. So before
+          // moving anything OUT of concert, ask the enrichment record: a
+          // MusicBrainz match means an external authority recognises this name as
+          // a recording artist. Genre is the corrupted field here; MusicBrainz is
+          // independent evidence, so it wins.
+          //
+          // Vetoed entities are reported with reason 'musician-veto' and left
+          // exactly where they are — their GENRE is wrong, not their section.
+          // VETO SCOPE (fixed 25 Jul): the veto exists to stop real MUSICIANS being
+          // dragged concert->SPORTS by the SE365 1023 genre corruption. It must NOT
+          // block concert->THEATRE moves: a jukebox musical or tribute show ('A
+          // Beautiful Noise' = Neil Diamond, 'Beautiful' = Carole King) matches a
+          // MusicBrainz artist, but the SHOW is theatre. For theatre we have
+          // STRONGER evidence than MusicBrainz — TM returned segment 'Arts &
+          // Theatre' explicitly. So the veto only guards the sports direction.
+          let musicianVeto = false;
+          if (catWrong && fromCat === 'concert' && shouldBeCat === 'sports') {
+            try {
+              const metaRaw = await kv.get(`entity:meta:concert:${slug}`);
+              if (metaRaw) {
+                const meta = JSON.parse(metaRaw);
+                // enrich-entities.js sets source='musicbrainz' UNCONDITIONALLY for
+                // every concert entity, BEFORE the lookup — so source alone vetoed
+                // everything, incl. tennis sessions (confirmed 25 Jul: 300/300
+                // vetoed). The real hit signal is facts.mbid: musicbrainzArtistFacts
+                // only returns an mbid on a score>=90 match, else {}. mbid present
+                // == a confident recording-artist match. That is the veto.
+                const hasMbid = meta?.facts?.mbid || meta?.mbid;
+                if (hasMbid) musicianVeto = true;
+              }
+            } catch {}
+            if (musicianVeto) catWrong = false;
+          }
 
-        if (catWrong || slugWrong) {
-          misfiled.push({
-            slug, from: fromCat, to: shouldBeCat,
-            toSlug: slugWrong ? shouldBeSlug : slug,
-            reason: catWrong && slugWrong ? 'category+slug' : catWrong ? 'category' : 'slug',
-            genre: rec.genre, name: rec.name || slug
-          });
+          if (musicianVeto && !slugWrong) {
+            misfiled.push({
+              slug, from: fromCat, to: fromCat, toSlug: slug,
+              reason: 'musician-veto',
+              genre: rec.genre, name: rec.name || slug,
+              note: 'MusicBrainz match — genre is wrong, section is right. Not moved.'
+            });
+            return;
+          }
+
+          if (catWrong || slugWrong) {
+            misfiled.push({
+              slug, from: fromCat, to: shouldBeCat,
+              toSlug: slugWrong ? shouldBeSlug : slug,
+              reason: catWrong && slugWrong ? 'category+slug' : catWrong ? 'category' : 'slug',
+              genre: rec.genre, name: rec.name || slug
+            });
+          }
+        }));
+        detectChunksDone++;
+        if (detectChunksDone % DETECT_CHECKPOINT_EVERY === 0) {
+          await checkpoint(kv, `detectScan_${fromCat}_scanned${scanned}_found${misfiled.length}`, t0);
         }
+        if (misfiled.length >= limit) break outer;
       }
-      if (misfiled.length >= limit) break;
     }
+    await checkpoint(kv, `detectScan_COMPLETE_scanned${scanned}_found${misfiled.length}`, t0);
+    // Trim back to exactly `limit` — a chunk can overshoot by up to
+    // (DETECT_CHUNK - 1) items past the target, same bounded tradeoff
+    // accepted elsewhere tonight.
+    if (misfiled.length > limit) misfiled.length = limit;
 
     if (!misfiled.length) {
       return json({ message: 'No mis-categorised entities found.', scanned }, 200);
@@ -1334,7 +1369,6 @@ export async function onRequestGet({ request, env }) {
       }, 200);
     }
     if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
-    const t0 = Date.now(); // instrumentation: start of the confirm=yes apply path
 
     const github = new GitHubAPI(githubToken, owner, repo, branch);
 

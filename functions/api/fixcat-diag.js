@@ -2,23 +2,26 @@
 // TicketScout — fix-categories Diagnostic Reader (read-only, safe, standalone)
 // Runs at /api/fixcat-diag?trigger=1
 //
-// fix-categories&confirm=yes has 524'd twice now — first before the 1 Aug
-// parallelization fix, and again after it, both times at ~2.1 minutes. The
-// second timeout at an IDENTICAL duration to the first is itself a signal:
-// if the two parallelized KV loops were the whole bottleneck, fixing them
-// should have changed the failure point or duration. It didn't, which
-// points at something the fix didn't touch — most likely the GitHub
-// recursive tree-fetch step (stepA), which reads the ENTIRE repo tree and
-// was never optimised, only checkpointed.
+// UPDATED 1 Aug 2026 (later same session): a fresh timeout at limit=100
+// turned out to be a SEPARATE bottleneck from the one already fixed —
+// the DETECTION/scanning loop (finding 100 misfiled entries) was still
+// fully sequential and had never been chunked, unlike the apply path. Now
+// chunked too, with its own checkpoints ('detectScan_{category}_scanned
+// {N}_found{M}' every ~250 slugs, plus 'detectScan_COMPLETE_...' at the
+// end) — these use the SAME debug:fixcat: prefix as the apply-path
+// checkpoints below, so this reader picks them up with no changes needed.
+// If a future timeout's LAST checkpoint is a detectScan_* one, the
+// bottleneck is back in scanning; if it's stepA-F, it's back in the apply
+// path.
 //
-// This lists every debug:fixcat:* checkpoint KV key (two of them have
-// dynamic suffixes — item/path counts baked into the key name — so this
-// uses KV list() with the prefix rather than guessing exact key strings)
-// and returns them sorted by elapsed ms, so we can see exactly how far the
-// last confirm=yes attempt got before it died.
+// This lists every debug:fixcat:* checkpoint KV key (several have dynamic
+// suffixes — item/path counts, scan progress baked into the key name — so
+// this uses KV list() with the prefix rather than guessing exact key
+// strings) and returns them sorted by elapsed ms, so we can see exactly
+// how far the last request got before it died.
 //
 // Requires binding: GIGSBERG_KV
-// Safe to delete once the bottleneck is identified and fixed.
+// Safe to delete once no longer needed for active debugging.
 // ============================================================================
 
 export async function onRequestGet({ env }) {
@@ -43,11 +46,14 @@ export async function onRequestGet({ env }) {
   return json({
     message: 'Read-only diagnostic — no writes performed.',
     note: checkpoints.length
-      ? 'These are checkpoints from the LAST confirm=yes attempt. The last one present is the last stage that completed before the request died (or the whole thing, if stepF is present).'
-      : 'No checkpoints found — either fix-categories&confirm=yes has not been run since this file was deployed, or the checkpoints have expired (1h TTL).',
+      ? 'Checkpoints from the LAST fix-categories request (detection scan + apply path share one timeline now). The LAST one present is the last stage that completed before the request died (or the whole thing finished, if stepF_registrySaved_COMPLETE is present). A run showing only detectScan_* entries means it died during scanning, before reaching the apply path at all.'
+      : 'No checkpoints found — either fix-categories has not been run since this file was deployed, or the checkpoints have expired (1h TTL).',
     checkpointCount: checkpoints.length,
     checkpoints,
     expectedOrder: [
+      'detectScan_concert_scanned*_found* (repeats every ~250 slugs, per category)',
+      'detectScan_football_scanned*_found*', 'detectScan_theatre_scanned*_found*',
+      'detectScan_sports_scanned*_found*', 'detectScan_COMPLETE_scanned*_found*',
       'stepA_treeFetch_paths*', 'stepB_preCommitBuild_files*', 'stepC_commitDone',
       'stepD_kvLoopDone_items*', 'stepE_knownKeyDone', 'stepF_registrySaved_COMPLETE'
     ]

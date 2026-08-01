@@ -776,7 +776,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
           .compare-buy { padding:7px 9px; font-size:11px; }
         }
       </style>
-      <div id="compare-rows">
+      <div id="compare-rows" role="table" aria-label="Ticket price comparison across sellers">
         <div id="adapter-prices">
           <div class="compare-loading">Checking prices across sellers…</div>
         </div>
@@ -992,19 +992,33 @@ function buildRow(source, price, url, currency, implausible) {
   const priceText = price ? `${symbol}${Math.round(price)}` : null;
   const dataPrice = price ? Math.round(price) : 0;
   const style     = SOURCE_STYLES[source] || { logo: null, bg: '#1a6fc4', color: '#fff', abbr: source.slice(0,2).toUpperCase() };
+  // ARIA additions (1 Aug 2026): this markup renders as flexbox <div>s, not a
+  // <table>, for layout reasons the existing CSS/media queries are tuned
+  // around — that's left untouched here (a real layout rewrite needs live
+  // visual verification this session doesn't have). role="table"/"row"/
+  // "cell" give screen readers AND AI agents the SAME semantic "this is
+  // tabular data" signal purely via the accessibility tree, with zero
+  // effect on rendering — no CSS/layout risk.
+  // aria-label on the CTA fixes a separate, genuinely concrete issue: every
+  // row's link previously said the identical "Get tickets →", so a screen
+  // reader's "list all links" view or an agent trying to identify "the
+  // TicketNetwork one" had no way to distinguish 13 identical-looking links
+  // from each other without also parsing surrounding DOM. Each link now
+  // names its own seller and price.
+  const ctaLabel = `Get tickets from ${source}${priceText ? ` — ${priceText}` : ''}`;
 
   return `
-    <div class="compare-row" data-price="${dataPrice}" data-implausible="${implausible ? '1' : '0'}">
+    <div class="compare-row" role="row" data-price="${dataPrice}" data-implausible="${implausible ? '1' : '0'}">
       <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
         ${buildLogoEl(style)}
       </div>
-      <div class="compare-source-name">${source}${MERCHANT_STATUS.badges.includes(MERCHANT_IDS[source]) ? ' <span class="trusted-badge" title="Consistently reliable pricing and availability over 60+ days">✓ Trusted Seller</span>' : ''}</div>
-      <div class="compare-right">
+      <div class="compare-source-name" role="rowheader">${source}${MERCHANT_STATUS.badges.includes(MERCHANT_IDS[source]) ? ' <span class="trusted-badge" title="Consistently reliable pricing and availability over 60+ days">✓ Trusted Seller</span>' : ''}</div>
+      <div class="compare-right" role="cell">
         ${priceText
           ? `<div class="compare-from">From</div><div class="compare-price-wrap"><div class="price-label">${priceText}</div></div>`
           : `<div class="compare-price-wrap"><div class="price-label" style="font-size:13px;color:#888;">Check site</div></div>`
         }
-        <a href="${goUrl(url, source, price)}" target="_blank" rel="sponsored nofollow noopener noreferrer" class="compare-buy">Get tickets →</a>
+        <a href="${goUrl(url, source, price)}" target="_blank" rel="sponsored nofollow noopener noreferrer" class="compare-buy" aria-label="${ctaLabel}">Get tickets →</a>
       </div>
     </div>
   `;
