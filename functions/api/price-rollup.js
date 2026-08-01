@@ -16,6 +16,28 @@
 
 const FX_KEY = 'fx:rates';
 
+// ── DIAGNOSTIC INSTRUMENTATION (added 1 Aug 2026) ──────────────────────────
+// price-rollup has been 524ing (Cloudflare's own platform timeout — confirmed
+// via a direct browser call that ran 2.1 minutes before the edge gave up, not
+// just an impatient caller). Row-count diagnostics ruled out the originally-
+// suspected correlated-subquery rollup step: price_samples_older_than_30d is
+// currently 0, so that step is operating on an empty result set right now.
+// This writes a KV checkpoint immediately after each numbered step below, so
+// even if the WHOLE request times out again, we can see exactly how far it
+// got and how long each completed step took — instead of only finding out
+// from the final response, which never arrives on a timeout.
+// Safe to remove once the real bottleneck is identified and fixed; pure
+// instrumentation, no query logic changed.
+async function checkpoint(kv, step, t0) {
+  const ms = Date.now() - t0;
+  try {
+    await kv.put(`debug:price-rollup:${step}`, JSON.stringify({
+      step, ms, at: new Date().toISOString()
+    }), { expirationTtl: 3600 }); // 1h — this is a live debugging aid, not permanent state
+  } catch { /* never let instrumentation itself break the job */ }
+}
+
+
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const kv  = env.GIGSBERG_KV;
@@ -30,6 +52,7 @@ export async function onRequestGet({ request, env }) {
   const report = {};
   const todayISO = new Date().toISOString().split('T')[0];
   const cutoff   = Math.floor(Date.now() / 1000) - 30 * 24 * 3600; // 30 days ago
+  const t0 = Date.now(); // instrumentation: start of the whole run
 
   // ── 1. FX refresh ──────────────────────────────────────────────────────
   try {
@@ -47,6 +70,7 @@ export async function onRequestGet({ request, env }) {
       report.fx = { updated: false, status: r.status };
     }
   } catch (err) { report.fx = { updated: false, error: String(err) }; }
+  await checkpoint(kv, 'step1_fx', t0);
 
   // ── 2a. Mark past events ───────────────────────────────────────────────
   try {
@@ -55,6 +79,7 @@ export async function onRequestGet({ request, env }) {
     ).bind(todayISO).run();
     report.pastMarked = res.meta?.changes ?? 0;
   } catch (err) { report.pastMarked = { error: String(err) }; }
+  await checkpoint(kv, 'step2a_markPast', t0);
 
   // ── 2b. Roll >30d samples into price_daily, then delete them ─────────
   try {
@@ -77,6 +102,7 @@ export async function onRequestGet({ request, env }) {
     const del = await db.prepare(`DELETE FROM price_samples WHERE sampled_at < ?`).bind(cutoff).run();
     report.rolledAndDeleted = del.meta?.changes ?? 0;
   } catch (err) { report.rollup = { error: String(err) }; }
+  await checkpoint(kv, 'step2b_rollupDelete', t0);
 
   // ── 3. Per-entity summaries → KV ───────────────────────────────────────
   // Current get-in = cheapest sample in the last 24h across the entity's
@@ -99,6 +125,7 @@ export async function onRequestGet({ request, env }) {
        JOIN price_samples ps ON ps.event_id = ev.id
        GROUP BY en.slug`
     ).bind(dayAgo, weekLo, weekHi).all();
+    await checkpoint(kv, `step3a_summariesQuery_rows${(results || []).length}`, t0);
 
     for (const row of (results || [])) {
       if (row.current == null) continue;
@@ -120,6 +147,7 @@ export async function onRequestGet({ request, env }) {
     }
     report.summariesWritten = summariesWritten;
   } catch (err) { report.summaries = { error: String(err) }; }
+  await checkpoint(kv, 'step3b_summariesWriteLoopDone', t0);
 
   // ── 5. Merchant trust scores (Phase 6.3) ───────────────────────────────
   // 30-day window over merchant_daily → trust score per merchant → KV.
@@ -206,6 +234,7 @@ export async function onRequestGet({ request, env }) {
     }
     report.merchantScores = { computed: Object.keys(scores).length, badges, flags };
   } catch (err) { report.merchantScores = { error: String(err) }; }
+  await checkpoint(kv, 'step5_merchantScores', t0);
 
   // ── Totals for visibility ──────────────────────────────────────────────
   try {
@@ -217,6 +246,7 @@ export async function onRequestGet({ request, env }) {
     ).first();
     report.totals = c;
   } catch {}
+  await checkpoint(kv, 'step6_totals_COMPLETE', t0);
 
   return json({ message: 'Rollup complete.', ...report }, 200);
 }

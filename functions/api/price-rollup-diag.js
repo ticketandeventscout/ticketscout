@@ -79,6 +79,32 @@ export async function onRequestGet({ request, env }) {
     report.totalEvents = c?.n ?? null;
   } catch (err) { report.totalEvents = { error: String(err) }; }
 
+  // Step-timing checkpoints written by the instrumented price-rollup.js —
+  // present only after a run of that file, self-clear after 1h (matches the
+  // checkpoint's own expirationTtl). Read them all so a single call here
+  // shows exactly how far the last run got and how long each step took,
+  // even if the run itself eventually 524'd before returning anything.
+  const steps = [
+    'step1_fx', 'step2a_markPast', 'step2b_rollupDelete',
+    'step3b_summariesWriteLoopDone', 'step5_merchantScores', 'step6_totals_COMPLETE'
+  ];
+  report.checkpoints = {};
+  for (const s of steps) {
+    try {
+      const v = await env.GIGSBERG_KV?.get(`debug:price-rollup:${s}`);
+      report.checkpoints[s] = v ? JSON.parse(v) : null;
+    } catch { report.checkpoints[s] = { error: 'read failed' }; }
+  }
+  // step3a's key includes the row count in its name, so it can't be looked
+  // up by a fixed key — list-scan the prefix instead.
+  try {
+    const list = await env.GIGSBERG_KV?.list({ prefix: 'debug:price-rollup:step3a_summariesQuery_rows' });
+    for (const k of (list?.keys || [])) {
+      const v = await env.GIGSBERG_KV.get(k.name);
+      report.checkpoints.step3a_summariesQuery = v ? JSON.parse(v) : null;
+    }
+  } catch { /* nicety only */ }
+
   return json({ message: 'Read-only diagnostic — no writes performed.', ...report }, 200);
 }
 
