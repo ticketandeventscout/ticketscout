@@ -41,6 +41,25 @@ const PENDING_KEY      = 'autodiscover:awin:pending';
 const KNOWN_KEY        = 'autodiscover:artists:known';
 const KNOWN_VENUES_KEY = 'autodiscover:venues:known';
 
+// ── DIAGNOSTIC INSTRUMENTATION (added 1 Aug 2026) ──────────────────────────
+// fix-categories&confirm=yes has been timing out (524) with only partial
+// progress each time — confirmed by comparing consecutive dry-run outputs
+// and seeing a handful of specific slugs disappear from the misfiled list
+// between attempts, meaning the Worker keeps running after the client gives
+// up, same pattern already found and fixed in price-rollup.js. This writes
+// a KV checkpoint immediately after each stage of the confirm=yes apply
+// path, so even if the whole request 524s again, we can see exactly how
+// far it got. Separate KV namespace (debug:fixcat:*) from price-rollup's
+// (debug:price-rollup:*) so the two never collide.
+async function checkpoint(kv, step, t0) {
+  const ms = Date.now() - t0;
+  try {
+    await kv.put(`debug:fixcat:${step}`, JSON.stringify({
+      step, ms, at: new Date().toISOString()
+    }), { expirationTtl: 3600 });
+  } catch { /* never let instrumentation itself break the job */ }
+}
+
 // ── Phase 4 keys ─────────────────────────────────────────────────────────
 // sitemap:registry — per-category slug→lastmod map, the single source of
 // truth for the dynamic sitemap (/api/sitemap). Built once from the GitHub
@@ -1292,6 +1311,7 @@ export async function onRequestGet({ request, env }) {
       }, 200);
     }
     if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
+    const t0 = Date.now(); // instrumentation: start of the confirm=yes apply path
 
     const github = new GitHubAPI(githubToken, owner, repo, branch);
 
@@ -1313,29 +1333,44 @@ export async function onRequestGet({ request, env }) {
     } catch (err) {
       return json({ error: 'Could not read repo tree to validate move', detail: String(err) }, 500);
     }
+    await checkpoint(kv, `stepA_treeFetch_paths${existingPaths.size}`, t0);
 
     // One atomic commit: write the new path, delete the old one (if it exists).
+    // FIX (1 Aug 2026): was one sequential await kv.get(enrichment) per item —
+    // confirmed via checkpoint instrumentation + observed partial progress
+    // across repeated timeouts to be the same anti-pattern already found and
+    // fixed in price-rollup.js. Pure reads here (no side effects besides the
+    // shared push/counter, both synchronous and therefore safe to share
+    // across concurrent tasks under JS's single-threaded model — no two
+    // pushes or increments can interleave mid-operation), so chunking this
+    // into bounded concurrency changes nothing about correctness, only speed.
     const files = [];
     let skippedPhantomDeletes = 0;
-    for (const m of misfiled) {
-      const gen = categoryToHtmlGenerator(m.to);
-      const target = m.toSlug || m.slug;
-      let enrich = null;
-      try {
-        const meta = await kv.get(`entity:meta:${m.from}:${m.slug}`);
-        if (meta) enrich = JSON.parse(meta);
-      } catch {}
-      files.push({ path: `${m.to}/${target}.html`, content: gen(target, enrich || { name: m.name }) });
-      const oldPath = `${m.from}/${m.slug}.html`;
-      // Delete only if the path differs AND actually exists in the repo tree.
-      if (`${m.from}/${m.slug}` !== `${m.to}/${target}`) {
-        if (existingPaths.has(oldPath)) {
-          files.push({ path: oldPath, content: null });
-        } else {
-          skippedPhantomDeletes++;
+    const CHUNK_SIZE = 25;
+    for (let i = 0; i < misfiled.length; i += CHUNK_SIZE) {
+      const chunk = misfiled.slice(i, i + CHUNK_SIZE);
+      await Promise.all(chunk.map(async m => {
+        const gen = categoryToHtmlGenerator(m.to);
+        const target = m.toSlug || m.slug;
+        let enrich = null;
+        try {
+          const meta = await kv.get(`entity:meta:${m.from}:${m.slug}`);
+          if (meta) enrich = JSON.parse(meta);
+        } catch {}
+        files.push({ path: `${m.to}/${target}.html`, content: gen(target, enrich || { name: m.name }) });
+        const oldPath = `${m.from}/${m.slug}.html`;
+        // Delete only if the path differs AND actually exists in the repo tree.
+        if (`${m.from}/${m.slug}` !== `${m.to}/${target}`) {
+          if (existingPaths.has(oldPath)) {
+            files.push({ path: oldPath, content: null });
+          } else {
+            skippedPhantomDeletes++;
+          }
         }
-      }
+      }));
     }
+    await checkpoint(kv, `stepB_preCommitBuild_files${files.length}`, t0);
+
     let commitSha = null;
     try {
       commitSha = await github.commitFilesBatch(files,
@@ -1343,48 +1378,78 @@ export async function onRequestGet({ request, env }) {
     } catch (err) {
       return json({ error: 'Move commit failed — nothing changed in KV.', detail: String(err) }, 500);
     }
+    await checkpoint(kv, 'stepC_commitDone', t0);
 
     // Only after the commit succeeds do we touch KV, so a failed commit
     // can never leave the registry pointing at files that don't exist.
+    // FIX (1 Aug 2026): same chunked-parallel treatment as the pre-commit
+    // loop above — this loop (up to 4 sequential KV ops per item) was the
+    // other half of the confirmed bottleneck.
+    //
+    // IMPORTANT CORRECTNESS NOTE: the KNOWN_KEY update was PULLED OUT of the
+    // per-item body and moved below, done ONCE for the whole batch. Left
+    // per-item under Promise.all, every renamed slug in the same chunk would
+    // independently read-modify-write the SAME KV key concurrently — each
+    // task working from its own stale snapshot, so whichever write lands
+    // last would silently overwrite every other task's changes, quietly
+    // losing most of the batch's KNOWN_KEY updates. Collecting the renames
+    // and applying them in one single read-modify-write after the parallel
+    // loop avoids that race entirely, and is also strictly more efficient
+    // than the original (one read+write for the whole batch instead of up
+    // to 99 separate sequential ones).
     const today = new Date().toISOString().slice(0, 10);
     const moved = [];
-    for (const m of misfiled) {
-      try {
-        const target = m.toSlug || m.slug;
-        const oldKey = categoryToKvPrefix(m.from) + m.slug;
-        const newKey = categoryToKvPrefix(m.to) + target;
-        const raw = await kv.get(oldKey);
-        if (raw) {
-          const rec = JSON.parse(raw);
-          rec.category = m.to;
-          rec.slug = target;
-          await kv.put(newKey, JSON.stringify(rec));
-          if (oldKey !== newKey) await kv.delete(oldKey);
+    const renamedSlugs = [];
+    for (let i = 0; i < misfiled.length; i += CHUNK_SIZE) {
+      const chunk = misfiled.slice(i, i + CHUNK_SIZE);
+      await Promise.all(chunk.map(async m => {
+        try {
+          const target = m.toSlug || m.slug;
+          const oldKey = categoryToKvPrefix(m.from) + m.slug;
+          const newKey = categoryToKvPrefix(m.to) + target;
+          const raw = await kv.get(oldKey);
+          if (raw) {
+            const rec = JSON.parse(raw);
+            rec.category = m.to;
+            rec.slug = target;
+            await kv.put(newKey, JSON.stringify(rec));
+            if (oldKey !== newKey) await kv.delete(oldKey);
+          }
+          if (m.slug !== target) {
+            renamedSlugs.push({ oldSlug: m.slug, newSlug: target });
+          }
+          if (registry.sections[m.from]) delete registry.sections[m.from][m.slug];
+          if (!registry.sections[m.to]) registry.sections[m.to] = {};
+          registry.sections[m.to][target] = today;
+          moved.push(`${m.from}/${m.slug} -> ${m.to}/${target} (${m.reason})`);
+        } catch (err) {
+          // Reported, not thrown — one bad record shouldn't abort the rest.
+          moved.push(`ERROR ${m.slug}: ${err}`);
         }
-        // Drop the stale slug from the known-set too, or discovery will
-        // treat the corrected slug as brand new and re-queue a duplicate.
-        if (m.slug !== target) {
-          try {
-            const k = await kv.get(KNOWN_KEY);
-            if (k) {
-              const known = new Set(JSON.parse(k));
-              known.delete(m.slug); known.add(target);
-              await kv.put(KNOWN_KEY, JSON.stringify([...known]));
-            }
-          } catch {}
-        }
-        if (registry.sections[m.from]) delete registry.sections[m.from][m.slug];
-        if (!registry.sections[m.to]) registry.sections[m.to] = {};
-        registry.sections[m.to][target] = today;
-        moved.push(`${m.from}/${m.slug} -> ${m.to}/${target} (${m.reason})`);
-      } catch (err) {
-        // Reported, not thrown — one bad record shouldn't abort the rest.
-        moved.push(`ERROR ${m.slug}: ${err}`);
-      }
+      }));
     }
+    await checkpoint(kv, `stepD_kvLoopDone_items${misfiled.length}`, t0);
+
+    // Drop the stale slugs from the known-set, or discovery will treat the
+    // corrected slugs as brand new and re-queue duplicates. Single
+    // read-modify-write for the whole batch — see correctness note above.
+    if (renamedSlugs.length) {
+      try {
+        const k = await kv.get(KNOWN_KEY);
+        const known = new Set(k ? JSON.parse(k) : []);
+        for (const { oldSlug, newSlug } of renamedSlugs) {
+          known.delete(oldSlug);
+          known.add(newSlug);
+        }
+        await kv.put(KNOWN_KEY, JSON.stringify([...known]));
+      } catch {}
+    }
+    await checkpoint(kv, 'stepE_knownKeyDone', t0);
+
     registry.updated = new Date().toISOString();
     await kv.put(REGISTRY_KEY, JSON.stringify(registry));
     await kv.delete('sports:hub:index').catch(() => {});   // hub list changed
+    await checkpoint(kv, 'stepF_registrySaved_COMPLETE', t0);
 
     return json({
       message: 'Mis-categorised entities moved.',
@@ -1398,6 +1463,7 @@ export async function onRequestGet({ request, env }) {
         : null
     }, 200);
   }
+
 
   if (phase === 'clear-queue') {
     const confirm = url.searchParams.get('confirm') === 'yes';
