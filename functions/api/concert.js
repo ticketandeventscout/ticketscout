@@ -33,9 +33,15 @@ const ARTISTS = [
 // ── Hub listing: /api/concert?list=1 ──────────────────────────────────────
 // Ported from sports.js. Reads the sitemap registry rather than scanning KV,
 // so it costs one read and can never disagree with the sitemap. The built
-// list is cached in KV for 6h; a rebuild costs one read per entity, capped.
+// list is cached in KV for 30h (was 6h — extended 31 Jul); a rebuild costs
+// one read per entity, capped.
+// The cron dispatcher's rebuild-concert-hub job runs once every 24h
+// (0 4 * * *). A 6h TTL guaranteed the cache would expire ~18h before the
+// next run — most of every day — forcing the capped on-demand path
+// (HUB_BUILD_CAP=600) regardless of whether the cron fired correctly. 30h
+// covers the full 24h gap plus a margin for one delayed/skipped run.
 const HUB_INDEX_KEY = 'concert:hub:index';
-const HUB_INDEX_TTL = 6 * 60 * 60;
+const HUB_INDEX_TTL = 30 * 60 * 60;
 const HUB_BUILD_CAP = 600;
 
 // Stored genres are freeform composites — 'Rock / Pop', 'Latin Trap /

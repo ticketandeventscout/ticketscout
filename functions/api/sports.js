@@ -194,9 +194,15 @@ function json(body, status) {
 // a thousand names tells them nothing about what's there. Genre lives on the
 // individual KV record, so building the list means one read per entity.
 // That's fine at today's scale but wouldn't be at a thousand, so the built
-// list is cached in KV for 6h and every later request is a single read.
+// list is cached in KV for 30h (was 6h — extended 31 Jul) and every later
+// request is a single read.
+// The cron dispatcher's rebuild-sports-hub job runs once every 24h
+// (10 4 * * *). A 6h TTL guaranteed the cache would expire ~18h before the
+// next run — most of every day — forcing the capped on-demand path
+// (HUB_BUILD_CAP=600) regardless of whether the cron fired correctly. 30h
+// covers the full 24h gap plus a margin for one delayed/skipped run.
 const HUB_INDEX_KEY = 'sports:hub:index';
-const HUB_INDEX_TTL = 6 * 60 * 60;
+const HUB_INDEX_TTL = 30 * 60 * 60;
 const HUB_BUILD_CAP = 600;          // reads per rebuild — keeps us inside CPU limits
 
 // ── ?findslug=<term> — answers the two questions that actually explain a
