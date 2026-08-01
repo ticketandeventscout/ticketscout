@@ -32,6 +32,36 @@ export async function onRequestGet({ request, params, env }) {
   const slug = params.slug;
   if (!slug) return Response.redirect('/', 302);
 
+  // FIX (1 Aug 2026): this Function intercepts EVERY /concert/{slug} request
+  // regardless of whether a static file exists at that path — Cloudflare
+  // Pages gives a dynamic Function routing priority over a static asset at
+  // the same path. That meant the redirect-stub HTML written by
+  // mergefragments/fix-categories for a merged or renamed slug was NEVER
+  // actually served — this Function always rendered a full, independent
+  // page instead, using the raw old slug as a generic fallback name. This
+  // check runs FIRST, before anything else, and is the ONLY thing that
+  // makes a real HTTP 301 actually happen for a merged/renamed slug.
+  //
+  // Key scheme: 'redirectSlug:concert:{oldSlug}' -> '{destCategory}/{newSlug}'
+  // (a full relative path, NOT a bare slug) — because fix-categories can
+  // move an entity to a DIFFERENT category (e.g. concert -> sports), not
+  // just rename it within the same one, so the destination page may not
+  // live under /concert/ at all. Written by both mergefragments and
+  // fix-categories in discover-pages.js. Shared scheme, not concert-
+  // specific — the same lookup format and this same check need replicating
+  // in football/theatre/sports/venue's routing functions before either
+  // tool is ever run against those categories, since they share the
+  // identical architecture and would have the identical gap.
+  try {
+    const kv = env.GIGSBERG_KV;
+    if (kv) {
+      const destPath = await kv.get(`redirectSlug:concert:${slug.toLowerCase()}`);
+      if (destPath) {
+        return Response.redirect(`https://ticketscout.co.uk/${destPath}`, 301);
+      }
+    }
+  } catch { /* redirect lookup failing should never break the normal page */ }
+
   const url         = new URL(request.url);
   const templateUrl = `${url.origin}/concert.html`;
   const pageUrl     = `https://ticketscout.co.uk/concert/${slug}`;

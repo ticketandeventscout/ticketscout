@@ -1441,6 +1441,19 @@ export async function onRequestGet({ request, env }) {
           if (m.slug !== target) {
             renamedSlugs.push({ oldSlug: m.slug, newSlug: target });
           }
+          // FIX (1 Aug 2026): the routing Functions (functions/{category}/
+          // [slug].js) intercept EVERY request matching their path pattern
+          // regardless of whether a static file exists there — deleting the
+          // old .html file in the commit above does NOT stop the old URL
+          // from being served; the Function just renders a generic fallback
+          // page for it instead of 404ing or redirecting. This write is
+          // what the routing Function checks to issue a real 301. Stored
+          // as a full "category/slug" path, not a bare slug, because this
+          // tool can move an entity to a DIFFERENT category — the
+          // destination may not be under the same /{m.from}/ path at all.
+          try {
+            await kv.put(`redirectSlug:${m.from}:${m.slug}`, `${m.to}/${target}`);
+          } catch { /* best-effort — a missing redirect entry degrades to the pre-existing broken-fallback behaviour, not a hard failure */ }
           if (registry.sections[m.from]) delete registry.sections[m.from][m.slug];
           if (!registry.sections[m.to]) registry.sections[m.to] = {};
           registry.sections[m.to][target] = today;
@@ -1805,6 +1818,13 @@ export async function onRequestGet({ request, env }) {
       const chunk = batch.slice(i, i + CHUNK);
       await Promise.all(chunk.map(async item => {
         try {
+          // FIX (1 Aug 2026): see the identical note in fix-categories —
+          // without this, the routing Function still intercepts the old
+          // slug's URL and renders a generic fallback page instead of
+          // redirecting, regardless of the static stub file below.
+          try {
+            await kv.put(`redirectSlug:${category}:${item.slug}`, `${category}/${item.baseSlugCandidate}`);
+          } catch { /* best-effort */ }
           delete registry.sections[category][item.slug];
           await kv.delete(prefix + item.slug);
           merged.push(`${item.slug} -> ${item.baseSlugCandidate}`);
@@ -1835,6 +1855,15 @@ export async function onRequestGet({ request, env }) {
         const chunk = cluster.members.slice(i, i + CHUNK);
         await Promise.all(chunk.map(async member => {
           try {
+            // FIX (1 Aug 2026): same as the regular-merge loop above — this
+            // is what actually makes the redirect happen. Without it the
+            // routing Function still renders the old slug's generic
+            // fallback page rather than redirecting, regardless of the
+            // static stub file this member's path already got replaced
+            // with in the commit.
+            try {
+              await kv.put(`redirectSlug:${category}:${member.slug}`, `${category}/${cluster.baseSlugCandidate}`);
+            } catch { /* best-effort */ }
             delete registry.sections[category][member.slug];
             await kv.delete(prefix + member.slug);
             merged.push(`${member.slug} -> ${cluster.baseSlugCandidate} (new canonical)`);
