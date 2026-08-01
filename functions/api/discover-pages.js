@@ -1531,15 +1531,42 @@ export async function onRequestGet({ request, env }) {
     // Reuses toSlug()'s own diacritic handling — never re-implemented here.
     function stripFragmentSuffix(slug) {
       let s = slug;
-      s = s.replace(/-pakiet-\d+-dniowy(-dzien-\d+)*$/, '');       // Polish "N-day pack"
-      s = s.replace(/-\d+-dniowy$/, '');
-      s = s.replace(/-dzien-\d+(-dzien-\d+)*$/, '');                 // Polish "day N (+ day N...)"
-      s = s.replace(/-karnet$/, '');                                  // Polish "season pass"
-      s = s.replace(/-\d+-day-pass$/, '');
-      s = s.replace(/-day-pass$/, '');
-      s = s.replace(/-(weekend|multi)-pass$/, '');
-      s = s.replace(/-(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/, '');
+      // FIX (1 Aug 2026, same session): was a single pass, so a compound
+      // suffix like "-friday-saturday" only ever stripped ONE trailing
+      // token, leaving "-friday" behind — which then wrongly matched a
+      // DIFFERENT real fragment ("leeds-festival-friday") as if it were the
+      // true canonical base. Confirmed live: this produced a false merge
+      // suggestion for leeds-festival-friday-saturday and three TRNSMT
+      // variants. Looping until no further pattern matches fixes this —
+      // "leeds-festival-friday-saturday" now correctly reduces all the way
+      // to "leeds-festival" in two passes instead of stopping after one.
+      let prev;
+      do {
+        prev = s;
+        s = s.replace(/-pakiet-\d+-dniowy(-dzien-\d+)*$/, '');       // Polish "N-day pack"
+        s = s.replace(/-\d+-dniowy$/, '');
+        s = s.replace(/-dzien-\d+(-dzien-\d+)*$/, '');                 // Polish "day N (+ day N...)"
+        s = s.replace(/-karnet$/, '');                                  // Polish "season pass"
+        s = s.replace(/-\d+-day-pass$/, '');
+        s = s.replace(/-day-pass$/, '');
+        s = s.replace(/-(weekend|multi)-pass$/, '');
+        s = s.replace(/-(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/, '');
+      } while (s !== prev);
       return s;
+    }
+
+    // Derive a human-readable canonical name FROM the (now correctly)
+    // cleaned base slug, rather than comparing raw text across cluster
+    // members — tried a longest-common-prefix-of-names approach first, but
+    // it breaks when members diverge mid-word (e.g. "JAROCIN FESTIWAL 2026
+    // - DZIEŃ 1" vs "...DZIEŃ 2" shares "DZIEŃ " as a raw prefix, which is a
+    // dangling, incomplete word once trimmed). Deriving from the slug
+    // sidesteps that entirely. Known minor cosmetic cost: apostrophes and
+    // acronym capitalisation are already lost once a name is slugified
+    // (e.g. "Open'er Festival" -> "opener-festival" -> "Opener Festival",
+    // "TRNSMT Festival" -> "Trnsmt Festival") — acceptable, cosmetic only.
+    function titleCaseFromSlug(slug) {
+      return slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     }
 
     const tierAHits = [];
@@ -1583,30 +1610,96 @@ export async function onRequestGet({ request, env }) {
     const unresolvedA  = tierAHits.filter(x => !x.baseExists);
     const likelyB      = tierBHits.filter(x => x.baseExists);
 
+    // ── Clustering (added 1 Aug 2026, same session) ──────────────────────
+    // Some unresolved Tier A hits aren't "no parent found, one-off" cases —
+    // they're MULTIPLE fragments of the same real event where NO canonical
+    // page was ever created at all (confirmed live: Leeds Festival, Open'er
+    // Festival, Eurovision Song Contest — every variant of these is a
+    // fragment, none is the "real" page). Group unresolved Tier A hits by
+    // their shared base candidate; a group of 2+ is a strong signal of a
+    // genuine cluster, not a coincidence. Tier B is deliberately excluded
+    // from clustering — creating new pages is a more consequential action
+    // than merging into an existing one, so it gets the SAME conservative
+    // Tier-A-only treatment as everything else in this file, not a looser
+    // one.
+    const clusterMap = {};
+    for (const item of unresolvedA) {
+      (clusterMap[item.baseSlugCandidate] ||= []).push(item);
+    }
+    const clusterableTierA = Object.entries(clusterMap)
+      .filter(([, members]) => members.length >= 2)
+      .map(([baseSlug, members]) => ({
+        baseSlugCandidate: baseSlug,
+        proposedName: titleCaseFromSlug(baseSlug),
+        memberCount: members.length,
+        members: members.map(m => ({ slug: m.slug, name: m.name }))
+      }));
+    // Anything left in unresolvedA after removing clustered members really
+    // is a one-off — no obvious relationship to anything else found, so it
+    // stays exactly as "unresolved", never guessed at.
+    const clusteredSlugs = new Set(clusterableTierA.flatMap(c => c.members.map(m => m.slug)));
+    const trueUnresolvedA = unresolvedA.filter(x => !clusteredSlugs.has(x.slug));
+
     if (!confirm) {
       return json({
         dryRun: true, category, checked,
-        tierA: { total: tierAHits.length, mergeable: mergeableA.length, unresolved: unresolvedA.length },
+        tierA: {
+          total: tierAHits.length, mergeable: mergeableA.length,
+          clusterable: clusterableTierA.reduce((n, c) => n + c.memberCount, 0),
+          trueUnresolved: trueUnresolvedA.length
+        },
         tierB: {
           total: tierBHits.length, likelyMergeable: likelyB.length,
           note: 'Tier B is NEVER auto-merged, even with confirm=yes — the same ambiguity the rest of this file already treats as review-only (e.g. a weekday name can also be a real artist name). This list is pre-filtered to only the ones with a found base match, so it should be short — skim and decide, rather than research each one from scratch.'
         },
         mergeableTierA: mergeableA,
-        unresolvedTierA: unresolvedA.slice(0, 50),
+        clusterableTierA: {
+          note: 'Groups of 2+ Tier A fragments that share a derived base with NO existing canonical page — e.g. Leeds Festival only exists as day-specific fragments, never as its own page. Add &confirm=yes&createcanonical=yes to create a new canonical entity per cluster (named from proposedName) and redirect all members into it. This is a MORE consequential action than a normal merge (it creates new pages), so it requires the extra createcanonical=yes flag on top of confirm=yes.',
+          clusters: clusterableTierA
+        },
+        unresolvedTierA: trueUnresolvedA.slice(0, 50),
         likelyMergeableTierB: likelyB.slice(0, 50),
         message: mergeableA.length
-          ? `Add &confirm=yes to merge ${Math.min(mergeableA.length, limit)} of ${mergeableA.length} mergeable Tier A fragments now (small batches — see &limit=). Tier B is never auto-merged.`
-          : 'No Tier A fragments with a confirmed base entity found. Re-run at a later offset if the registry is large — this phase currently scans the WHOLE section in one pass, so if it times out, lower &limit and note how far `checked` got before retrying.'
+          ? `Add &confirm=yes to merge ${Math.min(mergeableA.length, limit)} of ${mergeableA.length} mergeable Tier A fragments now (small batches — see &limit=). Add &createcanonical=yes as well to also create canonical pages for the ${clusterableTierA.length} clusters found. Tier B is never auto-merged.`
+          : clusterableTierA.length
+            ? `No direct merges available, but ${clusterableTierA.length} clusters with no canonical page were found. Add &confirm=yes&createcanonical=yes to create canonicals and merge them.`
+            : 'No Tier A fragments with a confirmed base entity found. Re-run at a later offset if the registry is large — this phase currently scans the WHOLE section in one pass, so if it times out, lower &limit and note how far `checked` got before retrying.'
       }, 200);
     }
+
+    const createCanonical = url.searchParams.get('createcanonical') === 'yes';
 
     // ── CONFIRM: merge a small batch of Tier A hits with a confirmed base ──
     if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
     const github = new GitHubAPI(githubToken, owner, repo, branch);
     const batch  = mergeableA.slice(0, limit);
 
-    if (!batch.length) {
-      return json({ message: 'Nothing to merge — no mergeable Tier A fragments found in this pass.', checked }, 200);
+    // Canonical-creation batch (only if explicitly requested). Capped by
+    // TOTAL FILE COUNT, not cluster count — a cluster with many members
+    // (Eurovision had 6) contributes 1 new canonical + N redirect stubs,
+    // so this bounds total commit size the same way the regular batch does,
+    // rather than risking one call trying to create several large clusters
+    // at once and hitting the same content-size ceiling found earlier
+    // tonight in commitFilesBatch.
+    const clusterBatch = [];
+    if (createCanonical) {
+      let fileBudget = limit;
+      for (const cluster of clusterableTierA) {
+        const cost = 1 + cluster.memberCount; // 1 new canonical + N redirects
+        if (cost > fileBudget) continue; // skip clusters too big for what's left
+        clusterBatch.push(cluster);
+        fileBudget -= cost;
+        if (fileBudget <= 0) break;
+      }
+    }
+
+    if (!batch.length && !clusterBatch.length) {
+      return json({
+        message: createCanonical
+          ? 'Nothing to merge or create — no mergeable Tier A fragments and no cluster fit in the file budget for this pass.'
+          : 'Nothing to merge — no mergeable Tier A fragments found in this pass. Add &createcanonical=yes if you want to create canonical pages for the clusters this dry run reported.',
+        checked
+      }, 200);
     }
 
     const HOST = 'https://ticketscout.co.uk';
@@ -1625,12 +1718,38 @@ export async function onRequestGet({ request, env }) {
       return { path: `${category}/${item.slug}.html`, content: html };
     });
 
+    // For each cluster being processed: generate the NEW canonical entity's
+    // own page (reusing the SAME generator every other entity page in this
+    // category uses, so it looks and behaves identically to a normal page,
+    // not a special one-off), plus a redirect stub for every member —
+    // identical redirect mechanism to the regular merge above.
+    const gen = categoryToHtmlGenerator(category);
+    for (const cluster of clusterBatch) {
+      files.push({
+        path: `${category}/${cluster.baseSlugCandidate}.html`,
+        content: gen(cluster.baseSlugCandidate, { name: cluster.proposedName })
+      });
+      const baseUrl = `${HOST}/${category}/${cluster.baseSlugCandidate}`;
+      for (const member of cluster.members) {
+        const html = `<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8" />
+<title>Redirecting… | TicketScout</title>
+<meta name="robots" content="noindex" />
+<link rel="canonical" href="${baseUrl}" />
+<meta http-equiv="refresh" content="0; url=${baseUrl}" />
+</head><body><p>This page has moved. <a href="${baseUrl}">Continue →</a></p></body></html>`;
+        files.push({ path: `${category}/${member.slug}.html`, content: html });
+      }
+    }
+
     let commitSha = null;
     try {
-      commitSha = await github.commitFilesBatch(files,
-        `Merge ${batch.length} ticket-type fragments into canonical entities (${category})`);
+      const msgParts = [];
+      if (batch.length) msgParts.push(`merge ${batch.length} fragments into existing entities`);
+      if (clusterBatch.length) msgParts.push(`create ${clusterBatch.length} canonical entities from clusters`);
+      commitSha = await github.commitFilesBatch(files, `H2 (${category}): ${msgParts.join('; ')}`);
     } catch (err) {
-      return json({ error: 'Merge commit failed — nothing changed in KV.', detail: String(err) }, 500);
+      return json({ error: 'Merge/create commit failed — nothing changed in KV.', detail: String(err) }, 500);
     }
 
     // Registry + KV cleanup, chunked — same bounded-concurrency pattern
@@ -1638,7 +1757,10 @@ export async function onRequestGet({ request, env }) {
     // margin rather than a confirmed necessity (20 items is well under
     // where fix-categories' loops actually needed it).
     const merged = [];
+    const created = [];
     const CHUNK = 20;
+
+    // Regular merges: remove fragment, no new entity involved.
     for (let i = 0; i < batch.length; i += CHUNK) {
       const chunk = batch.slice(i, i + CHUNK);
       await Promise.all(chunk.map(async item => {
@@ -1651,18 +1773,53 @@ export async function onRequestGet({ request, env }) {
         }
       }));
     }
+
+    // Cluster merges: create the new canonical entity's registry/KV record
+    // FIRST (today's date as lastmod, same shape every other entity uses),
+    // then remove every member the same way as a regular merge.
+    const today = new Date().toISOString().slice(0, 10);
+    for (const cluster of clusterBatch) {
+      try {
+        registry.sections[category][cluster.baseSlugCandidate] = today;
+        await kv.put(prefix + cluster.baseSlugCandidate, JSON.stringify({
+          name: cluster.proposedName,
+          slug: cluster.baseSlugCandidate,
+          category
+        }));
+        created.push(`${cluster.baseSlugCandidate} ("${cluster.proposedName}", ${cluster.memberCount} members)`);
+      } catch (err) {
+        created.push(`ERROR creating ${cluster.baseSlugCandidate}: ${err}`);
+        continue; // don't remove members if the canonical itself failed to save
+      }
+      for (let i = 0; i < cluster.members.length; i += CHUNK) {
+        const chunk = cluster.members.slice(i, i + CHUNK);
+        await Promise.all(chunk.map(async member => {
+          try {
+            delete registry.sections[category][member.slug];
+            await kv.delete(prefix + member.slug);
+            merged.push(`${member.slug} -> ${cluster.baseSlugCandidate} (new canonical)`);
+          } catch (err) {
+            merged.push(`ERROR ${member.slug}: ${err}`);
+          }
+        }));
+      }
+    }
+
     registry.updated = new Date().toISOString();
     await kv.put(REGISTRY_KEY, JSON.stringify(registry));
     await kv.delete(`${category}:hub:index`).catch(() => {});
 
+    const remainingClusters = clusterableTierA.length - clusterBatch.length;
     return json({
-      message: 'Fragments merged.',
+      message: 'Fragments merged' + (clusterBatch.length ? ' and canonical entities created.' : '.'),
       commitSha,
       mergedCount: merged.length,
       sample: merged.slice(0, 20),
+      createdCanonicals: created,
       remainingMergeable: mergeableA.length - batch.length,
-      next: mergeableA.length > batch.length
-        ? `?trigger=1&phase=mergefragments&category=${category}&confirm=yes — more remain, re-run`
+      remainingClusters,
+      next: (mergeableA.length > batch.length || remainingClusters > 0)
+        ? `?trigger=1&phase=mergefragments&category=${category}&confirm=yes${createCanonical ? '&createcanonical=yes' : ''} — more remain, re-run`
         : null
     }, 200);
   }
@@ -3287,21 +3444,51 @@ class GitHubAPI {
     // 2. Base tree of head commit
     const headCommit = await this.request('GET', `/repos/${this.owner}/${this.repo}/git/commits/${headSha}`);
     const baseTreeSha = headCommit.tree.sha;
-    // 3. New tree with all files (content inline — GitHub encodes it)
+
+    // 3. FIX (1 Aug 2026): blobs created in parallel FIRST, tree built from
+    // SHA references — not inline content. Confirmed via checkpoint
+    // instrumentation that a single tree-creation call with inline content
+    // for ~100 files took 2+ minutes and 524'd, even though the tree-fetch
+    // and every other step took ~1s each. The "~5 calls regardless of file
+    // count" framing above is about REQUEST COUNT from this client, not
+    // GitHub's server-side WORK per request — passing inline content forces
+    // GitHub to blob-ify every file synchronously as part of processing one
+    // huge tree-creation request, and that cost scales with total content
+    // size in the batch, not file count. Splitting blob creation into its
+    // own step lets it run CONCURRENTLY (chunked, same bounded-concurrency
+    // pattern used everywhere else tonight) instead of serially inside
+    // GitHub's own black-box tree processing — this removes the scaling
+    // problem rather than just working around it with smaller batches.
+    // Delete entries (content === null) never needed a blob and are
+    // unaffected — sha: null already told GitHub to remove that path.
+    const BLOB_CHUNK = 25;
+    const toCreate = files.filter(f => f.content !== null);
+    const blobShaByPath = {};
+    for (let i = 0; i < toCreate.length; i += BLOB_CHUNK) {
+      const chunk = toCreate.slice(i, i + BLOB_CHUNK);
+      const results = await Promise.all(chunk.map(f =>
+        this.request('POST', `/repos/${this.owner}/${this.repo}/git/blobs`, {
+          content: f.content, encoding: 'utf-8'
+        })
+      ));
+      chunk.forEach((f, idx) => { blobShaByPath[f.path] = results[idx].sha; });
+    }
+
+    // 4. New tree — every entry now references a pre-created blob SHA (or
+    // sha: null for a delete), so this call does no content processing at
+    // all and should be fast regardless of how much total content was in
+    // the batch.
     const tree = await this.request('POST', `/repos/${this.owner}/${this.repo}/git/trees`, {
       base_tree: baseTreeSha,
-      // content === null means DELETE: the Git Trees API removes a path when
-      // its sha is null. Needed to move a page between categories in one
-      // atomic commit (delete old path + create new path).
       tree: files.map(f => (f.content === null
         ? { path: f.path, mode: '100644', type: 'blob', sha: null }
-        : { path: f.path, mode: '100644', type: 'blob', content: f.content }))
+        : { path: f.path, mode: '100644', type: 'blob', sha: blobShaByPath[f.path] }))
     });
-    // 4. Commit pointing at the new tree
+    // 5. Commit pointing at the new tree
     const commit = await this.request('POST', `/repos/${this.owner}/${this.repo}/git/commits`, {
       message, tree: tree.sha, parents: [headSha]
     });
-    // 5. Advance the branch ref
+    // 6. Advance the branch ref
     await this.request('PATCH', `/repos/${this.owner}/${this.repo}/git/refs/heads/${this.branch}`, {
       sha: commit.sha
     });
