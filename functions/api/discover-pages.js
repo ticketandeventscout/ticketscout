@@ -1546,21 +1546,37 @@ export async function onRequestGet({ request, env }) {
     const tierBHits = [];
     let checked = 0;
 
-    for (const slug of slugs) {
-      checked++;
-      let rec = null;
-      try { const raw = await kv.get(prefix + slug); if (raw) rec = JSON.parse(raw); } catch {}
-      const name = rec?.name || slug;
-      const verdict = looksLikeEvent(name);
-      if (!verdict) continue;
+    // FIX (1 Aug 2026, same session): this loop was ONE sequential, awaited
+    // kv.get() per entity with NO batching at all — for concert's ~5,886
+    // entities that's ~5,886 round-trips back to back, easily 2+ minutes,
+    // which is exactly what timed out. Same anti-pattern already found and
+    // fixed three times tonight (price-rollup, fix-categories twice) —
+    // reintroduced fresh here because the write-side loop below was chunked
+    // from the start (learned from fix-categories) but this read-side scan
+    // wasn't given the same treatment when the phase was first built. Pure
+    // reads with no shared read-modify-write key (unlike fix-categories'
+    // KNOWN_KEY situation), so straightforward to chunk with no correctness
+    // concerns — push()/counter increments are synchronous and safe to
+    // share across concurrent tasks under JS's single-threaded model.
+    const SCAN_CHUNK = 25;
+    for (let i = 0; i < slugs.length; i += SCAN_CHUNK) {
+      const chunk = slugs.slice(i, i + SCAN_CHUNK);
+      await Promise.all(chunk.map(async slug => {
+        checked++;
+        let rec = null;
+        try { const raw = await kv.get(prefix + slug); if (raw) rec = JSON.parse(raw); } catch {}
+        const name = rec?.name || slug;
+        const verdict = looksLikeEvent(name);
+        if (!verdict) return;
 
-      const baseSlug   = stripFragmentSuffix(slug);
-      const baseExists = baseSlug !== slug && !!registry.sections[category][baseSlug];
-      const item = {
-        slug, name, tier: verdict.tier, label: verdict.label,
-        baseSlugCandidate: baseSlug, baseExists
-      };
-      (verdict.tier === 'A' ? tierAHits : tierBHits).push(item);
+        const baseSlug   = stripFragmentSuffix(slug);
+        const baseExists = baseSlug !== slug && !!registry.sections[category][baseSlug];
+        const item = {
+          slug, name, tier: verdict.tier, label: verdict.label,
+          baseSlugCandidate: baseSlug, baseExists
+        };
+        (verdict.tier === 'A' ? tierAHits : tierBHits).push(item);
+      }));
     }
 
     const mergeableA   = tierAHits.filter(x => x.baseExists);
