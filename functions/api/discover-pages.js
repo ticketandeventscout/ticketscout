@@ -60,6 +60,29 @@ async function checkpoint(kv, step, t0) {
   } catch { /* never let instrumentation itself break the job */ }
 }
 
+// ── mergefragments instrumentation (added 1 Aug 2026, same day) ───────────
+// A fresh mergefragments dry run 524'd after the scan-loop chunking fix had
+// already been confirmed working (a prior run completed cleanly at
+// checked: 6085). entity-lifecycle?status=1 came back fast and clean at the
+// same time, ruling out general platform contention — so this is specific
+// to mergefragments itself on an otherwise-idle account. Leading hypothesis:
+// the registry has grown significantly while unattended (daily discovery
+// crons run regardless of whether anyone is actively working), pushing
+// total scan cost — not just KV round-trips, but cumulative CPU time across
+// many JSON.parse + looksLikeEvent regex checks — back over the platform
+// limit. This writes a progress checkpoint every 10 scan chunks (~250
+// entities) so a repeat timeout shows exactly how far the scan got, rather
+// than a blind 524. Own KV namespace (debug:mergefrag:*), separate from
+// fix-categories' (debug:fixcat:*) — never collides.
+async function mergefragCheckpoint(kv, step, t0, extra) {
+  const ms = Date.now() - t0;
+  try {
+    await kv.put(`debug:mergefrag:${step}`, JSON.stringify({
+      step, ms, at: new Date().toISOString(), ...extra
+    }), { expirationTtl: 3600 });
+  } catch { /* never let instrumentation itself break the job */ }
+}
+
 // ── Phase 4 keys ─────────────────────────────────────────────────────────
 // sitemap:registry — per-category slug→lastmod map, the single source of
 // truth for the dynamic sitemap (/api/sitemap). Built once from the GitHub
@@ -1514,6 +1537,7 @@ export async function onRequestGet({ request, env }) {
     const confirm = url.searchParams.get('confirm') === 'yes';
     const category = (url.searchParams.get('category') || 'concert').toLowerCase();
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '15', 10) || 15, 20);
+    const t0 = Date.now(); // instrumentation: start of this call
 
     let registry = null;
     try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
@@ -1523,6 +1547,11 @@ export async function onRequestGet({ request, env }) {
 
     const slugs  = Object.keys(registry.sections[category]);
     const prefix = categoryToKvPrefix(category);
+    // Records totalSlugs against the last confirmed-working run (checked:
+    // 6085) so a repeat timeout's checkpoint data directly confirms or rules
+    // out "the registry grew" as the cause, rather than needing a separate
+    // manual check.
+    await mergefragCheckpoint(kv, 'stepA_registryLoaded', t0, { totalSlugs: slugs.length });
 
     // Ticket-type-fragment suffix stripper — built from the actual Tier A/B
     // examples observed 31 Jul-1 Aug 2026 (day-passes, Polish multi-day
@@ -1586,6 +1615,7 @@ export async function onRequestGet({ request, env }) {
     // concerns — push()/counter increments are synchronous and safe to
     // share across concurrent tasks under JS's single-threaded model.
     const SCAN_CHUNK = 25;
+    const CHECKPOINT_EVERY = 10; // every ~250 entities
     for (let i = 0; i < slugs.length; i += SCAN_CHUNK) {
       const chunk = slugs.slice(i, i + SCAN_CHUNK);
       await Promise.all(chunk.map(async slug => {
@@ -1604,7 +1634,17 @@ export async function onRequestGet({ request, env }) {
         };
         (verdict.tier === 'A' ? tierAHits : tierBHits).push(item);
       }));
+      const chunksDone = Math.floor(i / SCAN_CHUNK) + 1;
+      if (chunksDone % CHECKPOINT_EVERY === 0) {
+        await mergefragCheckpoint(kv, 'stepB_scanProgress', t0, {
+          checked, totalSlugs: slugs.length,
+          pctComplete: Math.round(100 * checked / slugs.length)
+        });
+      }
     }
+    await mergefragCheckpoint(kv, 'stepC_scanComplete', t0, {
+      checked, tierACount: tierAHits.length, tierBCount: tierBHits.length
+    });
 
     const mergeableA   = tierAHits.filter(x => x.baseExists);
     const unresolvedA  = tierAHits.filter(x => !x.baseExists);
