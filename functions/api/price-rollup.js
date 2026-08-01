@@ -127,23 +127,36 @@ export async function onRequestGet({ request, env }) {
     ).bind(dayAgo, weekLo, weekHi).all();
     await checkpoint(kv, `step3a_summariesQuery_rows${(results || []).length}`, t0);
 
-    for (const row of (results || [])) {
-      if (row.current == null) continue;
-      let trend = 'flat';
-      if (row.weekAgo != null) {
-        const delta = row.current - row.weekAgo;
-        if (delta >  row.weekAgo * 0.05) trend = 'up';
-        if (delta < -row.weekAgo * 0.05) trend = 'down';
-      }
-      await kv.put(`price:summary:entity:${row.slug}`, JSON.stringify({
-        current: row.current,
-        weekAgo: row.weekAgo,
-        low30d:  row.low30d,
-        trend,
-        upcomingEvents: row.upcomingEvents,
-        updated: new Date().toISOString()
-      }), { expirationTtl: 3 * 24 * 3600 }); // summaries ARE caches — 3-day TTL is correct here
-      summariesWritten++;
+    // FIX (1 Aug 2026): this loop was previously one sequential, awaited
+    // kv.put() per row — confirmed via checkpoint instrumentation to be the
+    // actual bottleneck (4,241 rows × ~28ms/write ≈ 119s, blowing straight
+    // through Cloudflare's platform timeout; the query above this took only
+    // ~3.3s). Writing in bounded-concurrency chunks instead of one at a time
+    // turns ~119s of sequential network round-trips into a handful of
+    // seconds, with no change to WHAT gets written — same key, same value,
+    // same 3-day TTL — only how the writes are scheduled.
+    const CHUNK_SIZE = 25; // bounded, not unlimited — avoids flooding KV with
+                            // thousands of simultaneous requests in one go
+    const validRows = (results || []).filter(row => row.current != null);
+    for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
+      const chunk = validRows.slice(i, i + CHUNK_SIZE);
+      await Promise.all(chunk.map(row => {
+        let trend = 'flat';
+        if (row.weekAgo != null) {
+          const delta = row.current - row.weekAgo;
+          if (delta >  row.weekAgo * 0.05) trend = 'up';
+          if (delta < -row.weekAgo * 0.05) trend = 'down';
+        }
+        return kv.put(`price:summary:entity:${row.slug}`, JSON.stringify({
+          current: row.current,
+          weekAgo: row.weekAgo,
+          low30d:  row.low30d,
+          trend,
+          upcomingEvents: row.upcomingEvents,
+          updated: new Date().toISOString()
+        }), { expirationTtl: 3 * 24 * 3600 }); // summaries ARE caches — 3-day TTL is correct here
+      }));
+      summariesWritten += chunk.length;
     }
     report.summariesWritten = summariesWritten;
   } catch (err) { report.summaries = { error: String(err) }; }
@@ -228,9 +241,14 @@ export async function onRequestGet({ request, env }) {
       window: `${windowStart}..${todayISO}`,
       computed: new Date().toISOString()
     }));
-    // Per-merchant keys for render-time single reads (future F1 value sort)
-    for (const [id, s] of Object.entries(scores)) {
-      await kv.put(`merchant:score:${id}`, String(s));
+    // Per-merchant keys for render-time single reads (future F1 value sort).
+    // Merchant count is small (a handful of affiliate partners), so this was
+    // never the bottleneck — chunked here anyway for consistency with the
+    // fix above, and as cheap insurance if the merchant list grows later.
+    const scoreEntries = Object.entries(scores);
+    for (let i = 0; i < scoreEntries.length; i += 25) {
+      const chunk = scoreEntries.slice(i, i + 25);
+      await Promise.all(chunk.map(([id, s]) => kv.put(`merchant:score:${id}`, String(s))));
     }
     report.merchantScores = { computed: Object.keys(scores).length, badges, flags };
   } catch (err) { report.merchantScores = { error: String(err) }; }
