@@ -352,24 +352,25 @@ function renderPage(d) {
         </div>
       </div>
       <div id="detail-pricehist"></div>
-      <!-- CWV fix (1 Aug 2026): confirmed via live PageSpeed Insights (real
-           mobile lab run) that this placeholder — empty except for a
-           "Loading live prices…" line — was the single biggest Cumulative
-           Layout Shift contributor on this page (0.144 of 0.232 total), and
-           that CLS is now also a scored check under PageSpeed's new
-           "Agentic Browsing" category, not just human UX. compare.js's own
-           .compare-row is ~60px tall (36px logo + 24px padding + border);
-           280px reserves roughly 4-5 rows, a reasonable common-case estimate
-           — NOT a guarantee for every page, since seller counts vary. This
-           won't eliminate the shift for events with many more sellers, but
-           should substantially reduce it for the typical case. The second
-           listed CLS culprit (the "Compare {name} ticket prices" text
-           section further down, 0.088) is very likely a KNOCK-ON shift from
-           this same element growing beneath it, not an independent problem
-           — so this one change should reduce both. Verify visually after
-           deploy; adjust the number if real pages commonly show
-           meaningfully more or fewer rows than this estimate assumes. -->
-      <div id="detail-compare" style="min-height:280px;"><div class="loading">Loading live prices…</div></div>
+      <!-- CWV fix, ROUND 2 (1 Aug 2026): the first estimate (280px) was
+           confirmed via a live PageSpeed re-test to have made ZERO
+           measurable difference to this element's CLS contribution — still
+           exactly 0.144 before and after. This page's own copy above says
+           "up to 13 verified ticket sites"; at ~60px/row (compare.js's
+           actual .compare-row height: 36px logo + 24px padding + border),
+           13 rows is roughly 780px — nearly 3x what was reserved. 450px is
+           a deliberate middle ground (~7-8 rows), not a claim to have
+           solved this: reserving the full ~780px worst case would create a
+           large visible empty gap on the much more common 1-3 seller
+           events, which is its own UX cost. This should measurably reduce
+           the shift for high-profile, many-seller events like this one
+           without overcorrecting for typical ones — but it is still an
+           ESTIMATE. If a fresh PageSpeed run on THIS page still shows
+           #detail-compare as a major CLS contributor, the honest long-term
+           fix is a skeleton-row loading state sized to the real seller
+           count (known server-side, if event_pages or similar tracks it),
+           not another guessed pixel value. -->
+      <div id="detail-compare" style="min-height:450px;"><div class="loading">Loading live prices…</div></div>
       <div id="detail-hotels"></div>
     </div>
 
@@ -383,7 +384,7 @@ function renderPage(d) {
     <div class="footer-inner">
       <p>© 2026 TicketScout · ticketscout.co.uk · All prices in GBP</p>
       <p style="margin-top:6px;"><a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Use</a> · <a href="/faq">FAQ</a> · <a href="/contact">Contact</a></p>
-      <p style="margin-top:14px; font-size:12px; color:#999; max-width:560px; margin-left:auto; margin-right:auto; line-height:1.5;">
+      <p style="margin-top:14px; font-size:12px; color:#666; max-width:560px; margin-left:auto; margin-right:auto; line-height:1.5;">
         TicketScout does not sell tickets and is not a ticket retailer. We display pricing and availability sourced from third-party providers and cannot guarantee its accuracy. Always confirm event details, pricing and availability on the seller's site before purchasing.
       </p>
     </div>
