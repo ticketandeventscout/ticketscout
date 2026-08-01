@@ -752,12 +752,21 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
         .compare-source-name { flex:1; font-size:14px; font-weight:600; color:#1a1a1a; }
         .compare-right { display:flex; align-items:center; gap:8px; }
-        .compare-from { font-size:11px; color:#888; white-space:nowrap; width:28px; text-align:right; flex-shrink:0; }
+        /* A11y fix (1 Aug 2026): #888 measured 3.54:1 against white — fails
+           WCAG AA's 4.5:1 minimum, confirmed via live PageSpeed Insights.
+           #666 (5.74:1) passes comfortably and is the SAME shade already
+           used, un-flagged, for equivalent secondary text elsewhere on this
+           site (e.g. the price-history widget's ".ts-ph-low"). */
+        .compare-from { font-size:11px; color:#666; white-space:nowrap; width:28px; text-align:right; flex-shrink:0; }
         .compare-price-wrap { display:flex; flex-direction:column; align-items:flex-end; min-width:64px; }
         .price-label { font-size:17px; font-weight:700; color:#1a1a1a; white-space:nowrap; }
         .compare-buy { background:#1a6fc4; color:#fff; padding:9px 16px; border-radius:6px; font-size:13px; font-weight:600; text-decoration:none; white-space:nowrap; flex-shrink:0; margin-left:4px; }
         .compare-buy:hover { background:#155da0; }
-        .best-price-badge { display:block; background:#22c55e; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; text-align:center; margin-top:2px; }
+        /* A11y fix (1 Aug 2026): white text on #22c55e measured 2.28:1 —
+           fails WCAG AA badly (needs 4.5:1), confirmed via live PageSpeed
+           Insights. #15803d gives 5.02:1 with white text, comfortably
+           passing, while staying recognisably "success green". */
+        .best-price-badge { display:block; background:#15803d; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; text-align:center; margin-top:2px; }
         .trusted-badge { display:inline-block; color:#16a34a; font-size:10px; font-weight:600; margin-left:6px; white-space:nowrap; }
         .compare-loading { padding:20px; text-align:center; color:#888; font-size:14px; }
         .compare-footnote { font-size:11px; color:#999; text-align:center; padding:12px 20px 4px; line-height:1.5; }
@@ -1016,7 +1025,7 @@ function buildRow(source, price, url, currency, implausible) {
       <div class="compare-right" role="cell">
         ${priceText
           ? `<div class="compare-from">From</div><div class="compare-price-wrap"><div class="price-label">${priceText}</div></div>`
-          : `<div class="compare-price-wrap"><div class="price-label" style="font-size:13px;color:#888;">Check site</div></div>`
+          : `<div class="compare-price-wrap"><div class="price-label" style="font-size:13px;color:#666;">Check site</div></div>`
         }
         <a href="${goUrl(url, source, price)}" target="_blank" rel="sponsored nofollow noopener noreferrer" class="compare-buy" aria-label="${ctaLabel}">Get tickets →</a>
       </div>

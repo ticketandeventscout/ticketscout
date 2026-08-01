@@ -324,12 +324,20 @@ function renderPage(d) {
 
   <main class="container" style="max-width:900px; margin:0 auto; padding:24px 16px;">
     <div style="font-size:13px; color:#666; margin-bottom:14px;">
-      <a href="/">Home</a> › <a href="${esc(d.cat.hub)}">${esc(d.cat.label)}</a> › ${esc(d.name)}
+      <!-- A11y fix (1 Aug 2026): the global a-tag rule (text-decoration:
+           none) meant these links were distinguished from the surrounding
+           #666 text ONLY by their blue colour — flagged by PageSpeed as
+           "links rely on color to be distinguishable" (WCAG 1.4.1). Fixed
+           narrowly with an inline underline on just these two links, rather
+           than changing the global rule, which would alter every link on
+           the site (navbar, buttons, etc.) — a much bigger, unverified
+           change this session isn't positioned to visually check. -->
+      <a href="/" style="text-decoration:underline;">Home</a> › <a href="${esc(d.cat.hub)}" style="text-decoration:underline;">${esc(d.cat.label)}</a> › ${esc(d.name)}
     </div>
 
     <div class="detail-grid">
       <div class="detail-card">
-        ${d.image ? `<img class="detail-img" src="${esc(d.image)}" alt="${esc(d.name)}" />` : ''}
+        ${d.image ? `<img class="detail-img" src="${esc(d.image)}" alt="${esc(d.name)}" fetchpriority="high" />` : ''}
         <div class="detail-body">
           <h1 class="detail-name" style="font-size:24px; margin:0 0 6px;">${esc(d.name)}</h1>
           <div class="detail-meta">${esc(metaBits) || 'Details to be confirmed'}</div>
@@ -344,7 +352,24 @@ function renderPage(d) {
         </div>
       </div>
       <div id="detail-pricehist"></div>
-      <div id="detail-compare"><div class="loading">Loading live prices…</div></div>
+      <!-- CWV fix (1 Aug 2026): confirmed via live PageSpeed Insights (real
+           mobile lab run) that this placeholder — empty except for a
+           "Loading live prices…" line — was the single biggest Cumulative
+           Layout Shift contributor on this page (0.144 of 0.232 total), and
+           that CLS is now also a scored check under PageSpeed's new
+           "Agentic Browsing" category, not just human UX. compare.js's own
+           .compare-row is ~60px tall (36px logo + 24px padding + border);
+           280px reserves roughly 4-5 rows, a reasonable common-case estimate
+           — NOT a guarantee for every page, since seller counts vary. This
+           won't eliminate the shift for events with many more sellers, but
+           should substantially reduce it for the typical case. The second
+           listed CLS culprit (the "Compare {name} ticket prices" text
+           section further down, 0.088) is very likely a KNOCK-ON shift from
+           this same element growing beneath it, not an independent problem
+           — so this one change should reduce both. Verify visually after
+           deploy; adjust the number if real pages commonly show
+           meaningfully more or fewer rows than this estimate assumes. -->
+      <div id="detail-compare" style="min-height:280px;"><div class="loading">Loading live prices…</div></div>
       <div id="detail-hotels"></div>
     </div>
 
@@ -553,7 +578,13 @@ function renderPage(d) {
     container.innerHTML =
       '<div class="ts-pricehist">' +
         '<div class="ts-ph-head">' +
-          '<h3 class="ts-ph-title">Price history</h3>' +
+          /* A11y fix (1 Aug 2026): was <h3>, flagged by PageSpeed as
+             "heading elements are not in a sequentially-descending order" —
+             this was the ONLY heading between the page's <h1> and the later
+             "Compare {name} ticket prices" <h2> further down, so document
+             order was h1 -> h3 -> h2 (skips a level, then goes backwards).
+             Now both are h2 siblings under the h1, which is valid. */
+          '<h2 class="ts-ph-title">Price history</h2>' +
           '<span class="ts-ph-scope">last ' + series.length + ' days \u00b7 ' + phEsc(scopeTag) + '</span>' +
         '</div>' +
         '<div class="ts-ph-figs">' +
