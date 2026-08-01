@@ -1465,6 +1465,192 @@ export async function onRequestGet({ request, env }) {
   }
 
 
+  // ── PHASE: mergefragments (added 1 Aug 2026, H2) ──────────────────────────
+  // Automates the whole H2 workflow end-to-end: detect ticket-type-fragment
+  // entities (day-passes, multi-day packs, session numbers — the SAME
+  // looksLikeEvent() Tier A/B classifier already used by ?phase=eventaudit),
+  // work out whether a clean "parent" entity for that fragment ALREADY
+  // exists in the registry, and — only for that confirmed-safe case — merge
+  // the fragment into it: replace the fragment's stub HTML with a redirect
+  // to the parent, remove the fragment from the registry/KV, in one batched,
+  // reversible-by-design operation.
+  //
+  // WHY THIS EXISTS: eventaudit + registry-purge already do detection and
+  // removal — but manually deciding "does a parent exist, and should this be
+  // a redirect not a straight delete" for every single hit (potentially
+  // dozens across the registry) is exactly the manual grind this phase
+  // removes. Same "review Tier A automatically, Tier B stays human-reviewed"
+  // risk split the rest of this file already uses — not a new risk
+  // tolerance, just the existing one applied here too.
+  //
+  // Tier A (auto-actionable): merged automatically once a base match is
+  //   found. If no base match exists, reported as 'unresolved' — never
+  //   guessed at, same quarantine principle as everywhere else in this file.
+  // Tier B (day-of-week / month names etc — genuinely ambiguous by the
+  //   existing classifier's own design, e.g. "Sobota" is Polish for Saturday
+  //   AND a real rapper): NEVER auto-merged, even with confirm=yes. Reported
+  //   as 'likelyMergeableTierB' so a human can approve a short, pre-filtered
+  //   list instead of researching every hit from scratch — this is the part
+  //   that turns "manually check every small festival finding" into
+  //   "skim a short list and say yes/no".
+  //
+  // Redirect target uses the SAME safe static-HTML-stub approach as the H2
+  // scope doc (meta refresh + canonical) — NOT a Cloudflare _redirects rule.
+  // This project has a documented real 522 outage from exactly that shape of
+  // change (a redirect rule colliding with a stub's own internal fetch), so
+  // that mechanism is deliberately never used here.
+  //
+  // Usage: ?trigger=1&phase=mergefragments&category=concert
+  //          — dry run (default): shows what WOULD merge, what's unresolved,
+  //            and Tier B candidates for manual review
+  //        ?trigger=1&phase=mergefragments&category=concert&confirm=yes
+  //          — merges Tier A hits with a confirmed base match. Batch size is
+  //            deliberately small (default 15, capped at 20) — learned
+  //            tonight that commitFilesBatch's GitHub commit step scales
+  //            with how much HTML content is in one commit, not just file
+  //            count, so small batches avoid the same 524 fix-categories hit
+  //            at limit=100.
+  if (phase === 'mergefragments') {
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    const category = (url.searchParams.get('category') || 'concert').toLowerCase();
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '15', 10) || 15, 20);
+
+    let registry = null;
+    try { const r = await kv.get(REGISTRY_KEY); if (r) registry = JSON.parse(r); } catch {}
+    if (!registry?.sections?.[category]) {
+      return json({ error: `No registry section "${category}"` }, 503);
+    }
+
+    const slugs  = Object.keys(registry.sections[category]);
+    const prefix = categoryToKvPrefix(category);
+
+    // Ticket-type-fragment suffix stripper — built from the actual Tier A/B
+    // examples observed 31 Jul-1 Aug 2026 (day-passes, Polish multi-day
+    // packs, weekday splits), same evidence-based discipline as H6's
+    // competition-prefix list. Order matters: more specific patterns first.
+    // Reuses toSlug()'s own diacritic handling — never re-implemented here.
+    function stripFragmentSuffix(slug) {
+      let s = slug;
+      s = s.replace(/-pakiet-\d+-dniowy(-dzien-\d+)*$/, '');       // Polish "N-day pack"
+      s = s.replace(/-\d+-dniowy$/, '');
+      s = s.replace(/-dzien-\d+(-dzien-\d+)*$/, '');                 // Polish "day N (+ day N...)"
+      s = s.replace(/-karnet$/, '');                                  // Polish "season pass"
+      s = s.replace(/-\d+-day-pass$/, '');
+      s = s.replace(/-day-pass$/, '');
+      s = s.replace(/-(weekend|multi)-pass$/, '');
+      s = s.replace(/-(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/, '');
+      return s;
+    }
+
+    const tierAHits = [];
+    const tierBHits = [];
+    let checked = 0;
+
+    for (const slug of slugs) {
+      checked++;
+      let rec = null;
+      try { const raw = await kv.get(prefix + slug); if (raw) rec = JSON.parse(raw); } catch {}
+      const name = rec?.name || slug;
+      const verdict = looksLikeEvent(name);
+      if (!verdict) continue;
+
+      const baseSlug   = stripFragmentSuffix(slug);
+      const baseExists = baseSlug !== slug && !!registry.sections[category][baseSlug];
+      const item = {
+        slug, name, tier: verdict.tier, label: verdict.label,
+        baseSlugCandidate: baseSlug, baseExists
+      };
+      (verdict.tier === 'A' ? tierAHits : tierBHits).push(item);
+    }
+
+    const mergeableA   = tierAHits.filter(x => x.baseExists);
+    const unresolvedA  = tierAHits.filter(x => !x.baseExists);
+    const likelyB      = tierBHits.filter(x => x.baseExists);
+
+    if (!confirm) {
+      return json({
+        dryRun: true, category, checked,
+        tierA: { total: tierAHits.length, mergeable: mergeableA.length, unresolved: unresolvedA.length },
+        tierB: {
+          total: tierBHits.length, likelyMergeable: likelyB.length,
+          note: 'Tier B is NEVER auto-merged, even with confirm=yes — the same ambiguity the rest of this file already treats as review-only (e.g. a weekday name can also be a real artist name). This list is pre-filtered to only the ones with a found base match, so it should be short — skim and decide, rather than research each one from scratch.'
+        },
+        mergeableTierA: mergeableA,
+        unresolvedTierA: unresolvedA.slice(0, 50),
+        likelyMergeableTierB: likelyB.slice(0, 50),
+        message: mergeableA.length
+          ? `Add &confirm=yes to merge ${Math.min(mergeableA.length, limit)} of ${mergeableA.length} mergeable Tier A fragments now (small batches — see &limit=). Tier B is never auto-merged.`
+          : 'No Tier A fragments with a confirmed base entity found. Re-run at a later offset if the registry is large — this phase currently scans the WHOLE section in one pass, so if it times out, lower &limit and note how far `checked` got before retrying.'
+      }, 200);
+    }
+
+    // ── CONFIRM: merge a small batch of Tier A hits with a confirmed base ──
+    if (!githubToken) return json({ error: 'Missing GITHUB_TOKEN' }, 500);
+    const github = new GitHubAPI(githubToken, owner, repo, branch);
+    const batch  = mergeableA.slice(0, limit);
+
+    if (!batch.length) {
+      return json({ message: 'Nothing to merge — no mergeable Tier A fragments found in this pass.', checked }, 200);
+    }
+
+    const HOST = 'https://ticketscout.co.uk';
+    const files = batch.map(item => {
+      const baseUrl = `${HOST}/${category}/${item.baseSlugCandidate}`;
+      // Safe redirect mechanism: a static HTML stub the fragment's own file
+      // is REPLACED with (meta refresh + canonical), never a Cloudflare
+      // _redirects rule — see the phase comment above for why.
+      const html = `<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8" />
+<title>Redirecting… | TicketScout</title>
+<meta name="robots" content="noindex" />
+<link rel="canonical" href="${baseUrl}" />
+<meta http-equiv="refresh" content="0; url=${baseUrl}" />
+</head><body><p>This page has moved. <a href="${baseUrl}">Continue →</a></p></body></html>`;
+      return { path: `${category}/${item.slug}.html`, content: html };
+    });
+
+    let commitSha = null;
+    try {
+      commitSha = await github.commitFilesBatch(files,
+        `Merge ${batch.length} ticket-type fragments into canonical entities (${category})`);
+    } catch (err) {
+      return json({ error: 'Merge commit failed — nothing changed in KV.', detail: String(err) }, 500);
+    }
+
+    // Registry + KV cleanup, chunked — same bounded-concurrency pattern
+    // applied to fix-categories tonight, at this batch size purely a safety
+    // margin rather than a confirmed necessity (20 items is well under
+    // where fix-categories' loops actually needed it).
+    const merged = [];
+    const CHUNK = 20;
+    for (let i = 0; i < batch.length; i += CHUNK) {
+      const chunk = batch.slice(i, i + CHUNK);
+      await Promise.all(chunk.map(async item => {
+        try {
+          delete registry.sections[category][item.slug];
+          await kv.delete(prefix + item.slug);
+          merged.push(`${item.slug} -> ${item.baseSlugCandidate}`);
+        } catch (err) {
+          merged.push(`ERROR ${item.slug}: ${err}`);
+        }
+      }));
+    }
+    registry.updated = new Date().toISOString();
+    await kv.put(REGISTRY_KEY, JSON.stringify(registry));
+    await kv.delete(`${category}:hub:index`).catch(() => {});
+
+    return json({
+      message: 'Fragments merged.',
+      commitSha,
+      mergedCount: merged.length,
+      sample: merged.slice(0, 20),
+      remainingMergeable: mergeableA.length - batch.length,
+      next: mergeableA.length > batch.length
+        ? `?trigger=1&phase=mergefragments&category=${category}&confirm=yes — more remain, re-run`
+        : null
+    }, 200);
+  }
+
   if (phase === 'clear-queue') {
     const confirm = url.searchParams.get('confirm') === 'yes';
     const pendingRaw = await kv.get(PENDING_KEY);
