@@ -164,7 +164,7 @@ export async function onRequestGet(ctx) {
       for (const e of upcoming.slice(0, 50)) {
         const [dd, mm, yyyy] = String(e.dateOfEvent || '').split('/');
         const iso = (dd && mm && yyyy) ? `${yyyy}-${mm}-${dd}` : '';
-        const slug = tsEventSlug(regCategory, iso, e.name || '');
+        const slug = tsEventSlug(regCategory, iso, normaliseFixtureName(e.name || ''));
         if (!slug) continue;
         records.push({
           slug, category: regCategory, name: e.name, date: iso,
@@ -423,6 +423,82 @@ function jsonResponse(body, status) {
 // ===========================
 
 // {category}-{yyyy-mm-dd}-{normalised-name} — MUST MATCH all other copies.
+// H6: normalises a fixture/event NAME before it is turned into a slug, so
+// that upstream feed variants of the SAME real-world fixture converge on
+// the SAME /event/ slug instead of minting separate near-duplicate D1 rows
+// and pages. Only affects the STRING PASSED TO tsEventSlug — the `name`
+// field stored on the record for DISPLAY is untouched, so titles keep their
+// full original wording (e.g. "Pre-Season Friendly: Arsenal vs Chelsea"
+// still displays in full; only the slug collapses to the plain fixture).
+//
+// !! MUST MATCH !! identical copies in ticketmaster.js, sportsevents365.js,
+// awin-events.js and awin-category-cache.js.
+//
+// Addresses three confirmed sources of duplicate /event/ URLs from the
+// Session 16 audit (10 clusters / 20 URLs in one 28-day GSC export,
+// splitting ~8.7% of event-page impressions across pairs):
+//   1. Separator drift: "-v-" vs "-vs-" — TM/SE365/Awin don't agree.
+//   2. Club legal-SUFFIX drift: "Celtic" vs "Celtic FC", "Chelsea" vs
+//      "Chelsea F.C." (note "F.C." previously produced the token "f-c",
+//      not a removal, since tsEventSlug just turns punctuation into hyphens).
+//   3. Competition-prefix drift: "Pre-Season Friendly: Arsenal vs Chelsea"
+//      vs plain "Arsenal vs Chelsea" for the identical fixture.
+// Team ORDER drift (home/away swapped between sources, e.g.
+// "liverpool-fc-v-wrexham-afc" vs "wrexham-vs-liverpool") is also handled
+// below by sorting the two sides alphabetically for slug purposes only.
+//
+// DELIBERATELY NOT stripping suffixes as PREFIXES: the original audit
+// listed "AC" as a strippable club-suffix token, but AC is the actual
+// identity in club names like "AC Milan" or "SC Freiburg" — stripping it
+// as a leading token would corrupt those to "Milan"/"Freiburg". Only
+// TRAILING legal-form tokens are stripped (safe direction — no top-flight
+// club's canonical identity is a trailing "FC"/"SK"/etc token).
+//
+// The competition-prefix list below is built from the exact duplicate
+// clusters the audit found, NOT a speculative pattern guess — expand it
+// only after confirming a new prefix in live data (see the H6 task-scope
+// doc's Stage A before trusting an expanded list).
+function normaliseFixtureName(name) {
+  let n = String(name || '');
+
+  // (3) Strip a known competition-prefix lead-in, e.g. "Pre-Season
+  // Friendly: Arsenal vs Chelsea" -> "Arsenal vs Chelsea".
+  const COMPETITION_PREFIXES = [
+    'pre-season friendly', 'club friendly', 'international friendly', 'friendly',
+    'first qualifying round', 'second qualifying round', 'third qualifying round',
+    'play-off round', 'group stage', 'quarter-final', 'semi-final', 'final',
+    'premier league', 'efl cup', 'carabao cup', 'fa cup',
+    'uefa champions league', 'uefa europa league', 'uefa conference league',
+    'champions league', 'europa league', 'conference league'
+  ];
+  for (const p of COMPETITION_PREFIXES) {
+    const re = new RegExp('^\\s*' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-\u2013\u2014]\\s*', 'i');
+    if (re.test(n)) { n = n.replace(re, ''); break; }
+  }
+  // Numbered prefixes ("Matchday 3: X vs Y", "Round of 16: X vs Y") aren't
+  // fixed strings, so handled separately from the list above.
+  n = n.replace(/^\s*(matchday\s*\d+|round\s+of\s+\d+)\s*[:\-\u2013\u2014]\s*/i, '');
+
+  // (1) Separator drift: normalise every "v"/"vs" variant (with or without
+  // a trailing dot, any surrounding spacing) to a single canonical " vs ".
+  n = n.replace(/\s+vs?\.?\s+/gi, ' vs ');
+
+  // (2)+(order) Club legal-suffix drift + home/away order drift. Only
+  // applies when the name splits cleanly into two "vs"-joined sides —
+  // a no-op for concert/theatre single-act names.
+  const stripSuffix = (side) => side
+    .replace(/\./g, '')
+    .replace(/\s+(fc|afc|cf|sc|ac|sk|bk|if|tc)$/i, '')
+    .trim();
+  const parts = n.split(/\s+vs\s+/i);
+  if (parts.length === 2) {
+    const sides = [stripSuffix(parts[0]), stripSuffix(parts[1])].sort((a, b) => a.localeCompare(b));
+    n = sides[0] + ' vs ' + sides[1];
+  }
+
+  return n.trim();
+}
+
 function tsEventSlug(category, date, name) {
   if (!category || !date || !name) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;

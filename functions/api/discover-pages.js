@@ -662,7 +662,10 @@ export async function onRequestGet({ request, env }) {
       const genre = rec.genre || '';
 
       if (concertMode) {
-        if (genre !== 'Sports') continue;           // only the corrupted ones
+        // Widened to catch both the plural 'Sports' (original SE365 1023 bug)
+        // and the singular 'Sport' (confirmed live 31 Jul on real entities
+        // carrying this exact string) — same corruption, two literal forms.
+        if (genre !== 'Sports' && genre !== 'Sport') continue;  // only the corrupted ones
         plan.push({ slug, name, from: genre, to: 'Live Music', sport: 'music' });
         continue;
       }
@@ -3406,7 +3409,14 @@ const SPORTS_GENRES = new Set([
   // sessions (Miami Open, ABN AMRO Open, F1 GP day passes). Without this entry
   // those fall through genreToCategory()'s catch-all and become CONCERTS.
   // 217 such entities were found in the concert section on 24 Jul 2026.
-  'sports'
+  'sports',
+  // Added 31 Jul: the SINGULAR form 'Sport' — confirmed live on
+  // mutua-madrid-open, monza-f1-gp-sunday, davis-cup (all three genuinely
+  // sports, all three stuck in /concert/ because only the PLURAL 'sports'
+  // was in this set). Same TM segment-fallback mechanism as 'sports' above,
+  // just a singular variant from a different upstream code path. MUST stay
+  // in sync with SPORT_RULES in the genreaudit phase, same as 'sports'.
+  'sport'
 ]);
 
 function genreToCategory(genre) {

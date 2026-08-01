@@ -77,33 +77,66 @@ export async function onRequestGet(ctx) {
 
   const today  = new Date().toISOString().slice(0, 10);
   const isPast = eventDate < today;
+  // Whole-day age, computed from date-only strings (no time component), so
+  // this is stable across a single UTC day regardless of request time.
+  const ageDays = Math.floor((Date.parse(today) - Date.parse(eventDate)) / 86400000);
 
-  // ── Past event → 410 Gone ────────────────────────────────────────────────
-  // A 410 is a much stronger signal than the existing noindex: it tells
-  // Google the URL is INTENTIONALLY, PERMANENTLY gone, prompting it to drop
-  // the entry from the index on the next crawl rather than just declining to
-  // (re-)index it. Runs whether or not a registry row exists — the event
-  // date is parsed straight from the (frozen-format) slug, so a past date is
-  // known even for a self-rendered/unregistered page. This is what lets
-  // GSC's indexed count actually shrink for events that have already
-  // happened, instead of them lingering indexed indefinitely.
-  if (isPast) {
-    const resp = goneResponse({
-      cat,
-      name:  row?.name  || titleCaseFromSlug(nameSlug),
-      eventDate,
-      venue: row?.venue || '',
-      city:  row?.city  || ''
+  // Best-effort fields, needed by every branch below (past or future).
+  const name  = row?.name  || titleCaseFromSlug(nameSlug);
+  const venue = row?.venue || '';
+  const city  = row?.city  || '';
+
+  // H5: entity slug/url hoisted here so all three past-event tiers below can
+  // use it, not just the live-render path. See deriveEntitySlug() — same
+  // derivation the price-history chart already uses; a wrong guess degrades
+  // to a best-effort entity page rather than a broken destination.
+  const entitySlug = deriveEntitySlug(category, name);
+  const entityUrl  = entitySlug ? `${HOST}/${category}/${entitySlug}` : `${HOST}${cat.hub}`;
+  const image = row?.image || '';
+
+  // ── Past event → three-tier decay, not an immediate 410 ──────────────────
+  // A hard 410 the instant an event passes was destroying real, still-live
+  // search demand (recap/highlights/"how was it" queries land on the event
+  // page in the days right after) and throwing away a page that may have
+  // already earned real ranking. The ladder:
+  //   0–14 days past  → 200 + noindex,follow: keep serving the page (so any
+  //                     inbound links/traffic still land somewhere useful),
+  //                     point at the entity page for what's coming up next.
+  //   15–90 days past → 301 → the parent entity page. Recap demand has
+  //                     mostly faded; consolidate any remaining equity onto
+  //                     the entity page rather than leaving a dead end.
+  //   90+ days past   → 410 Gone (unchanged from before). By now the URL is
+  //                     genuinely stale; tell Google to drop it from the
+  //                     index rather than keep re-checking it.
+  // Runs whether or not a registry row exists — eventDate is parsed straight
+  // from the frozen-format slug, so all three tiers work even for a
+  // self-rendered/unregistered page.
+  if (isPast && ageDays > 90) {
+    const resp = goneResponse({ cat, name, eventDate, venue, city });
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
+
+  if (isPast && ageDays > 14) {
+    const resp = new Response(null, {
+      status: 301,
+      headers: {
+        'Location': entityUrl,
+        // Frozen slug ⇒ frozen date ⇒ this tier boundary for THIS slug never
+        // reverses — same reasoning as the 410's generous cache lifetime.
+        'Cache-Control': 'public, max-age=3600, s-maxage=86400'
+      }
     });
     ctx.waitUntil(cache.put(cacheKey, resp.clone()));
     return resp;
   }
 
-  // Best-effort fields when no registry row exists (or to fill gaps)
-  const name  = row?.name  || titleCaseFromSlug(nameSlug);
-  const venue = row?.venue || '';
-  const city  = row?.city  || '';
-  const image = row?.image || '';
+  if (isPast) {
+    // 1–14 days past.
+    const resp = recentlyFinishedResponse({ cat, name, eventDate, venue, city, entityUrl });
+    ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+    return resp;
+  }
   const tmUrl = row?.tm_url || '';
 
   // Price snapshot only trusted when reasonably fresh (≤7 days old)
@@ -124,7 +157,7 @@ export async function onRequestGet(ctx) {
 
   const html = renderPage({
     slug: rawSlug, category, cat, name, eventDate, venue, city, image,
-    price, currency, tmUrl, tmPrice, isPast, indexable
+    price, currency, tmUrl, tmPrice, isPast, indexable, entitySlug
   });
 
   const resp = new Response(html, {
@@ -222,18 +255,12 @@ function renderPage(d) {
 
   // Values handed to the client hydration script — JSON-encoded, never
   // string-interpolated raw (XSS safety for D1-sourced strings).
-  // Entity slug candidate for the price-history chart. The event_pages row
-  // carries no entity reference, so we derive it here from the same name the
-  // sampler matches on: football → home side of the fixture; concert/theatre
-  // → the act (subtitle stripped). The chart probes /api/price-history with
-  // this and silently renders nothing on a miss, so a wrong guess is harmless.
-  let entitySlug = '';
-  if (d.category === 'football') {
-    const sides = splitFixture(d.name);
-    entitySlug = toEntitySlug(sides.length ? sides[0] : d.name);
-  } else {
-    entitySlug = toEntitySlug(extractActName(d.name));
-  }
+  // Entity slug for the price-history chart, computed once in onRequestGet
+  // (deriveEntitySlug) and passed through as d.entitySlug — H5 reuses that
+  // same value as the past-event decay ladder's redirect target, so the two
+  // never disagree. The chart probes /api/price-history with this and
+  // silently renders nothing on a miss, so a wrong guess is harmless.
+  const entitySlug = d.entitySlug || '';
 
   const hydrate = JSON.stringify({
     name: d.name, tmPrice: d.tmPrice, tmUrl: d.tmUrl || '#',
@@ -652,6 +679,20 @@ function toEntitySlug(name) {
   return base.replace(/-(fc|cf|afc|sc|ac|club)$/, '');
 }
 
+// H5: entity slug candidate for a given category + event name — shared by
+// the price-history chart hydration (silently no-ops on a miss) and the
+// past-event decay ladder's redirect target (degrades to a best-effort
+// entity page on a miss, per entityUrl's cat.hub fallback in onRequestGet).
+// football → home side of the fixture; concert/theatre/sports → the act
+// with any tour/subtitle stripped.
+function deriveEntitySlug(category, name) {
+  if (category === 'football') {
+    const sides = splitFixture(name);
+    return toEntitySlug(sides.length ? sides[0] : name);
+  }
+  return toEntitySlug(extractActName(name));
+}
+
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -675,6 +716,38 @@ function titleCaseFromSlug(nameSlug) {
     if (i > 0 && connectors.includes(w)) return w;
     return w.charAt(0).toUpperCase() + w.slice(1);
   }).join(' ');
+}
+
+// H5: 1–14 days past. Unlike goneResponse (410, permanently gone), this is a
+// 200 so the URL keeps resolving to something useful for the short window
+// where recap/highlights-style search demand is still real — but noindex,
+// follow so Google doesn't keep indexing a page whose content is now just a
+// "this has finished" notice. The entity page (linked prominently) already
+// lists the artist/team's next upcoming dates, so there's no need to
+// duplicate that list here.
+function recentlyFinishedResponse({ cat, name, eventDate, venue, city, entityUrl }) {
+  const where = [venue, city].filter(Boolean).join(', ');
+  const body = `<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${esc(name)} has taken place | TicketScout</title><meta name="robots" content="noindex, follow" />
+<link rel="stylesheet" href="/styles.css" /></head>
+<body><main class="container" style="max-width:700px; margin:60px auto; padding:0 16px; text-align:center;">
+<h1 style="color:#0c2d5a;">This event has just taken place</h1>
+<p><strong>${esc(name)}</strong>${where ? ' · ' + esc(where) : ''} was on ${esc(prettyDate(eventDate))}.</p>
+<p><a href="${esc(entityUrl)}" style="font-weight:600;">See ${esc(name)}'s upcoming ${esc(cat.noun)}s →</a></p>
+<p><a href="${esc(cat.hub)}">Browse upcoming ${esc(cat.label.toLowerCase())} →</a></p>
+<p><a href="/">← Back to TicketScout</a> · <a href="/football/">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
+</main></body></html>`;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      // Short-ish lifetime: this tier is only ever true for a 13-day window
+      // per slug, and the boundary into the next tier (301, day 15) should
+      // not be masked by an over-long cache.
+      'Cache-Control': 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400'
+    }
+  });
 }
 
 function goneResponse({ cat, name, eventDate, venue, city }) {
