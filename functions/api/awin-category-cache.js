@@ -698,6 +698,24 @@ function isTribute(name) {
   return TRIBUTE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
+// Non-football sports genres get their own section. Before this existed
+// every one of them fell through to 'concert' HERE specifically — this copy
+// never received the fix that discover-pages.js's genreToCategory() got
+// across three passes (24/25/31 Jul 2026), despite the "must stay in sync"
+// comment below. Confirmed live 5 Aug 2026: rugby (Rugby World Cup
+// semi-final), ice hockey (San Jose Sharks vs Toronto Maple Leafs,
+// Nashville Predators vs Vancouver Canucks) and football (Everton vs
+// Manchester City) were all being registered as /event/concert-... pages —
+// each one ALSO existed correctly under /event/sports-.../football-...
+// from a different discovery source (TM), so Google was crawling both.
+// Kept as an exact copy of discover-pages.js's set — MUST stay in sync.
+const SPORTS_GENRES = new Set([
+  'basketball', 'mma', 'ice hockey', 'rugby', 'handball', 'american football',
+  'baseball', 'boxing', 'tennis', 'cricket', 'motorsport', 'golf', 'wrestling',
+  'darts', 'snooker', 'esports', 'horse racing', 'winter sports', 'volleyball',
+  'sports', 'sport'
+]);
+
 function awinGenre(merchantCategory, categoryName) {
   const cat = ((merchantCategory || '') + ' ' + (categoryName || '')).toLowerCase();
   if (cat.includes('football') || cat.includes('soccer')) return 'Football';
@@ -710,12 +728,26 @@ function awinGenre(merchantCategory, categoryName) {
 
 /**
  * Maps a genre string to a page category folder.
- * Must stay in sync with the copy in discover-pages.js.
+ * Must stay in sync with the copy in discover-pages.js. (Fixed 5 Aug 2026 —
+ * this copy was missing the SPORTS_GENRES check entirely; see comment above.
+ * Theatre keyword list also widened to match discover-pages.js's copy, which
+ * had picked up comedy/circus/drama/magic/etc. across the same three
+ * passes this copy never got.)
  */
 function genreToCategory(genre) {
-  const g = (genre || '').toLowerCase();
+  const g = (genre || '').toLowerCase().trim();
+  if (SPORTS_GENRES.has(g)) return 'sports';
   if (g.includes('football') || g.includes('soccer')) return 'football';
-  if (g.includes('theatre') || g.includes('musical') || g.includes('opera') || g.includes('ballet')) return 'theatre';
+  if (
+    g.includes('theatre') || g.includes('musical') || g.includes('opera') ||
+    g.includes('ballet')   || g.includes('comedy')  || g.includes('circus') ||
+    g.includes('drama')    ||
+    g.includes('magic')    || g.includes('illusion')|| g.includes('cabaret') ||
+    g.includes('variety')  || g.includes('performance art') ||
+    g.includes('podcast')  || g.includes('documentary') ||
+    g.includes('psychics') || g.includes('mediums') || g.includes('hypnotist') ||
+    g.includes('specialty') || g === 'family'
+  ) return 'theatre';
   return 'concert';
 }
 

@@ -1534,6 +1534,149 @@ export async function onRequestGet({ request, env }) {
     }, 200);
   }
 
+  // ── PHASE: fix-sports-events (added 5 Aug 2026) ────────────────────────────
+  // Companion to the awin-category-cache.js genreToCategory() fix shipped the
+  // same day: that fix stops NEW mis-registrations, this phase cleans up
+  // ones already sitting in the D1 event_pages table. Confirmed live via GSC
+  // Crawl Stats: rugby, ice hockey and football fixtures registered as
+  // /event/concert-... pages, each one ALSO existing correctly under
+  // /event/sports-.../football-... from a different discovery source (TM) —
+  // Google was crawling both.
+  //
+  // SCOPE: only event_pages rows where category='concert' AND the name
+  // splits cleanly into "X vs Y" (via the same normaliseFixtureName() vs-
+  // detection already proven for H6). Real concert/theatre acts essentially
+  // never have "vs" in their billed name, and nothing gets touched unless a
+  // matching sports/football row is also found — so a false-positive "vs"
+  // match on a genuine concert name is inert, not destructive.
+  //
+  // Two possible outcomes per candidate:
+  //   1. A matching sports/football row for the SAME event already exists
+  //      (checked two ways: exact slug-tail match after swapping the
+  //      category prefix, then a same-date normalised-name fallback for
+  //      cases where the stored raw names differ more than that) — the
+  //      concert-category row is the erroneous duplicate, so it is DELETED
+  //      (never the sports/football one — that row is left untouched).
+  //   2. No matching row exists — this event has ONLY the wrong-category
+  //      page. There's no live re-verification signal available here (no
+  //      stored genre on event_pages, unlike ticketmaster.js's own
+  //      recategorisation pass), so guessing sports vs football and moving
+  //      it would be exactly the kind of speculative fix this project
+  //      avoids. These are reported under `unmatched` for manual review —
+  //      NEVER deleted or moved automatically, confirm=yes or not.
+  //
+  // Usage: ?trigger=1&phase=fix-sports-events
+  //          — dry run (default): lists what WOULD be deleted, and the
+  //            unmatched review queue
+  //        ?trigger=1&phase=fix-sports-events&confirm=yes
+  //          — deletes the confirmed-duplicate concert-category rows only
+  if (phase === 'fix-sports-events') {
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    const limit   = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 500);
+    const db = env.PRICE_DB;
+    if (!db) return json({ error: 'PRICE_DB binding not available' }, 503);
+
+    let rows = [];
+    try {
+      const { results } = await db.prepare(
+        "SELECT slug, category, name, event_date FROM event_pages " +
+        "WHERE category = 'concert' AND event_date >= date('now') " +
+        "ORDER BY event_date LIMIT ?1"
+      ).bind(limit).all();
+      rows = results || [];
+    } catch (e) {
+      return json({ error: 'candidate read failed: ' + String(e) }, 500);
+    }
+
+    // Candidates: name contains a "vs"/"v" pairing once normalised the same
+    // way H6 already does for slug-building, so drift (v/vs, dots, spacing)
+    // doesn't cause a missed match.
+    const candidates = rows.filter(r => {
+      const n = normaliseFixtureName(r.name || '');
+      return /\svs\s/i.test(n);
+    });
+
+    const toDelete = [];   // confirmed duplicate — safe to remove
+    const unmatched = [];  // no sports/football counterpart found — needs a human
+    const errors = [];
+
+    for (const row of candidates) {
+      const normName = normaliseFixtureName(row.name || '');
+      const tail = row.slug.startsWith('concert-') ? row.slug.slice('concert-'.length) : null;
+
+      let match = null;
+      try {
+        // Method 1 — exact slug-tail match with the category prefix swapped.
+        // The tail (date + normalised name) is category-independent, so for
+        // any event registered under H6's normaliser on both sides this is
+        // an exact, high-confidence match.
+        if (tail) {
+          const r1 = await db.prepare(
+            "SELECT slug, category, name FROM event_pages WHERE slug IN (?1, ?2)"
+          ).bind('sports-' + tail, 'football-' + tail).first();
+          if (r1) match = r1;
+        }
+        // Method 2 — same event_date, category sports/football, same name
+        // after normalising both sides. Fallback for cases where the raw
+        // stored names differ enough (e.g. city-prefixed team names) that
+        // the slug tail itself doesn't match exactly.
+        if (!match) {
+          const { results: sameDate } = await db.prepare(
+            "SELECT slug, category, name FROM event_pages " +
+            "WHERE event_date = ?1 AND category IN ('sports','football')"
+          ).bind(row.event_date).all();
+          match = (sameDate || []).find(r => normaliseFixtureName(r.name || '') === normName) || null;
+        }
+      } catch (e) {
+        errors.push({ slug: row.slug, error: String(e) });
+        continue;
+      }
+
+      if (match) {
+        toDelete.push({ wrongSlug: row.slug, name: row.name, correctSlug: match.slug, correctCategory: match.category });
+      } else {
+        unmatched.push({ slug: row.slug, name: row.name, date: row.event_date });
+      }
+    }
+
+    if (!confirm) {
+      return json({
+        phase: 'fix-sports-events',
+        dryRun: true,
+        scanned: rows.length,
+        candidates: candidates.length,
+        wouldDelete: toDelete.length,
+        unmatchedNeedsReview: unmatched.length,
+        toDelete,
+        unmatched,
+        errors,
+        next: rows.length >= limit ? '?trigger=1&phase=fix-sports-events&limit=' + limit + ' — more may remain, re-run' : null
+      }, 200);
+    }
+
+    let deleted = 0;
+    const deleteErrors = [];
+    for (const d of toDelete) {
+      try {
+        await db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(d.wrongSlug).run();
+        deleted++;
+      } catch (e) {
+        deleteErrors.push({ slug: d.wrongSlug, error: String(e) });
+      }
+    }
+
+    return json({
+      phase: 'fix-sports-events',
+      dryRun: false,
+      scanned: rows.length,
+      candidates: candidates.length,
+      deleted,
+      deleteErrors,
+      unmatchedNeedsReview: unmatched.length,
+      unmatched,
+      next: rows.length >= limit ? '?trigger=1&phase=fix-sports-events&confirm=yes&limit=' + limit + ' — more may remain, re-run' : null
+    }, 200);
+  }
 
   // ── PHASE: mergefragments (added 1 Aug 2026, H2) ──────────────────────────
   // Automates the whole H2 workflow end-to-end: detect ticket-type-fragment
@@ -4001,6 +4144,39 @@ function genreToCategory(genre) {
     g.includes('specialty') || g === 'family'
   ) return 'theatre';
   return 'concert';
+}
+
+// H6 client/backend twin, added here 5 Aug 2026 for the fix-sports-events
+// phase below (matching by normalised name against event_pages rows).
+// !! MUST MATCH !! the identical copies in ticketmaster.js, sportsevents365.js,
+// awin-events.js, awin-category-cache.js and compare.js — see H6 in
+// TICKETSCOUT-AUDIT-ROADMAP.md for what each piece of this handles.
+function normaliseFixtureName(name) {
+  let n = String(name || '');
+  const COMPETITION_PREFIXES = [
+    'pre-season friendly', 'club friendly', 'international friendly', 'friendly',
+    'first qualifying round', 'second qualifying round', 'third qualifying round',
+    'play-off round', 'group stage', 'quarter-final', 'semi-final', 'final',
+    'premier league', 'efl cup', 'carabao cup', 'fa cup',
+    'uefa champions league', 'uefa europa league', 'uefa conference league',
+    'champions league', 'europa league', 'conference league'
+  ];
+  for (const p of COMPETITION_PREFIXES) {
+    const re = new RegExp('^\\s*' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-\u2013\u2014]\\s*', 'i');
+    if (re.test(n)) { n = n.replace(re, ''); break; }
+  }
+  n = n.replace(/^\s*(matchday\s*\d+|round\s+of\s+\d+)\s*[:\-\u2013\u2014]\s*/i, '');
+  n = n.replace(/\s+vs?\.?\s+/gi, ' vs ');
+  const stripSuffix = (side) => side
+    .replace(/\./g, '')
+    .replace(/\s+(fc|afc|cf|sc|ac|sk|bk|if|tc)$/i, '')
+    .trim();
+  const parts = n.split(/\s+vs\s+/i);
+  if (parts.length === 2) {
+    const sides = [stripSuffix(parts[0]), stripSuffix(parts[1])].sort((a, b) => a.localeCompare(b));
+    n = sides[0] + ' vs ' + sides[1];
+  }
+  return n.trim();
 }
 
 /**
