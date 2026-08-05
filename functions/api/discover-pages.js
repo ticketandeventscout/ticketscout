@@ -1677,7 +1677,7 @@ export async function onRequestGet({ request, env }) {
       const { results } = await db.prepare(
         "SELECT slug, category, name, event_date FROM event_pages " +
         "WHERE category = 'concert' AND event_date >= date('now') " +
-        "ORDER BY event_date LIMIT ?1"
+        "ORDER BY event_date, slug LIMIT ?1"
       ).bind(limit).all();
       rows = results || [];
     } catch (e) {
