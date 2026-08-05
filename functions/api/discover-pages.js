@@ -1666,7 +1666,7 @@ export async function onRequestGet({ request, env }) {
       try {
         const { results } = await db.prepare(
           "SELECT slug, category FROM event_pages " +
-          "WHERE category IN ('football','sports') AND slug > ?1 " +
+          "WHERE category IN ('football','sports') AND event_date >= date('now') AND slug > ?1 " +
           "ORDER BY slug LIMIT ?2"
         ).bind(bfCursor, limit).all();
         bfRows = results || [];
