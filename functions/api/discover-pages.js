@@ -1583,6 +1583,17 @@ export async function onRequestGet({ request, env }) {
   //          — dry run (default): reports what WOULD move + any rejected pairs
   //        ?trigger=1&phase=fix-sports-events&move=slug1:sports,slug2:football&confirm=yes
   //          — performs the move
+  //
+  // CURSOR (added 6 Aug 2026): confirm=yes runs remember how far through the
+  // (event_date, slug) sort order they got, in KV, so repeatedly hitting the
+  // SAME confirm=yes URL sweeps forward through the whole backlog instead of
+  // re-scanning the same front-of-list window every time — unmatched rows
+  // are never deleted, so without this they'd permanently block the LIMIT
+  // window from ever reaching rows further back. `done: true` in the
+  // response means the cursor reached the end and reset itself; the next
+  // call after that starts a fresh sweep from the beginning. Dry runs read
+  // the cursor (so they preview the real next confirm=yes batch) but never
+  // move it. Force an early fresh sweep with &resetcursor=1.
   if (phase === 'fix-sports-events') {
     const confirm = url.searchParams.get('confirm') === 'yes';
     const limit   = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 500);
@@ -1672,16 +1683,51 @@ export async function onRequestGet({ request, env }) {
       return json({ phase: 'fix-sports-events', mode: 'move', dryRun: false, moved, moveErrors, rejected }, 200);
     }
 
+    // Keyset cursor (added 6 Aug 2026) — without this, the query always
+    // restarted from the very front of the (event_date, slug) sort order.
+    // Unmatched rows are never deleted or moved by this scan, so once any
+    // accumulate near the front (WNBA fixtures with no existing sports/
+    // football counterpart are a recurring case — new ones land daily),
+    // they permanently occupy the LIMIT window and the scan can never reach
+    // rows further back, no matter how many confirmed duplicates further in
+    // the list get deleted. Same cursor pattern as ?phase=fix-categories and
+    // ?phase=commitPendingPages elsewhere in this file — advances based on
+    // what was EXAMINED this batch, not on what was actioned, so unmatched
+    // rows get reported every sweep but never block forward progress.
+    // Dry runs read the cursor (so a dry run previews the actual next
+    // confirm=yes batch) but never move it — only confirm=yes advances state.
+    const CURSOR_KEY = 'discover:fixsportsevents:cursor';
+    if (url.searchParams.get('resetcursor') === '1') {
+      try { await kv.delete(CURSOR_KEY); } catch {}
+    }
+    let cursorDate = '', cursorSlug = '';
+    try {
+      const raw = await kv.get(CURSOR_KEY);
+      if (raw) { const c = JSON.parse(raw); cursorDate = c.date || ''; cursorSlug = c.slug || ''; }
+    } catch {}
+
     let rows = [];
     try {
       const { results } = await db.prepare(
         "SELECT slug, category, name, event_date FROM event_pages " +
         "WHERE category = 'concert' AND event_date >= date('now') " +
-        "ORDER BY event_date, slug LIMIT ?1"
-      ).bind(limit).all();
+        "AND (event_date > ?1 OR (event_date = ?1 AND slug > ?2)) " +
+        "ORDER BY event_date, slug LIMIT ?3"
+      ).bind(cursorDate, cursorSlug, limit).all();
       rows = results || [];
     } catch (e) {
       return json({ error: 'candidate read failed: ' + String(e) }, 500);
+    }
+
+    const done = rows.length < limit; // fewer rows than asked for = reached the end of the sweep
+    if (confirm) {
+      try {
+        if (done) await kv.delete(CURSOR_KEY);
+        else {
+          const last = rows[rows.length - 1];
+          await kv.put(CURSOR_KEY, JSON.stringify({ date: last.event_date, slug: last.slug }));
+        }
+      } catch {}
     }
 
     // Candidates: name contains a "vs"/"v" pairing once normalised the same
@@ -1746,7 +1792,8 @@ export async function onRequestGet({ request, env }) {
         toDelete,
         unmatched,
         errors,
-        next: rows.length >= limit ? '?trigger=1&phase=fix-sports-events&limit=' + limit + ' — more may remain, re-run' : null
+        done,
+        next: done ? null : '?trigger=1&phase=fix-sports-events — previews the next batch (cursor only advances on confirm=yes)'
       }, 200);
     }
 
@@ -1770,7 +1817,8 @@ export async function onRequestGet({ request, env }) {
       deleteErrors,
       unmatchedNeedsReview: unmatched.length,
       unmatched,
-      next: rows.length >= limit ? '?trigger=1&phase=fix-sports-events&confirm=yes&limit=' + limit + ' — more may remain, re-run' : null
+      done,
+      next: done ? null : '?trigger=1&phase=fix-sports-events&confirm=yes — cursor has advanced, same URL continues from here'
     }, 200);
   }
 
