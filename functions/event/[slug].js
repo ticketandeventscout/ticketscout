@@ -50,6 +50,31 @@ export async function onRequestGet(ctx) {
   const { env, params, request } = ctx;
   const rawSlug = String(params.slug || '').toLowerCase();
 
+  // FIX (6 Aug 2026): mirrors the identical fix in functions/concert/[slug].js
+  // (1 Aug 2026). Without this, deleting a wrong-category row from
+  // event_pages (see discover-pages.js's fix-sports-events phase) didn't
+  // retire the old URL — it just made `row` come back null, and the
+  // best-effort fallback below still rendered a full, fully-functional page
+  // from the raw slug (noindexed, but still live for real users, still
+  // querying every seller's compare widget). Checked BEFORE the edge-cache
+  // lookup, not after — a stale cached 200 from before the redirect was
+  // written would otherwise keep winning for up to its s-maxage.
+  //
+  // Key scheme: 'redirectSlug:event:{oldSlug}' -> 'event/{newSlug}' (relative
+  // path, no leading slash — matches concert/[slug].js's destPath format).
+  // Written by discover-pages.js's fix-sports-events phase (both the plain
+  // duplicate-delete path and move mode) whenever it removes an event_pages
+  // row for a slug that had (or now has) a correct counterpart elsewhere.
+  try {
+    const kv = env.GIGSBERG_KV;
+    if (kv) {
+      const destPath = await kv.get(`redirectSlug:event:${rawSlug}`);
+      if (destPath) {
+        return Response.redirect(`${HOST}/${destPath}`, 301);
+      }
+    }
+  } catch { /* redirect lookup failing should never break the normal page */ }
+
   // ── Edge cache — identical to the ticketmaster.js pattern ────────────────
   const cache    = caches.default;
   const cacheKey = new Request(new URL(request.url).toString(), { method: 'GET' });

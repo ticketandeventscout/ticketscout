@@ -1659,6 +1659,7 @@ export async function onRequestGet({ request, env }) {
             // this is now a confirmed duplicate, same handling as the main
             // scan-and-delete path: remove the wrong row only.
             await db.batch([ db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(m.oldSlug) ]);
+            try { if (kv) await kv.put('redirectSlug:event:' + m.oldSlug, 'event/' + dup.slug); } catch {}
             moved.push({ ...m, action: 'duplicate-removed' });
             continue;
           }
@@ -1674,6 +1675,7 @@ export async function onRequestGet({ request, env }) {
             db.prepare(insertSql).bind(...binds),
             db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(m.oldSlug)
           ]);
+          try { if (kv) await kv.put('redirectSlug:event:' + m.oldSlug, 'event/' + m.newSlug); } catch {}
           moved.push({ ...m, action: 'moved' });
         } catch (e) {
           moveErrors.push({ ...m, error: String(e) });
@@ -1802,6 +1804,7 @@ export async function onRequestGet({ request, env }) {
     for (const d of toDelete) {
       try {
         await db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(d.wrongSlug).run();
+        try { if (kv) await kv.put('redirectSlug:event:' + d.wrongSlug, 'event/' + d.correctSlug); } catch {}
         deleted++;
       } catch (e) {
         deleteErrors.push({ slug: d.wrongSlug, error: String(e) });
