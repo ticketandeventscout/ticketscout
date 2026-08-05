@@ -1550,7 +1550,7 @@ export async function onRequestGet({ request, env }) {
   // matching sports/football row is also found — so a false-positive "vs"
   // match on a genuine concert name is inert, not destructive.
   //
-  // Two possible outcomes per candidate:
+  // Two possible outcomes per scanned candidate:
   //   1. A matching sports/football row for the SAME event already exists
   //      (checked two ways: exact slug-tail match after swapping the
   //      category prefix, then a same-date normalised-name fallback for
@@ -1565,16 +1565,112 @@ export async function onRequestGet({ request, env }) {
   //      avoids. These are reported under `unmatched` for manual review —
   //      NEVER deleted or moved automatically, confirm=yes or not.
   //
+  // MOVE MODE (added same day, after the first live dry run surfaced a real
+  // unmatched queue mixing US sports leagues — genuinely `sports` — with a
+  // Serie A derby — genuinely `football`, not `sports`, on this site's own
+  // scheme): resolves the `unmatched` queue once a human has read the names
+  // and decided the correct category per slug. INSERT-corrected + DELETE-old,
+  // same pattern as ticketmaster.js's own recategorisation pass — falls back
+  // to a plain delete if the target slug has been registered by something
+  // else since the dry run (i.e. it's now a confirmed duplicate too).
+  //
   // Usage: ?trigger=1&phase=fix-sports-events
   //          — dry run (default): lists what WOULD be deleted, and the
   //            unmatched review queue
   //        ?trigger=1&phase=fix-sports-events&confirm=yes
   //          — deletes the confirmed-duplicate concert-category rows only
+  //        ?trigger=1&phase=fix-sports-events&move=slug1:sports,slug2:football
+  //          — dry run (default): reports what WOULD move + any rejected pairs
+  //        ?trigger=1&phase=fix-sports-events&move=slug1:sports,slug2:football&confirm=yes
+  //          — performs the move
   if (phase === 'fix-sports-events') {
     const confirm = url.searchParams.get('confirm') === 'yes';
     const limit   = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 500);
     const db = env.PRICE_DB;
     if (!db) return json({ error: 'PRICE_DB binding not available' }, 503);
+
+    // ── MOVE MODE — resolves the `unmatched` review queue from a normal run.
+    // No auto-detection here on purpose: these rows had no sports/football
+    // counterpart to verify against, so the target category is supplied
+    // explicitly by whoever reviewed the dry-run's `unmatched` list.
+    //
+    // Usage: &move=slug1:category1,slug2:category2,...
+    //   dry run (default): reports what WOULD move, and any rejected pairs
+    //   &confirm=yes: performs the move. Each move is INSERT corrected row +
+    //   DELETE old row (same pattern ticketmaster.js's own recategorisation
+    //   pass uses) — UNLESS the target slug has been registered by something
+    //   else since the dry run, in which case that's now a confirmed
+    //   duplicate and the old row is simply deleted instead (never
+    //   overwrites an existing row).
+    const moveParam = url.searchParams.get('move');
+    if (moveParam) {
+      const VALID_CATS = ['football', 'concert', 'theatre', 'sports'];
+      const pairs = moveParam.split(',').map(s => s.trim()).filter(Boolean);
+      const wouldMove = [];
+      const rejected = [];
+
+      for (const pair of pairs) {
+        const idx = pair.lastIndexOf(':');
+        if (idx < 1) { rejected.push({ pair, reason: 'expected slug:category' }); continue; }
+        const slug = pair.slice(0, idx);
+        const targetCat = pair.slice(idx + 1).toLowerCase();
+        if (!VALID_CATS.includes(targetCat)) { rejected.push({ pair, reason: 'unknown category "' + targetCat + '"' }); continue; }
+
+        let row = null;
+        try { row = await db.prepare('SELECT * FROM event_pages WHERE slug = ?1').bind(slug).first(); } catch (e) {
+          rejected.push({ pair, reason: 'read failed: ' + String(e) }); continue;
+        }
+        if (!row) { rejected.push({ pair, reason: 'slug not found — already moved or deleted?' }); continue; }
+        if (row.category === targetCat) { rejected.push({ pair, reason: 'already in category ' + targetCat }); continue; }
+
+        const oldPrefix = row.category + '-';
+        const tail = row.slug.startsWith(oldPrefix) ? row.slug.slice(oldPrefix.length) : null;
+        const newSlug = tail ? targetCat + '-' + tail : null;
+        if (!newSlug) { rejected.push({ pair, reason: 'could not derive new slug from ' + row.slug }); continue; }
+
+        wouldMove.push({ oldSlug: slug, newSlug, targetCategory: targetCat, name: row.name });
+      }
+
+      if (!confirm) {
+        return json({ phase: 'fix-sports-events', mode: 'move', dryRun: true, wouldMove, rejected }, 200);
+      }
+
+      const moved = [];
+      const moveErrors = [];
+      for (const m of wouldMove) {
+        try {
+          const row = await db.prepare('SELECT * FROM event_pages WHERE slug = ?1').bind(m.oldSlug).first();
+          if (!row) { moveErrors.push({ ...m, error: 'row disappeared between dry run and confirm' }); continue; }
+
+          const dup = await db.prepare('SELECT slug FROM event_pages WHERE slug = ?1').bind(m.newSlug).first();
+          if (dup) {
+            // Something else registered the correct slug since the dry run —
+            // this is now a confirmed duplicate, same handling as the main
+            // scan-and-delete path: remove the wrong row only.
+            await db.batch([ db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(m.oldSlug) ]);
+            moved.push({ ...m, action: 'duplicate-removed' });
+            continue;
+          }
+
+          const hasCreatedAt = Object.prototype.hasOwnProperty.call(row, 'created_at');
+          const insertSql = hasCreatedAt
+            ? 'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)'
+            : 'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)';
+          const binds = [m.newSlug, m.targetCategory, row.name, row.event_date, row.venue, row.city,
+                         row.price, row.currency, row.tm_url, row.image, row.source, row.updated_at];
+          if (hasCreatedAt) binds.push(row.created_at ?? row.updated_at);
+          await db.batch([
+            db.prepare(insertSql).bind(...binds),
+            db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(m.oldSlug)
+          ]);
+          moved.push({ ...m, action: 'moved' });
+        } catch (e) {
+          moveErrors.push({ ...m, error: String(e) });
+        }
+      }
+
+      return json({ phase: 'fix-sports-events', mode: 'move', dryRun: false, moved, moveErrors, rejected }, 200);
+    }
 
     let rows = [];
     try {
