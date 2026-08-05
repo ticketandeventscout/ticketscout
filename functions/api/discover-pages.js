@@ -1600,6 +1600,119 @@ export async function onRequestGet({ request, env }) {
     const db = env.PRICE_DB;
     if (!db) return json({ error: 'PRICE_DB binding not available' }, 503);
 
+    // ── REDIRECTONLY MODE (added 6 Aug 2026, one-off) — KV-only, no D1 ─────
+    // Backfills redirectSlug:event: entries for old->new pairs that were
+    // already moved by `move` mode BEFORE that mode started writing the
+    // redirect itself. The old event_pages row is long gone by now, so there
+    // is nothing to look up or delete — this just writes the KV redirect
+    // directly from an explicit oldSlug:newSlug list. Higher batch size than
+    // `move` (this is pure KV writes, much cheaper per pair).
+    //
+    // Usage: &redirectonly=oldSlug1:newSlug1,oldSlug2:newSlug2,...
+    //   dry run (default): lists what WOULD be written
+    //   &confirm=yes: writes them
+    const redirectOnlyParam = url.searchParams.get('redirectonly');
+    if (redirectOnlyParam) {
+      const pairs = redirectOnlyParam.split(',').map(s => s.trim()).filter(Boolean);
+      const results = [];
+      for (const pair of pairs) {
+        const idx = pair.indexOf(':');
+        if (idx < 1) { results.push({ pair, status: 'rejected', reason: 'expected oldSlug:newSlug' }); continue; }
+        const oldSlug = pair.slice(0, idx);
+        const newSlug = pair.slice(idx + 1);
+        if (!confirm) { results.push({ oldSlug, newSlug, status: 'would-write' }); continue; }
+        try {
+          if (!kv) throw new Error('KV binding not available');
+          await kv.put('redirectSlug:event:' + oldSlug, 'event/' + newSlug);
+          results.push({ oldSlug, newSlug, status: 'written' });
+        } catch (e) {
+          results.push({ oldSlug, newSlug, status: 'error', error: String(e) });
+        }
+      }
+      return json({ phase: 'fix-sports-events', mode: 'redirectonly', dryRun: !confirm, count: results.length, results }, 200);
+    }
+
+    // ── BACKFILLREDIRECTS MODE (added 6 Aug 2026, one-off) ──────────────────
+    // Covers the OTHER historical gap: the plain scan-and-delete path
+    // (toDelete, no `move` involved) also predates the redirect-writing fix,
+    // and unlike move-mode's pairs, those specific old slugs were never
+    // recorded anywhere I have access to — Rt ran that sweep directly and I
+    // only saw partial samples of the output.
+    //
+    // Instead of a list, this reconstructs the old slug: every toDelete match
+    // that went through Method 1 (the common case — see the phase's main
+    // matching logic above) shares an IDENTICAL slug tail with its correct
+    // counterpart, just a different category prefix. So for every CURRENT
+    // football/sports row, the old wrong slug — IF it ever existed — was
+    // exactly 'concert-' + that same tail. This writes that redirect
+    // unconditionally for every current row. Safe even where the phantom
+    // concert- slug never actually existed: an unused KV key that nothing
+    // will ever request. Does NOT cover Method-2-style historical matches
+    // (raw names too different for the same tail) — those would need the
+    // same explicit-list treatment as redirectonly above, on a case-by-case
+    // basis, if any turn out to still be live zombie pages.
+    //
+    // Usage: &backfillredirects=1
+    //   dry run (default): reports how many redirects WOULD be written
+    //   &backfillredirects=1&confirm=yes: writes them, cursor-paginated
+    //   same way as the main sweep — re-run the same URL until done:true
+    if (url.searchParams.get('backfillredirects') === '1') {
+      const BF_CURSOR_KEY = 'discover:fixsportsevents:backfillcursor';
+      if (url.searchParams.get('resetcursor') === '1') { try { await kv.delete(BF_CURSOR_KEY); } catch {} }
+      let bfCursor = '';
+      try { bfCursor = (await kv.get(BF_CURSOR_KEY)) || ''; } catch {}
+
+      let bfRows = [];
+      try {
+        const { results } = await db.prepare(
+          "SELECT slug, category FROM event_pages " +
+          "WHERE category IN ('football','sports') AND slug > ?1 " +
+          "ORDER BY slug LIMIT ?2"
+        ).bind(bfCursor, limit).all();
+        bfRows = results || [];
+      } catch (e) {
+        return json({ error: 'backfill read failed: ' + String(e) }, 500);
+      }
+
+      const bfDone = bfRows.length < limit;
+      if (confirm) {
+        try {
+          if (bfDone) await kv.delete(BF_CURSOR_KEY);
+          else await kv.put(BF_CURSOR_KEY, bfRows[bfRows.length - 1].slug);
+        } catch {}
+      }
+
+      const bfWrites = bfRows.map(r => {
+        const prefix = r.category + '-';
+        const tail = r.slug.startsWith(prefix) ? r.slug.slice(prefix.length) : null;
+        return tail ? { phantomOldSlug: 'concert-' + tail, realSlug: r.slug } : null;
+      }).filter(Boolean);
+
+      if (!confirm) {
+        return json({
+          phase: 'fix-sports-events', mode: 'backfillredirects', dryRun: true,
+          scanned: bfRows.length, wouldWrite: bfWrites.length, sample: bfWrites.slice(0, 10),
+          done: bfDone, next: bfDone ? null : '?trigger=1&phase=fix-sports-events&backfillredirects=1 — previews the next batch'
+        }, 200);
+      }
+
+      let bfWritten = 0;
+      const bfErrors = [];
+      for (const w of bfWrites) {
+        try {
+          await kv.put('redirectSlug:event:' + w.phantomOldSlug, 'event/' + w.realSlug);
+          bfWritten++;
+        } catch (e) {
+          bfErrors.push({ ...w, error: String(e) });
+        }
+      }
+      return json({
+        phase: 'fix-sports-events', mode: 'backfillredirects', dryRun: false,
+        scanned: bfRows.length, written: bfWritten, errors: bfErrors,
+        done: bfDone, next: bfDone ? null : '?trigger=1&phase=fix-sports-events&backfillredirects=1&confirm=yes — cursor has advanced, same URL continues'
+      }, 200);
+    }
+
     // ── MOVE MODE — resolves the `unmatched` review queue from a normal run.
     // No auto-detection here on purpose: these rows had no sports/football
     // counterpart to verify against, so the target category is supplied
