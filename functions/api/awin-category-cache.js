@@ -719,10 +719,32 @@ const SPORTS_GENRES = new Set([
 function awinGenre(merchantCategory, categoryName) {
   const cat = ((merchantCategory || '') + ' ' + (categoryName || '')).toLowerCase();
   if (cat.includes('football') || cat.includes('soccer')) return 'Football';
+  // Domestic/international football league & competition names — added
+  // 6 Aug 2026 after a live unmatched batch showed EFL Championship/League
+  // One, La Liga, Serie A, Bundesliga, Eredivisie, Primeira Liga, Ligue 1
+  // and international fixtures (Netherlands vs Germany etc.) all landing in
+  // 'Live Events' -> concert, because Awin's own category text names the
+  // LEAGUE rather than the word "football"/"soccer" for these merchants.
+  if (
+    cat.includes('premier league') || cat.includes('championship') ||
+    cat.includes('league one') || cat.includes('league two') ||
+    cat.includes('efl') || cat.includes('la liga') || cat.includes('laliga') ||
+    cat.includes('serie a') || cat.includes('serie b') ||
+    cat.includes('bundesliga') || cat.includes('ligue 1') || cat.includes('ligue 2') ||
+    cat.includes('eredivisie') || cat.includes('primeira liga') || cat.includes('liga portugal') ||
+    cat.includes('uefa') || cat.includes('fifa') || cat.includes('world cup qualif') ||
+    cat.includes('nations league') || cat.includes('international friendly')
+  ) return 'Football';
   if (cat.includes('concert') || cat.includes('music'))   return 'Live Music';
   if (cat.includes('theatre') || cat.includes('musical')) return 'Theatre';
   if (cat.includes('comedy'))  return 'Comedy';
   if (cat.includes('sport'))   return 'Sports';
+  // US pro sports league names — added alongside the football fix above,
+  // same gap (league name instead of sport name in Awin's category text).
+  if (
+    cat.includes('wnba') || cat.includes('nba') || cat.includes('mlb') ||
+    cat.includes('nfl') || cat.includes('nhl')
+  ) return 'Sports';
   return 'Live Events';
 }
 
