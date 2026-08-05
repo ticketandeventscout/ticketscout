@@ -768,8 +768,15 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
            passing, while staying recognisably "success green". */
         .best-price-badge { display:block; background:#15803d; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; text-align:center; margin-top:2px; }
         .trusted-badge { display:inline-block; color:#16a34a; font-size:10px; font-weight:600; margin-left:6px; white-space:nowrap; }
-        .compare-loading { padding:20px; text-align:center; color:#888; font-size:14px; }
-        .compare-footnote { font-size:11px; color:#999; text-align:center; padding:12px 20px 4px; line-height:1.5; }
+        /* A11y fix (2 Aug 2026): #888 measured 3.54:1 against white — fails
+           WCAG AA's 4.5:1 minimum. #666 (5.74:1) passes and is the SAME
+           shade already used for .compare-from above. */
+        .compare-loading { padding:20px; text-align:center; color:#666; font-size:14px; }
+        /* A11y fix (2 Aug 2026): #999 measured 2.85:1 against .compare-block's
+           white background — fails WCAG AA badly (same failure, same 2.85:1,
+           as the shared footer disclaimer already fixed elsewhere this
+           session). #666 (5.74:1) passes and matches the established shade. */
+        .compare-footnote { font-size:11px; color:#666; text-align:center; padding:12px 20px 4px; line-height:1.5; }
         .compare-title { font-size:14px; font-weight:600; color:#1a1a1a; padding:14px 20px 10px; border-bottom:1px solid #f0f0f0; }
         @media(max-width:560px) {
           .compare-row { padding:11px 14px; gap:8px; }
@@ -1174,6 +1181,48 @@ function matchTrust(rawEventName, m, queryCity, queryDate) {
   if (!priced) return { tier: 'fallback', reason: 'no price' };
   if (dateFar)  return { tier: 'fallback', reason: 'different date ' + String(m.date).slice(0,10) + ' \u2260 ' + queryDate };
   return { tier: 'price', reason: 'performer + ok' };
+}
+
+// ===========================
+// H6 (2 Aug 2026) — client-side twin of the server-side
+// normaliseFixtureName() in ticketmaster.js/sportsevents365.js/
+// awin-events.js/awin-category-cache.js. !! MUST MATCH !! those four
+// copies exactly (plus the identical copies now in concert.html,
+// football.html, theatre.html, sports.html, venue.html).
+// Global on purpose — events.js (homepage event cards) calls this global
+// function the same way it already calls the global tsEventSlug() below,
+// via a defensive `typeof` check, since not every page that includes
+// events.js also includes this file.
+// ===========================
+function normaliseFixtureName(name) {
+  var n = String(name || '');
+  var COMPETITION_PREFIXES = [
+    'pre-season friendly', 'club friendly', 'international friendly', 'friendly',
+    'first qualifying round', 'second qualifying round', 'third qualifying round',
+    'play-off round', 'group stage', 'quarter-final', 'semi-final', 'final',
+    'premier league', 'efl cup', 'carabao cup', 'fa cup',
+    'uefa champions league', 'uefa europa league', 'uefa conference league',
+    'champions league', 'europa league', 'conference league'
+  ];
+  for (var i = 0; i < COMPETITION_PREFIXES.length; i++) {
+    var p = COMPETITION_PREFIXES[i];
+    var re = new RegExp('^\\s*' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-\u2013\u2014]\\s*', 'i');
+    if (re.test(n)) { n = n.replace(re, ''); break; }
+  }
+  n = n.replace(/^\s*(matchday\s*\d+|round\s+of\s+\d+)\s*[:\-\u2013\u2014]\s*/i, '');
+  n = n.replace(/\s+vs?\.?\s+/gi, ' vs ');
+  var stripSuffix = function (side) {
+    return side
+      .replace(/\./g, '')
+      .replace(/\s+(fc|afc|cf|sc|ac|sk|bk|if|tc)$/i, '')
+      .trim();
+  };
+  var parts = n.split(/\s+vs\s+/i);
+  if (parts.length === 2) {
+    var sides = [stripSuffix(parts[0]), stripSuffix(parts[1])].sort(function (a, b) { return a.localeCompare(b); });
+    n = sides[0] + ' vs ' + sides[1];
+  }
+  return n.trim();
 }
 
 // ===========================

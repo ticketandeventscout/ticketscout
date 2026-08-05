@@ -581,8 +581,16 @@ function renderEventCards(grid, events) {
       // the category can't be resolved — never risk a wrong-category slug.
       const cat  = tmSegmentCategory(event.classifications?.[0]?.segment?.name);
       const iso  = event.dates?.start?.localDate || '';
+      // H6 (2 Aug 2026): normalise before slugging so this homepage card
+      // links to the SAME canonical slug the backend already registered,
+      // instead of minting a second un-normalised /event/ URL for the same
+      // fixture. Defensive typeof check mirrors the existing tsEventSlug
+      // guard — compare.js (which defines both globals) may not be loaded
+      // on every page that includes events.js.
+      const normName = (typeof normaliseFixtureName === 'function')
+        ? normaliseFixtureName(event.name) : event.name;
       const slug = (cat && typeof tsEventSlug === 'function')
-        ? tsEventSlug(cat, iso, event.name) : '';
+        ? tsEventSlug(cat, iso, normName) : '';
       card.href = slug ? `/event/${slug}` : `#/event/${event.id}`;
     }
 

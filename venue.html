@@ -305,6 +305,47 @@
       if (e.key === 'Enter') handleSearch();
     });
 
+    // H6 (2 Aug 2026) — client-side twin of the server-side
+    // normaliseFixtureName() in ticketmaster.js/sportsevents365.js/
+    // awin-events.js/awin-category-cache.js. !! MUST MATCH !! those four
+    // copies exactly. Without this, a fixture name that reaches the
+    // browser in a slightly different form (separator/suffix/order drift)
+    // builds a DIFFERENT /event/ slug client-side than the one the backend
+    // already canonicalised and stored — producing a second, un-normalised
+    // duplicate URL for the same event. Safe no-op on non-fixture (concert/
+    // theatre single-act) names — see safety checks in
+    // normalise-fixture-test.js. See H6 in TICKETSCOUT-AUDIT-ROADMAP.md.
+    function normaliseFixtureName(name) {
+      var n = String(name || '');
+      var COMPETITION_PREFIXES = [
+        'pre-season friendly', 'club friendly', 'international friendly', 'friendly',
+        'first qualifying round', 'second qualifying round', 'third qualifying round',
+        'play-off round', 'group stage', 'quarter-final', 'semi-final', 'final',
+        'premier league', 'efl cup', 'carabao cup', 'fa cup',
+        'uefa champions league', 'uefa europa league', 'uefa conference league',
+        'champions league', 'europa league', 'conference league'
+      ];
+      for (var i = 0; i < COMPETITION_PREFIXES.length; i++) {
+        var p = COMPETITION_PREFIXES[i];
+        var re = new RegExp('^\\s*' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-\u2013\u2014]\\s*', 'i');
+        if (re.test(n)) { n = n.replace(re, ''); break; }
+      }
+      n = n.replace(/^\s*(matchday\s*\d+|round\s+of\s+\d+)\s*[:\-\u2013\u2014]\s*/i, '');
+      n = n.replace(/\s+vs?\.?\s+/gi, ' vs ');
+      var stripSuffix = function (side) {
+        return side
+          .replace(/\./g, '')
+          .replace(/\s+(fc|afc|cf|sc|ac|sk|bk|if|tc)$/i, '')
+          .trim();
+      };
+      var parts = n.split(/\s+vs\s+/i);
+      if (parts.length === 2) {
+        var sides = [stripSuffix(parts[0]), stripSuffix(parts[1])].sort(function (a, b) { return a.localeCompare(b); });
+        n = sides[0] + ' vs ' + sides[1];
+      }
+      return n.trim();
+    }
+
     // FROZEN mirror of tsEventSlug() (functions/api/ticketmaster.js +
     // compare.js) so venue event links point at the crawlable SSR
     // /event/{slug} page. The v1 slug format is frozen — keep in sync.
@@ -636,7 +677,7 @@
       var priceHtml = minPrice ? '<div class="event-list-price">From \u00a3' + Math.round(minPrice) + '</div>' : '';
       var _cat  = tmSegmentCategory(e.classifications && e.classifications[0] && e.classifications[0].segment ? e.classifications[0].segment.name : '');
       var _iso  = e.dates && e.dates.start ? e.dates.start.localDate : '';
-      var _slug = _cat ? tsEventSlug(_cat, _iso, e.name) : '';
+      var _slug = _cat ? tsEventSlug(_cat, _iso, normaliseFixtureName(e.name)) : '';
       var _href = _slug ? '/event/' + _slug : '/#/event/' + e.id;
       return '<a class="event-list-item" href="' + _href + '">' +
         '<div class="event-list-left">' +

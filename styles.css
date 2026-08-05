@@ -605,7 +605,13 @@ a:hover {
 .compare-footnote {
   margin-top: 14px;
   font-size: 11px;
-  color: #aaa;
+  /* A11y fix (2 Aug 2026): #aaa measured 2.32:1 against this rule's own
+     white .compare-block background — fails WCAG AA. This rule is
+     currently superseded for `color` by compare.js's inline <style>
+     (fixed to #666 the same day), so it never actually renders at #aaa —
+     but left failing here it's a landmine for whoever touches that inline
+     rule next. Matched to the same #666 fix for consistency. */
+  color: #666;
   text-align: center;
 }
 

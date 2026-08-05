@@ -173,6 +173,46 @@
 
     var slug = window.__SPORTS_SLUG__ || '';
 
+    // H6 (2 Aug 2026) — client-side twin of the server-side
+    // normaliseFixtureName() in ticketmaster.js/sportsevents365.js/
+    // awin-events.js/awin-category-cache.js. !! MUST MATCH !! those four
+    // copies exactly. Without this, a fixture name that reaches the
+    // browser in a slightly different form (separator/suffix/order drift)
+    // builds a DIFFERENT /event/ slug client-side than the one the backend
+    // already canonicalised and stored — producing a second, un-normalised
+    // duplicate URL for the same event. See H6 in
+    // TICKETSCOUT-AUDIT-ROADMAP.md for the original duplicate clusters.
+    function normaliseFixtureName(name) {
+      var n = String(name || '');
+      var COMPETITION_PREFIXES = [
+        'pre-season friendly', 'club friendly', 'international friendly', 'friendly',
+        'first qualifying round', 'second qualifying round', 'third qualifying round',
+        'play-off round', 'group stage', 'quarter-final', 'semi-final', 'final',
+        'premier league', 'efl cup', 'carabao cup', 'fa cup',
+        'uefa champions league', 'uefa europa league', 'uefa conference league',
+        'champions league', 'europa league', 'conference league'
+      ];
+      for (var i = 0; i < COMPETITION_PREFIXES.length; i++) {
+        var p = COMPETITION_PREFIXES[i];
+        var re = new RegExp('^\\s*' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-\u2013\u2014]\\s*', 'i');
+        if (re.test(n)) { n = n.replace(re, ''); break; }
+      }
+      n = n.replace(/^\s*(matchday\s*\d+|round\s+of\s+\d+)\s*[:\-\u2013\u2014]\s*/i, '');
+      n = n.replace(/\s+vs?\.?\s+/gi, ' vs ');
+      var stripSuffix = function (side) {
+        return side
+          .replace(/\./g, '')
+          .replace(/\s+(fc|afc|cf|sc|ac|sk|bk|if|tc)$/i, '')
+          .trim();
+      };
+      var parts = n.split(/\s+vs\s+/i);
+      if (parts.length === 2) {
+        var sides = [stripSuffix(parts[0]), stripSuffix(parts[1])].sort(function (a, b) { return a.localeCompare(b); });
+        n = sides[0] + ' vs ' + sides[1];
+      }
+      return n.trim();
+    }
+
     // Phase 1.4B — event slug builder. MUST MATCH the copies in compare.js,
     // concert.html, football.html and the server capture files. FROZEN v1 —
     // never change without migrating every indexed /event/ URL.
@@ -407,7 +447,7 @@
         var meta = [loc, fmtDate(e.date)].filter(Boolean).join(' · ');
         var priceHtml = e.price != null
           ? '<div class="event-list-price">From £' + Math.round(e.price) + '</div>' : '';
-        var ssr = tsEventSlug('sports', e.date, e.name);
+        var ssr = tsEventSlug('sports', e.date, normaliseFixtureName(e.name));
         var href = ssr ? '/event/' + ssr : '/#/event/sports-' + encodeURIComponent(e.name);
         var via = e.merchant
           ? ' <span style="font-size:10px;color:#888;margin-left:6px;">via ' + esc(e.merchant) + '</span>' : '';
@@ -442,9 +482,10 @@
       var nodes = dated.slice(0, 5).map(function (e) {
         // H4: each Event's canonical page is the SSR /event/{slug} page, NOT
         // this entity page. Match the visible event-list link exactly — same
-        // tsEventSlug('sports', e.date, e.name) and same /#/event/sports- hash
-        // fallback used in the list map above. Never invent a slug.
-        var _evSlug = tsEventSlug('sports', e.date, e.name);
+        // tsEventSlug('sports', e.date, normaliseFixtureName(e.name)) and
+        // same /#/event/sports- hash fallback used in the list map above.
+        // Never invent a slug.
+        var _evSlug = tsEventSlug('sports', e.date, normaliseFixtureName(e.name));
         var _evUrl  = _evSlug
           ? 'https://ticketscout.co.uk/event/' + _evSlug
           : 'https://ticketscout.co.uk/#/event/sports-' + encodeURIComponent(e.name);
