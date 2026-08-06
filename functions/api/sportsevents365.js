@@ -59,6 +59,188 @@ export async function onRequestGet(ctx) {
   };
 
   const incoming = new URL(request.url);
+
+  // ── Registration-coverage backfill: ?sweep=1&trigger=1&category=X ───────
+  // FIX (6 Aug 2026): SE365 event registration (tsCaptureThrottled below,
+  // same pattern as ticketmaster.js) only fires on a live cache-miss proxy
+  // call — i.e. only when a real visitor loads a page for that specific
+  // entity. Low-traffic football/sports entities never get their fixtures
+  // written into event_pages, even though their entity page links to
+  // /event/{slug} for them — those links then render noindex forever
+  // (confirmed live via GSC: sports-2026-10-18-jacksonville-jaguars-vs-...
+  // and football-2026-08-12-arsenal-vs-como-1907, both real fixtures with
+  // zero D1 row). Same root cause and same fix shape as ticketmaster.js's
+  // own ?sweep=1 tool — this is that tool's SE365 counterpart, built
+  // directly against the participant cache (no keyword ambiguity, since
+  // findParticipant() below is the exact matcher the live path already
+  // trusts). Cursor-batched, dry-run by default (&confirm=yes to write),
+  // same conventions as every other maintenance tool in this codebase.
+  //
+  // PERMANENT FIX: unlike a one-off manual backfill, this is meant to run
+  // on a schedule (see cron notes in HANDOVER doc) — wiring it into cron
+  // alongside ticketmaster.js's ?sweep=1 closes the registration gap going
+  // forward for both sources, so entity pages never link to a page that
+  // can't yet be indexed.
+  if (incoming.searchParams.get('sweep') === '1' && incoming.searchParams.get('trigger') === '1') {
+    const category = (incoming.searchParams.get('category') || '').trim().toLowerCase();
+    const VALID_CATS = new Set(['football', 'sports']); // the only two categories SE365 registers (see regCategory logic below)
+    if (!VALID_CATS.has(category)) {
+      return jsonResponse({ error: `category must be one of: ${[...VALID_CATS].join(', ')}` }, 400);
+    }
+    const limit   = Math.min(parseInt(incoming.searchParams.get('limit') || '25', 10) || 25, 40);
+    const confirm = incoming.searchParams.get('confirm') === 'yes';
+    const dryRun  = !confirm;
+
+    if (!apiKey || !httpUser || !httpPass) return jsonResponse({ error: 'SE365 credentials not configured.' }, 500);
+    if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
+    if (!env.PRICE_DB) return jsonResponse({ error: 'Missing PRICE_DB' }, 500);
+
+    // Same short-lived breaker pattern as ticketmaster.js's tm:quota:exhausted
+    // — protects against hammering SE365 if it starts returning errors mid-sweep.
+    let breakerOpen = false;
+    try { breakerOpen = !!(await kv.get('se365:sweep:ratelimited')); } catch {}
+    if (breakerOpen) {
+      return jsonResponse({ sweep: true, category, rateLimitBreakerOpen: true,
+        note: 'SE365 sweep breaker is open — no calls made, cursor not advanced. Retry later.' }, 200);
+    }
+
+    let registry = null;
+    try { const r = await kv.get('sitemap:registry'); if (r) registry = JSON.parse(r); }
+    catch (e) { return jsonResponse({ error: 'registry read failed: ' + String(e) }, 500); }
+    const allSlugs = Object.keys(registry?.sections?.[category] || {});
+    if (!allSlugs.length) {
+      return jsonResponse({ error: `no registry entities for category "${category}"` }, 200);
+    }
+
+    let lookup = {};
+    try {
+      const cacheRaw = await kv.get(CACHE_KEY);
+      if (cacheRaw) lookup = JSON.parse(cacheRaw);
+    } catch {}
+    if (!Object.keys(lookup).length) {
+      return jsonResponse({ error: 'SE365 participant cache is empty — run /api/sportsevents365-cache?trigger=1 first' }, 200);
+    }
+
+    const cursorKey = `se365regsweep:cursor:${category}`;
+    let offset = 0;
+    if (!dryRun) { try { const c = await kv.get(cursorKey); offset = c ? (parseInt(c, 10) || 0) : 0; } catch {} }
+    const batch = allSlugs.slice(offset, offset + limit);
+
+    let beforeCount = null;
+    try {
+      const r = await env.PRICE_DB.prepare(
+        "SELECT COUNT(*) AS n FROM event_pages WHERE category = ?1 AND event_date >= date('now')"
+      ).bind(category).first();
+      beforeCount = r?.n ?? null;
+    } catch {}
+
+    const today = new Date().toISOString().slice(0, 10);
+    const details = [], unmatched = [];
+    let entitiesQueried = 0, participantsMatched = 0, eventsFoundTotal = 0, eventsRegisteredTotal = 0;
+    let rateLimitHit = false, stoppedAt = null;
+    const allRecords = [];
+
+    for (let i = 0; i < batch.length; i++) {
+      // Small conservative gap between calls — SE365 has no documented hard
+      // quota, but sportsevents365-cache.js's own bulk fetch adds a similar
+      // pause "to avoid rate limiting"; matching that caution here.
+      if (i > 0) await new Promise(res => setTimeout(res, 200));
+
+      const slug = batch[i];
+      const keyword = slug.replace(/-/g, ' ');
+      entitiesQueried++;
+
+      const participant = findParticipant(lookup, keyword);
+      if (!participant) { unmatched.push(slug); continue; }
+      participantsMatched++;
+
+      let events;
+      try {
+        const eventsUrl = buildEventsUrl(baseUrl, apiKey, participant.id, '', 'list');
+        const r = await fetch(eventsUrl, { headers });
+        if (r.status === 429) {
+          rateLimitHit = true;
+          stoppedAt = i;
+          try { await kv.put('se365:sweep:ratelimited', new Date().toISOString(), { expirationTtl: 600 }); } catch {}
+          break;
+        }
+        if (!r.ok) { details.push({ slug, error: 'HTTP ' + r.status }); continue; }
+        const data = await r.json();
+        events = Array.isArray(data) ? data : (data?.data || data?.events || []);
+      } catch (e) {
+        details.push({ slug, error: String(e) });
+        continue;
+      }
+
+      const records = [];
+      for (const e of (events || []).slice(0, 50)) {
+        const [dd, mm, yyyy] = String(e.dateOfEvent || '').split('/');
+        const iso = (dd && mm && yyyy) ? `${yyyy}-${mm}-${dd}` : '';
+        if (!iso || iso < today) continue;
+        const evSlug = tsEventSlug(category, iso, normaliseFixtureName(e.name || ''));
+        if (!evSlug) continue;
+        records.push({
+          slug: evSlug, category, name: e.name, date: iso,
+          venue: e.venue?.name || null,
+          city: e.city?.name || e.venue?.city?.name || e.location?.city?.name || null,
+          price: e.minTicketPrice?.price ? Math.round(e.minTicketPrice.price) : null,
+          currency: e.minTicketPrice?.currency || 'GBP',
+          tmUrl: null, image: null, source: 'se365'
+        });
+      }
+
+      eventsFoundTotal += records.length;
+      if (records.length) {
+        details.push({ slug, keyword, participant: participant.id, eventsFound: records.length, sample: records[0]?.name });
+        allRecords.push(...records);
+      }
+    }
+
+    if (!dryRun && allRecords.length) {
+      const seen = new Set();
+      const deduped = allRecords.filter(r => (seen.has(r.slug) ? false : (seen.add(r.slug), true)));
+      for (let i = 0; i < deduped.length; i += 400) {
+        await tsRegisterEvents(env, deduped.slice(i, i + 400));
+        eventsRegisteredTotal += Math.min(400, deduped.length - i);
+      }
+    }
+
+    const processedCount = rateLimitHit ? stoppedAt : batch.length;
+    const nextOffset = offset + processedCount;
+    const done = nextOffset >= allSlugs.length;
+    if (!dryRun) {
+      try {
+        if (done) await kv.delete(cursorKey);
+        else await kv.put(cursorKey, String(nextOffset));
+      } catch {}
+    }
+
+    let afterCount = null, verified = null;
+    if (!dryRun) {
+      try {
+        const r = await env.PRICE_DB.prepare(
+          "SELECT COUNT(*) AS n FROM event_pages WHERE category = ?1 AND event_date >= date('now')"
+        ).bind(category).first();
+        afterCount = r?.n ?? null;
+        verified = (afterCount !== null && beforeCount !== null) ? (afterCount - beforeCount) : null;
+      } catch {}
+    }
+
+    return jsonResponse({
+      sweep: true, category, dryRun, offset, limit,
+      totalRegistryEntities: allSlugs.length,
+      entitiesQueried, participantsMatched,
+      unmatchedCount: unmatched.length, unmatchedSample: unmatched.slice(0, 15),
+      eventsFoundTotal, eventsRegisteredTotal,
+      d1RowCountBefore: beforeCount, d1RowCountAfter: afterCount, d1RowCountDelta: verified,
+      rateLimitHit, done, nextOffset: done ? null : nextOffset,
+      sample: details.slice(0, 15),
+      message: dryRun
+        ? 'Dry run — nothing written. Add &confirm=yes to register found events.'
+        : 'Sweep complete.'
+    }, 200);
+  }
+
   const q        = incoming.searchParams.get('q');
   const date     = incoming.searchParams.get('date') || ''; // YYYY-MM-DD from Ticketmaster
   const debug    = incoming.searchParams.get('debug') === '1';
