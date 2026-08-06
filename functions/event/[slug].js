@@ -362,7 +362,7 @@ function renderPage(d) {
 
     <div class="detail-grid">
       <div class="detail-card">
-        ${d.image ? `<img class="detail-img" src="${esc(d.image)}" alt="${esc(d.name)}" fetchpriority="high" />` : ''}
+        ${d.image ? `<img class="detail-img" src="${esc(cfImageUrl(d.image, 700))}" alt="${esc(d.name)}" fetchpriority="high" />` : ''}
         <div class="detail-body">
           <h1 class="detail-name" style="font-size:24px; margin:0 0 6px;">${esc(d.name)}</h1>
           <div class="detail-meta">${esc(metaBits) || 'Details to be confirmed'}</div>
@@ -754,6 +754,45 @@ function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// LCP FIX (6 Aug 2026): rewrites the hero <img> URL through Cloudflare's
+// Image Resizing at RENDER TIME, not capture time — deliberately chosen
+// over a D1 backfill. The capture-side picker fix (ticketmaster.js's
+// pickHeroImage(), shipped the same day) only affects events registered
+// AFTER the fix, because event_pages.image is written via
+// COALESCE(excluded.image, event_pages.image) — an already-populated
+// image value is NEVER overwritten, even by a fresh re-capture of the same
+// event. Confirmed live: a PageSpeed re-test on an existing page (Metallica:
+// Life Burns Faster) still showed the original 2.7MB image after the
+// capture-side fix had already shipped. A D1 backfill would fix today's
+// rows but not protect against the same class of bug recurring from any
+// future capture path nobody's audited yet (trending.js already turned out
+// to have silently copied the exact same bug once this session already).
+// Rewriting at render time fixes EVERY row — past, present, and any future
+// source — with no re-crawl, no migration, nothing to run twice.
+//
+// REQUIRES a one-time dashboard check (not a backfill): Cloudflare
+// dashboard → Speed → Optimization → Image Resizing, "Resize images from
+// any origin" must be ON, since the source is a third-party domain
+// (s1.ticketm.net), not ticketscout.co.uk itself. Works on the free plan.
+// If that setting is off, onerror=redirect below falls back to the
+// original unresized URL rather than a broken image — degrades safely.
+//
+// Deliberately NOT applied to the JSON-LD `image` field or the og:image
+// meta tag elsewhere on this page: neither loads in a real visitor's
+// browser (JSON-LD is just a string for crawlers; og:image is only ever
+// fetched by social-share bots), so neither affects real-user LCP or
+// bandwidth — and Google's structured-data guidelines actually recommend
+// LARGER images (1200px+) for rich-result eligibility, so shrinking those
+// specifically would be counterproductive, not helpful.
+function cfImageUrl(rawUrl, width) {
+  if (!rawUrl) return rawUrl;
+  try {
+    const u = new URL(rawUrl);
+    if (u.hostname === 'ticketscout.co.uk') return rawUrl; // already ours, nothing to proxy
+  } catch { return rawUrl; } // not a valid absolute URL — leave untouched rather than guess
+  return `${HOST}/cdn-cgi/image/width=${width},quality=80,format=auto,onerror=redirect/${rawUrl}`;
 }
 
 function prettyDate(iso) {
