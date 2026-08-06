@@ -95,7 +95,7 @@ async function fetchSegment(apiKey, segment, size) {
   if (segment) url.searchParams.set('segmentName', segment);
 
   const r = await fetch(url.toString());
-  if (!r.ok) return { ok: false, status: r.status, events: [], names: [] };
+  if (!r.ok) return { ok: false, status: r.status, events: [], names: [], registryRecords: [] };
 
   const data = await r.json();
   const raw = (data._embedded && data._embedded.events) || [];
@@ -103,6 +103,8 @@ async function fetchSegment(apiKey, segment, size) {
   const seen = new Set();
   const events = [];
   const names = [];
+  const registryRecords = [];
+  const today = new Date().toISOString().slice(0, 10);
   for (const e of raw) {
     if (!isRealEvent(e)) continue;
     const k = performanceKey(e);
@@ -110,8 +112,37 @@ async function fetchSegment(apiKey, segment, size) {
     seen.add(k);
     events.push(slim(e));           // slim immediately; raw is released below
     if (names.length < 8) names.push(e.name);
+
+    // FIX (6 Aug 2026): trending.js fetches TM directly and never registered
+    // anything into event_pages — every /event/{slug} link on the homepage's
+    // own trending grid was structurally unregisterable regardless of
+    // traffic, since the one hook that writes event_pages (tsCaptureThrottled
+    // in ticketmaster.js) only fires on the /api/ticketmaster PROXY path,
+    // which this file bypasses entirely. Confirmed live via GSC: featured
+    // homepage fixtures (Arsenal vs Como) still noindexed with zero D1 row.
+    // Built from the RAW event, not the slimmed card — slim() drops e.url
+    // (needed for tmUrl) to keep card payloads small.
+    const category = tsTmCategory(e);
+    const date = (e.dates && e.dates.start && e.dates.start.localDate) || '';
+    if (category && date && date >= today) {
+      const slug = tsEventSlug(category, date, normaliseFixtureName(e.name));
+      if (slug) {
+        const venue = e._embedded && e._embedded.venues && e._embedded.venues[0];
+        const img = (e.images || []).find(i => i.ratio === '16_9' && i.width > 300) || (e.images || [])[0];
+        registryRecords.push({
+          slug, category, name: e.name, date,
+          venue: (venue && venue.name) || null,
+          city: (venue && venue.city && venue.city.name) || null,
+          price: (e.priceRanges && e.priceRanges[0] && e.priceRanges[0].min) ? Math.round(e.priceRanges[0].min) : null,
+          currency: (e.priceRanges && e.priceRanges[0] && e.priceRanges[0].currency) || 'GBP',
+          tmUrl: e.url || null,
+          image: (img && img.url) || null,
+          source: 'tm'
+        });
+      }
+    }
   }
-  return { ok: true, status: r.status, returned: raw.length, events, names };
+  return { ok: true, status: r.status, returned: raw.length, events, names, registryRecords };
 }
 
 // Round-robin across segments so the grid is a genuine mix rather than
@@ -138,6 +169,143 @@ function json(body, status, extraHeaders) {
       'Cache-Control': 'public, max-age=' + EDGE_TTL
     }, extraHeaders || {})
   });
+}
+
+// ===========================
+// Phase 1.4B — event registry capture
+// Byte-identical copies live in ticketmaster.js, sportsevents365.js,
+// awin-events.js and awin-category-cache.js. !! MUST MATCH !! all of them —
+// see the extended comment on normaliseFixtureName() in ticketmaster.js for
+// why (duplicate /event/ URL prevention across sources).
+// ===========================
+
+// TM segment → TicketScout category. Unknown segments are skipped.
+function tsTmCategory(event) {
+  const seg   = event && event.classifications && event.classifications[0] && event.classifications[0].segment && event.classifications[0].segment.name || '';
+  const genre = event && event.classifications && event.classifications[0] && event.classifications[0].genre && event.classifications[0].genre.name || '';
+  if (seg === 'Sports') return (genre === 'Soccer') ? 'football' : 'sports';
+  if (seg === 'Music') return 'concert';
+  if (seg === 'Arts & Theatre') return 'theatre';
+  return null;
+}
+
+function normaliseFixtureName(name) {
+  let n = String(name || '');
+  const COMPETITION_PREFIXES = [
+    'pre-season friendly', 'club friendly', 'international friendly', 'friendly',
+    'first qualifying round', 'second qualifying round', 'third qualifying round',
+    'play-off round', 'group stage', 'quarter-final', 'semi-final', 'final',
+    'premier league', 'efl cup', 'carabao cup', 'fa cup',
+    'uefa champions league', 'uefa europa league', 'uefa conference league',
+    'champions league', 'europa league', 'conference league'
+  ];
+  for (const p of COMPETITION_PREFIXES) {
+    const re = new RegExp('^\\s*' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-\u2013\u2014]\\s*', 'i');
+    if (re.test(n)) { n = n.replace(re, ''); break; }
+  }
+  n = n.replace(/^\s*(matchday\s*\d+|round\s+of\s+\d+)\s*[:\-\u2013\u2014]\s*/i, '');
+  n = n.replace(/\s+vs?\.?\s+/gi, ' vs ');
+  const stripSuffix = (side) => side
+    .replace(/\./g, '')
+    .replace(/\s+(fc|afc|cf|sc|ac|sk|bk|if|tc)$/i, '')
+    .trim();
+  const parts = n.split(/\s+vs\s+/i);
+  if (parts.length === 2) {
+    const sides = [stripSuffix(parts[0]), stripSuffix(parts[1])].sort((a, b) => a.localeCompare(b));
+    n = sides[0] + ' vs ' + sides[1];
+  }
+  return n.trim();
+}
+
+function tsEventSlug(category, date, name) {
+  if (!category || !date || !name) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const norm = String(name).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80).replace(/-+$/g, '');
+  return norm ? category + '-' + date + '-' + norm : null;
+}
+
+// Batched D1 upsert — identical logic/shape to ticketmaster.js's copy,
+// including the legacy-schema fallback for pre-migration deploys.
+async function tsRegisterEvents(env, records) {
+  const db = env.PRICE_DB;
+  if (!db || !records || !records.length) return;
+  const now = new Date().toISOString();
+  const stmt = db.prepare(
+    'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at, created_at) ' +
+    'VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13) ' +
+    'ON CONFLICT(slug) DO UPDATE SET ' +
+    'name=excluded.name, ' +
+    'venue=COALESCE(excluded.venue, event_pages.venue), ' +
+    'city=COALESCE(excluded.city, event_pages.city), ' +
+    'price=COALESCE(excluded.price, event_pages.price), ' +
+    'currency=COALESCE(excluded.currency, event_pages.currency), ' +
+    'tm_url=COALESCE(excluded.tm_url, event_pages.tm_url), ' +
+    'image=COALESCE(excluded.image, event_pages.image), ' +
+    'source=excluded.source, ' +
+    'updated_at=CASE WHEN event_pages.name IS NOT excluded.name ' +
+    'OR event_pages.venue IS NOT COALESCE(excluded.venue, event_pages.venue) ' +
+    'OR event_pages.city IS NOT COALESCE(excluded.city, event_pages.city) ' +
+    'OR event_pages.price IS NOT COALESCE(excluded.price, event_pages.price) ' +
+    'THEN excluded.updated_at ELSE event_pages.updated_at END'
+  );
+  const seen = new Set();
+  const batch = [];
+  for (const r of records) {
+    if (!r || !r.slug || seen.has(r.slug)) continue;
+    seen.add(r.slug);
+    batch.push(stmt.bind(
+      r.slug, r.category, r.name, r.date,
+      r.venue || null, r.city || null,
+      r.price || null, r.currency || null,
+      r.tmUrl || null, r.image || null,
+      r.source || null, now, now
+    ));
+    if (batch.length >= 400) break;
+  }
+  if (!batch.length) return;
+  try {
+    await db.batch(batch);
+  } catch (e) {
+    console.error('trending.js tsRegisterEvents: 13-col insert failed, falling back to legacy schema:', e);
+    const legacyStmt = db.prepare(
+      'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) ' +
+      'VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ' +
+      'ON CONFLICT(slug) DO UPDATE SET ' +
+      'name=excluded.name, ' +
+      'venue=COALESCE(excluded.venue, event_pages.venue), ' +
+      'city=COALESCE(excluded.city, event_pages.city), ' +
+      'price=COALESCE(excluded.price, event_pages.price), ' +
+      'currency=COALESCE(excluded.currency, event_pages.currency), ' +
+      'tm_url=COALESCE(excluded.tm_url, event_pages.tm_url), ' +
+      'image=COALESCE(excluded.image, event_pages.image), ' +
+      'source=excluded.source, ' +
+      'updated_at=CASE WHEN event_pages.name IS NOT excluded.name ' +
+      'OR event_pages.venue IS NOT COALESCE(excluded.venue, event_pages.venue) ' +
+      'OR event_pages.city IS NOT COALESCE(excluded.city, event_pages.city) ' +
+      'OR event_pages.price IS NOT COALESCE(excluded.price, event_pages.price) ' +
+      'THEN excluded.updated_at ELSE event_pages.updated_at END'
+    );
+    const legacySeen = new Set();
+    const legacyBatch = [];
+    for (const r of records) {
+      if (!r || !r.slug || legacySeen.has(r.slug)) continue;
+      legacySeen.add(r.slug);
+      legacyBatch.push(legacyStmt.bind(
+        r.slug, r.category, r.name, r.date,
+        r.venue || null, r.city || null,
+        r.price || null, r.currency || null,
+        r.tmUrl || null, r.image || null,
+        r.source || null, now
+      ));
+      if (legacyBatch.length >= 400) break;
+    }
+    if (legacyBatch.length) await db.batch(legacyBatch);
+  }
 }
 
 export async function onRequestGet(ctx) {
@@ -172,9 +340,11 @@ export async function onRequestGet(ctx) {
   try {
     const buckets = [];
     const diag = [];
+    const allRegistryRecords = [];
     for (const t of targets) {                 // sequential: bounds peak memory
       const res = await fetchSegment(apiKey, t.name, t.size);
       buckets.push(res.events);
+      if (res.registryRecords && res.registryRecords.length) allRegistryRecords.push(...res.registryRecords);
       diag.push({
         segment: t.name, size: t.size, httpStatus: res.status,
         returned: res.returned || 0, unique: res.events.length,
@@ -194,6 +364,20 @@ export async function onRequestGet(ctx) {
     }
 
     if (!events.length) throw new Error('No events after filter and dedup');
+
+    // FIX (6 Aug 2026): register every event this request actually saw into
+    // event_pages, not just the ones that made the blended grid — a fixture
+    // can appear in the raw segment pull without being one of the `limit`
+    // cards returned, and it's just as real either way. Fire-and-forget,
+    // gated on PRICE_DB existing; this endpoint's own edge cache (10 min TTL)
+    // already throttles how often a fresh TM fetch (and therefore a write)
+    // happens, so no extra throttle marker is needed here unlike
+    // ticketmaster.js/sportsevents365.js, which get hit far more directly.
+    // Only fires on the real (non-debug) path, since debug bypasses the
+    // cache and could otherwise trigger repeated writes while testing.
+    if (env.PRICE_DB && allRegistryRecords.length) {
+      ctx.waitUntil(tsRegisterEvents(env, allRegistryRecords).catch(() => {}));
+    }
 
     const payload = { _embedded: { events } };
     const body = JSON.stringify(payload);
