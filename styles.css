@@ -550,82 +550,23 @@ a:hover {
 /* ===========================
    Inline price comparison block (on event detail page)
    =========================== */
-
-.compare-block {
-  background: #ffffff;
-  border: 1px solid #c8dff5;
-  border-radius: 12px;
-  padding: 0;
-  max-width: 600px;
-  overflow: hidden;
-}
-
-.compare-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1a1a1a;
-  margin-bottom: 14px;
-}
-
-.compare-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid #eee;
-}
-
-.compare-source {
-  font-size: 13px;
-  color: #1a1a1a;
-  font-weight: 500;
-}
-
-.compare-right {
-  text-align: right;
-}
-
-.price-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1a6fc4;
-}
-
-.compare-buy {
-  font-size: 11px;
-  color: #1a6fc4;
-}
-
-.compare-loading {
-  font-size: 12px;
-  color: #aaa;
-  padding: 8px 0;
-}
-
-.compare-footnote {
-  margin-top: 14px;
-  font-size: 11px;
-  /* A11y fix (2 Aug 2026): #aaa measured 2.32:1 against this rule's own
-     white .compare-block background — fails WCAG AA. This rule is
-     currently superseded for `color` by compare.js's inline <style>
-     (fixed to #666 the same day), so it never actually renders at #aaa —
-     but left failing here it's a landmine for whoever touches that inline
-     rule next. Matched to the same #666 fix for consistency. */
-  color: #666;
-  text-align: center;
-}
-
-.best-price-badge {
-  background: #e8f2fc;
-  color: #185fa5;
-  font-size: 10px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 20px;
-  margin-left: 6px;
-  vertical-align: middle;
-  display: inline-block;
-}
+/* REMOVED (6 Aug 2026) — this entire section (.compare-block through
+   .best-price-badge) was a dead legacy copy, fully superseded by the
+   <style> block compare.js injects dynamically into the page (loads after
+   this stylesheet, same specificity, so it always won any cascade tie —
+   these rules never actually rendered). Confirmed via grep: zero .html
+   files reference any of these classes outside compare.js's own generated
+   markup, so nothing depended on this copy existing.
+   This is the real fix for the roadmap item flagged "compare-footnote /
+   compare-block still failing contrast, source not traced" — the 2 Aug
+   session fixed the COLOR VALUE in this dead copy, which is why it kept
+   showing up as unresolved: the value was fixed, but the rule was never
+   live in the first place, so the fix (and the flag) both missed the
+   actual root cause. Deleting the dead copy removes the landmine outright
+   instead of re-patching a value nothing reads. If a future change ever
+   needs compare-block styling reachable from styles.css again (e.g. a
+   server-rendered version with no injected <style>), start fresh rather
+   than reviving this copy — the live source of truth is compare.js. */
 
 /* Tribute act label in artist picker */
 .picker-tribute {
