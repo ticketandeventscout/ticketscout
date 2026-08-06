@@ -770,6 +770,27 @@ function tsTmCategory(event) {
 }
 
 // Build registry records from a TM API payload (list or single event).
+// LCP FIX (6 Aug 2026): the old selection — first 16:9 image over 300px —
+// let through whatever TM happened to list first above that floor, which is
+// NOT reliably the smallest. TM's images array commonly includes multi-
+// megapixel "hero banner" variants (2000px–3600px+ wide) intended for TM's
+// own homepage carousel, and this picked one of those on at least one live
+// page: PageSpeed measured a 2.7MB uncompressed hero image and a 16.4s LCP,
+// traced to exactly this field. Fix: sort ascending, take the SMALLEST
+// image that still clears a real display-size floor (this page's hero
+// never renders wider than ~900px, so 700px covers retina comfortably),
+// falling back to the largest available if TM genuinely has nothing that
+// big. No new infrastructure needed — this is a data-selection bug, not a
+// missing resize step.
+function pickHeroImage(images) {
+  const candidates = (images || []).filter(i => i && i.ratio === '16_9' && i.url && i.width);
+  if (!candidates.length) return (images && images[0] && images[0].url) || null;
+  const sorted = candidates.slice().sort((a, b) => a.width - b.width);
+  const TARGET_WIDTH = 700;
+  const goodEnough = sorted.find(i => i.width >= TARGET_WIDTH);
+  return (goodEnough || sorted[sorted.length - 1]).url;
+}
+
 function tsExtractTmRecords(data) {
   const events = data?._embedded?.events
     || (data?.id && data?.name && data?.dates ? [data] : []);
@@ -782,7 +803,6 @@ function tsExtractTmRecords(data) {
     const slug = tsEventSlug(category, date, normaliseFixtureName(e.name));
     if (!slug) continue;
     const venue = e?._embedded?.venues?.[0];
-    const img = (e.images || []).find(i => i.ratio === '16_9' && i.width > 300) || (e.images || [])[0];
     records.push({
       slug, category, name: e.name, date,
       venue: venue?.name || null,
@@ -790,7 +810,7 @@ function tsExtractTmRecords(data) {
       price: e.priceRanges?.[0]?.min ? Math.round(e.priceRanges[0].min) : null,
       currency: e.priceRanges?.[0]?.currency || 'GBP',
       tmUrl: e.url || null,
-      image: img?.url || null,
+      image: pickHeroImage(e.images),
       source: 'tm'
     });
   }

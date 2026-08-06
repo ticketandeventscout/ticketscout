@@ -128,7 +128,18 @@ async function fetchSegment(apiKey, segment, size) {
       const slug = tsEventSlug(category, date, normaliseFixtureName(e.name));
       if (slug) {
         const venue = e._embedded && e._embedded.venues && e._embedded.venues[0];
-        const img = (e.images || []).find(i => i.ratio === '16_9' && i.width > 300) || (e.images || [])[0];
+        // LCP FIX (6 Aug 2026): matches the fix in ticketmaster.js's
+        // tsExtractTmRecords — this line was copied from there when the
+        // registration hook above was added, which means it carried the
+        // exact bug that caused the 2.7MB/16.4s LCP problem (first 16:9
+        // image over 300px, not the smallest adequate one; TM's array can
+        // list multi-megapixel hero-banner variants ahead of reasonably
+        // sized ones). Fixed the same way here for consistency.
+        const candidates16x9 = (e.images || []).filter(im => im && im.ratio === '16_9' && im.url && im.width);
+        const img = candidates16x9.length
+          ? (candidates16x9.slice().sort((a, b) => a.width - b.width).find(im => im.width >= 700)
+             || candidates16x9.slice().sort((a, b) => a.width - b.width).pop())
+          : (e.images || [])[0];
         registryRecords.push({
           slug, category, name: e.name, date,
           venue: (venue && venue.name) || null,
