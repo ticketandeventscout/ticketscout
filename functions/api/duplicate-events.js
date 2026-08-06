@@ -103,9 +103,14 @@ function jsonResponse(body, status) {
 
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
+
+  if (url.searchParams.get('merge') === '1' && url.searchParams.get('trigger') === '1') {
+    return runMerge(url, env);
+  }
+
   if (url.searchParams.get('scan') !== '1' || url.searchParams.get('trigger') !== '1') {
     return jsonResponse({
-      error: 'Pass ?scan=1&trigger=1 to run. Optional: &category=X, &limit=N (default 50), &offset=N, &includeDifferent=1'
+      error: 'Pass ?scan=1&trigger=1 to scan (read-only), or ?merge=1&trigger=1 to merge the dominant safe pattern (dry-run by default, &confirm=yes to write). Scan options: &category=X, &limit=N (default 50), &offset=N, &includeDifferent=1'
     }, 400);
   }
 
@@ -183,5 +188,168 @@ export async function onRequestGet({ request, env }) {
     });
   } catch (e) {
     return jsonResponse({ error: 'scan failed: ' + String(e) }, 500);
+  }
+}
+
+// =============================================================================
+// MERGE MODE (added 6 Aug 2026)
+// =============================================================================
+// Live scan (6 Aug 2026, first 50 candidate groups) found 35 duplicate
+// groups, breaking down as: 26 were the SAME shape as the original
+// Metallica finding — one TM row (name has a tour subtitle, price NULL,
+// since TM's registration is traffic-gated — see ticketmaster.js — and
+// very often never gets a live cache-hit to pick up a price) paired with
+// one Awin row (clean base name, real price, since Awin's daily bulk sync
+// is comprehensive — see awin-category-cache.js). 5 were TM listing
+// genuinely different purchasable products as separate "events" (VIP
+// packages, multi-day passes) — not really duplicates in the sense that
+// matters here, and merging them would destroy a real distinct product.
+// 4 were Awin's own feed emitting two near-identical product names for
+// what's very likely the same inventory — a feed-parsing question, not a
+// cross-source merge.
+//
+// This mode ONLY touches the first, dominant pattern (74% of what the scan
+// found) — deliberately narrow, because it's the one pattern with a
+// genuinely low false-positive risk: it's very unlikely two DIFFERENT real
+// events share a venue AND a date AND an overlapping artist name AND have
+// exactly one of the two sources report a price. Eligibility requires ALL
+// of:
+//   - exactly 2 rows in the (category, event_date, venue) group
+//   - name classifies as 'exact' or 'substring' (same logic as scan mode)
+//   - exactly one row has a NULL price, the other a real price
+// Groups with 3+ rows, two priced-but-different rows, or two unpriced rows
+// are left alone — those need a human judgement call, not an automated
+// rule, and are exactly the TM-internal/Awin-internal cases above.
+//
+// ACTION: the priced row is kept as canonical (a page with no price is
+// close to useless to a visitor). Before deleting the loser, any field the
+// winner is missing — tm_url especially, since TM is consistently the row
+// WITHOUT a price, this is how its Ticketmaster compare-table row survives
+// onto the winning page instead of being lost — is copied across via
+// COALESCE, the same merge-don't-clobber pattern tsRegisterEvents() already
+// uses elsewhere in this codebase. The loser's row is then deleted and a
+// redirect is written using the EXACT SAME mechanism discover-pages.js's
+// fix-sports-events phase already uses for event_pages redirects —
+// 'redirectSlug:event:{loserSlug}' -> 'event/{winnerSlug}' — so
+// _slug_.js's existing 301 check (already live, already proven working)
+// picks it up with zero additional code anywhere else.
+//
+// Cursor-paginated the same way as every other write tool this session
+// (entity-lifecycle.js, ticketmaster.js's ?sweep=1): confirm=yes runs
+// remember how far through the candidate-group list they got, so repeatedly
+// hitting the same URL sweeps the whole backlog instead of re-scanning the
+// front of the list every time.
+async function runMerge(url, env) {
+  const db = env.PRICE_DB;
+  const kv = env.GIGSBERG_KV;
+  if (!db) return jsonResponse({ error: 'Missing PRICE_DB' }, 500);
+  if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
+
+  const category = (url.searchParams.get('category') || '').trim().toLowerCase();
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 200);
+  const confirm = url.searchParams.get('confirm') === 'yes';
+  const dryRun = !confirm;
+
+  const cursorKey = 'dupemerge:cursor:' + (category || 'all');
+  let offset = 0;
+  try { const c = await kv.get(cursorKey); offset = c ? (parseInt(c, 10) || 0) : 0; } catch {}
+
+  try {
+    let sql = `
+      SELECT category, event_date, venue, COUNT(*) AS n
+      FROM event_pages
+      WHERE event_date >= date('now') AND venue IS NOT NULL AND venue != ''
+    `;
+    const binds = [];
+    if (category) { sql += ' AND category = ?'; binds.push(category); }
+    sql += ' GROUP BY category, event_date, venue HAVING COUNT(*) = 2 ORDER BY category, event_date LIMIT ? OFFSET ?';
+    binds.push(limit, offset);
+
+    const candidateGroups = await db.prepare(sql).bind(...binds).all();
+    const groups = candidateGroups.results || [];
+
+    const merges = [];
+    const skipped = [];
+
+    for (const g of groups) {
+      const rowsRes = await db.prepare(
+        'SELECT slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at FROM event_pages WHERE category = ?1 AND event_date = ?2 AND venue = ?3'
+      ).bind(g.category, g.event_date, g.venue).all();
+      const rows = rowsRes.results || [];
+      if (rows.length !== 2) continue; // race since the pre-filter query
+
+      const verdict = classify(rows.map(r => r.name));
+      if (verdict === 'different') { skipped.push({ reason: 'name-different', venue: g.venue, date: g.event_date }); continue; }
+
+      const priced = rows.filter(r => r.price != null);
+      const unpriced = rows.filter(r => r.price == null);
+      if (priced.length !== 1 || unpriced.length !== 1) {
+        skipped.push({ reason: 'not-exactly-one-priced', venue: g.venue, date: g.event_date, prices: rows.map(r => r.price) });
+        continue;
+      }
+
+      const winner = priced[0];
+      const loser = unpriced[0];
+      merges.push({
+        category: g.category, date: g.event_date, venue: g.venue, verdict,
+        winnerSlug: winner.slug, winnerName: winner.name, winnerSource: winner.source, price: winner.price, currency: winner.currency,
+        loserSlug: loser.slug, loserName: loser.name, loserSource: loser.source,
+        fillTmUrl: !winner.tm_url && loser.tm_url ? loser.tm_url : null,
+        fillImage: !winner.image && loser.image ? loser.image : null,
+        fillCity: !winner.city && loser.city ? loser.city : null,
+        fillVenue: !winner.venue && loser.venue ? loser.venue : null,
+        willCopyTmUrlFromLoser: !winner.tm_url && !!loser.tm_url,
+        willCopyImageFromLoser: !winner.image && !!loser.image,
+        willCopyCityFromLoser: !winner.city && !!loser.city,
+        willCopyVenueFromLoser: !winner.venue && !!loser.venue
+      });
+    }
+
+    if (!dryRun && merges.length) {
+      const now = new Date().toISOString();
+      for (const m of merges) {
+        try {
+          await db.batch([
+            db.prepare(
+              'UPDATE event_pages SET ' +
+              'tm_url = COALESCE(tm_url, ?1), ' +
+              'image = COALESCE(image, ?2), ' +
+              'city = COALESCE(city, ?3), ' +
+              'venue = COALESCE(venue, ?4), ' +
+              'updated_at = ?5 ' +
+              'WHERE slug = ?6'
+            ).bind(m.fillTmUrl, m.fillImage, m.fillCity, m.fillVenue, now, m.winnerSlug),
+            db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(m.loserSlug)
+          ]);
+          await kv.put(`redirectSlug:event:${m.loserSlug}`, `event/${m.winnerSlug}`);
+          m.applied = true;
+        } catch (e) {
+          m.applied = false;
+          m.error = String(e);
+        }
+      }
+    }
+
+    const nextOffset = offset + groups.length;
+    const done = groups.length < limit;
+    if (!dryRun) {
+      try { if (done) await kv.delete(cursorKey); else await kv.put(cursorKey, String(nextOffset)); } catch {}
+    }
+
+    return jsonResponse({
+      merge: true, category: category || 'all', dryRun, offset, limit,
+      candidateGroupsChecked: groups.length,
+      eligibleForMerge: merges.length,
+      skipped: skipped.length,
+      skippedSample: skipped.slice(0, 10),
+      done,
+      next: done ? null : `?merge=1&trigger=1${category ? '&category=' + category : ''}&limit=${limit}${confirm ? '&confirm=yes' : ''}`,
+      merges: dryRun ? merges : merges.map(m => ({ winnerSlug: m.winnerSlug, loserSlug: m.loserSlug, applied: m.applied, error: m.error })),
+      message: dryRun
+        ? 'Dry run — nothing written. Add &confirm=yes to merge + redirect.'
+        : 'Merge complete for this batch.'
+    });
+  } catch (e) {
+    return jsonResponse({ error: 'merge failed: ' + String(e) }, 500);
   }
 }
