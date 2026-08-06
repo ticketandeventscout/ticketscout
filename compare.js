@@ -746,7 +746,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     <div class="compare-block">
       <div class="compare-title">Compare prices from verified sellers</div>
       <style>
-        .compare-block { font-family:'Inter','Helvetica Neue',Arial,sans-serif; box-sizing:border-box; }
+        .compare-block { font-family:'Inter','Helvetica Neue',Arial,sans-serif; box-sizing:border-box; overflow-x:auto; }
         /* Real-table rewrite (6 Aug 2026): replaces the flexbox-div markup +
            role="table"/"row"/"cell" ARIA stopgap from 1 Aug. Screen readers
            and AI agents now get genuine table semantics from the DOM itself
@@ -775,7 +775,7 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         .compare-logo-cell { width:36px; }
         .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
         .compare-source-name { font-size:14px; font-weight:600; color:#1a1a1a; }
-        .compare-right-inner { display:flex; align-items:center; gap:8px; justify-content:flex-end; }
+        .compare-right-inner { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; row-gap:6px; }
         /* A11y fix (1 Aug 2026): #888 measured 3.54:1 against white — fails
            WCAG AA's 4.5:1 minimum, confirmed via live PageSpeed Insights.
            #666 (5.74:1) passes comfortably and is the SAME shade already
