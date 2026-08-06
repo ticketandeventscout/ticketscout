@@ -395,7 +395,22 @@ function renderPage(d) {
            fix is a skeleton-row loading state sized to the real seller
            count (known server-side, if event_pages or similar tracks it),
            not another guessed pixel value. -->
-      <div id="detail-compare" style="min-height:450px;"><div class="loading">Loading live prices…</div></div>
+      <!-- CLS FIX (6 Aug 2026): removed a hardcoded min-height:450px that
+           lived on this wrapper — the "450px" guess from the earlier CLS
+           attempts (280px, then 450px; both confirmed live to make no
+           measurable difference). It sat OUTSIDE compare.js's own
+           container, so compare.js's later skeleton-row sizing fix (same
+           day) never touched it: renderComparePrices() only replaces this
+           div's CHILDREN via innerHTML, never its own style attribute — so
+           this fixed number kept forcing a mismatch against whatever real
+           content rendered inside it, regardless of how accurately that
+           inner content was sized. Confirmed live: CLS stayed at exactly
+           0.144 even after the skeleton fix shipped, because this outer
+           guess was the actual culprit the whole time, not the inner
+           content. Removed rather than replaced with a different guessed
+           number — compare.js's own typicalRows-driven skeleton is the
+           one thing that should own sizing here now. -->
+      <div id="detail-compare"><div class="loading">Loading live prices…</div></div>
       <div id="detail-hotels"></div>
     </div>
 
