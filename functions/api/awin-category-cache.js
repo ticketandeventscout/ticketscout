@@ -166,9 +166,15 @@ export async function onRequestGet({ request, env }) {
       const hits = [];
       const merchantTally = {};
       let scanned = 0;
-      for (let i = 0; i < index.chunks; i++) {
-        const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
-        if (!chunk) continue;
+      // Same latency fix as awin-category.js's live read path (6 Aug 2026)
+      // — fetch all chunks concurrently instead of one at a time, then scan
+      // them in a second pass. This endpoint is manual/debug-only so it was
+      // never the reported hot-path latency, but it's the identical bug and
+      // trivial to fix for the same reason.
+      const fetchedChunks = (await Promise.all(
+        Array.from({ length: index.chunks }, (_, i) => kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' }))
+      )).filter(Boolean);
+      for (const chunk of fetchedChunks) {
         for (const row of chunk) {
           scanned++;
           const pn = (row.product_name || '').toLowerCase();

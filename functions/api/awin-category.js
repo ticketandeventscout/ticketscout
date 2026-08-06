@@ -36,12 +36,24 @@ export async function onRequestGet({ request, env }) {
       return jsonResponse({ match: null }, 200);
     }
 
-    // Load all chunks
-    const allRows = [];
-    for (let i = 0; i < index.chunks; i++) {
-      const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
-      if (chunk) allRows.push(...chunk);
-    }
+    // LATENCY FIX (6 Aug 2026): this used to be a sequential `for` loop —
+    // one KV round-trip at a time, awaited in series. Flagged in the audit
+    // as the single slowest API call across four separate tests, with an
+    // apparently ESCALATING pattern (1,722ms → 2,136ms → 3,242ms → 3,497ms)
+    // rather than one-off noise. The escalation is explained exactly by
+    // CHUNK_SIZE=2000 in awin-category-cache.js: as more Awin merchants get
+    // approved over time (this file's own header notes "more appearing
+    // automatically as new Awin programmes are approved"), the feed grows,
+    // chunk COUNT grows, and every new chunk added a full extra round-trip
+    // in series — on EVERY live request, since this is the hot compare-
+    // table path, not a cached/background job. Same bug class, same fix
+    // shape as entity-lifecycle.js's earlier timeout fix this session:
+    // there's no ordering dependency between chunks (they're just
+    // concatenated), so fetching them concurrently via Promise.all is
+    // strictly safe and turns N sequential round-trips into 1.
+    const allRows = (await Promise.all(
+      Array.from({ length: index.chunks }, (_, i) => kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' }))
+    )).filter(Boolean).flat();
 
     if (debug) {
       const nameMatches = allRows
