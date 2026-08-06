@@ -33,6 +33,16 @@
 //   /api/go?beacon=err&s=<source>            — adapter fetch/parse failure
 //   /api/go?beacon=req&n=<adapterCount>      — one per compare render (denominator)
 //   /api/go?beacon=implausible&s=<source>    — E2 median-gate hit
+//   /api/go?beacon=rows&n=<rowCount>&cat=<category> — CLS fix (6 Aug 2026):
+//     one per successful compare render, recording how many seller rows
+//     actually rendered for that category. price-rollup.js aggregates this
+//     nightly into a per-category rolling average, stored in KV as
+//     'compare:typical-rows' and served via /api/merchant-status, which
+//     compare.js already fetches on every render — so the skeleton loading
+//     state can be sized close to the real eventual row count instead of a
+//     single message or a guessed fixed height (both tried and measurably
+//     failed to move CLS in Session 16). Needs a one-time D1 migration —
+//     see the ALTER TABLE note above bumpDaily() below.
 // ===========================
 
 // Suffix-matched whitelist: exact host or any subdomain of these.
@@ -90,6 +100,17 @@ export async function onRequestGet(context) {
       // n = how many adapters were attempted
       const n = Math.min(parseInt(url.searchParams.get('n') || '0', 10) || 0, 30);
       if (n > 0) context.waitUntil(bumpDaily(env, '_site', today, 'requests', n));
+    } else if (beacon === 'rows') {
+      // CLS fix data collection (6 Aug 2026) — see the usage note above.
+      // Stored under a per-category sentinel merchant_id ('_rows_concert'
+      // etc.), same table, same pattern as the existing '_site' sentinel —
+      // no new table needed, just two new columns (see bumpDaily below).
+      const n = Math.min(parseInt(url.searchParams.get('n') || '0', 10) || 0, 30);
+      const cat = (url.searchParams.get('cat') || '').replace(/[^a-z]/g, '').slice(0, 20);
+      if (cat) {
+        context.waitUntil(bumpDaily(env, '_rows_' + cat, today, 'rows_sum', n));
+        context.waitUntil(bumpDaily(env, '_rows_' + cat, today, 'rows_hits', 1));
+      }
     }
     return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
   }
@@ -153,10 +174,20 @@ function redirect(location, status) {
 }
 
 // D1 upsert into merchant_daily — guarded, absent binding is a no-op
+//
+// MIGRATION REQUIRED (one-time, Cloudflare dashboard → D1 → Console) for the
+// 'rows' beacon added 6 Aug 2026:
+//   ALTER TABLE merchant_daily ADD COLUMN rows_sum INTEGER DEFAULT 0;
+//   ALTER TABLE merchant_daily ADD COLUMN rows_hits INTEGER DEFAULT 0;
+// Until this runs, the two new bumpDaily() calls above fail inside their own
+// try/catch below and are logged — never thrown, never blocks a redirect —
+// degrading to "no CLS skeleton sizing data yet", not an error anywhere a
+// user would see. Same defensive pattern as event_pages.created_at
+// elsewhere in this codebase.
 async function bumpDaily(env, merchantId, day, column, n) {
   if (!env.PRICE_DB) return;
   // column comes only from our own literals above — never user input
-  const safe = ['clicks', 'api_errors', 'implausible_listings', 'requests'];
+  const safe = ['clicks', 'api_errors', 'implausible_listings', 'requests', 'rows_sum', 'rows_hits'];
   if (!safe.includes(column)) return;
   try {
     await env.PRICE_DB.prepare(

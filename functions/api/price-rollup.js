@@ -254,6 +254,53 @@ export async function onRequestGet({ request, env }) {
   } catch (err) { report.merchantScores = { error: String(err) }; }
   await checkpoint(kv, 'step5_merchantScores', t0);
 
+  // ── 5b. Typical seller-row count per category (CLS fix, 6 Aug 2026) ────
+  // Powers compare.js's initial skeleton row count. The insight: CLS is the
+  // gap between the loading state's size and the real content's size, so
+  // fixing it requires actually knowing roughly how big the real content
+  // will be — a single guessed pixel height was tried twice in Session 16
+  // (280px, then 450px) and both measurably failed live PageSpeed re-tests,
+  // because "how tall should the loading state be" isn't one answer: it
+  // depends on the category and current source coverage, which drifts.
+  // Fed by compare.js's 'rows' beacon (see go.js) — one signal per
+  // successful render, recording the real final row count for that
+  // category. 14-day window, not 30 like trust scores — seller coverage
+  // can shift faster than trust does (e.g. a source going suspended
+  // removes rows overnight), so a shorter, more responsive window fits
+  // this better than reusing the trust-score window. Floor/ceiling of 2/8
+  // so a data blip — or day one, before any beacon data exists yet — can't
+  // produce a skeleton that's empty or absurdly tall.
+  //
+  // Degrades cleanly if the rows_sum/rows_hits migration hasn't run yet
+  // (see go.js's bumpDaily note) — the SELECT below simply returns nothing,
+  // 'compare:typical-rows' stays unwritten, and compare.js's fallback
+  // default takes over. Never blocks the rest of the rollup.
+  try {
+    const rowWindowStart = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const rowRows = await db.prepare(
+      `SELECT merchant_id, SUM(rows_sum) AS sum, SUM(rows_hits) AS hits
+         FROM merchant_daily WHERE day >= ? AND merchant_id LIKE '\\_rows\\_%' ESCAPE '\\'
+        GROUP BY merchant_id`
+    ).bind(rowWindowStart).all();
+    const typicalRows = {};
+    for (const r of (rowRows.results || [])) {
+      const cat = r.merchant_id.replace('_rows_', '');
+      const hits = r.hits || 0;
+      if (hits <= 0) continue;
+      const avg = Math.round((r.sum || 0) / hits);
+      typicalRows[cat] = Math.max(2, Math.min(8, avg));
+    }
+    await kv.put('compare:typical-rows', JSON.stringify({
+      typicalRows,
+      window: `${rowWindowStart}..${todayISO}`,
+      computed: new Date().toISOString()
+    }));
+    report.typicalRows = typicalRows;
+  } catch (err) {
+    report.typicalRows = { error: String(err) };
+  }
+  await checkpoint(kv, 'step5b_typicalRows', t0);
+
   // ── Totals for visibility ──────────────────────────────────────────────
   try {
     const c = await db.prepare(

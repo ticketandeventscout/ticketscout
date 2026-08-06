@@ -525,14 +525,24 @@ function signalBeacon(params) {
 }
 
 // Merchant status — fetched once per compare render, edge-cached 5 min.
-// { suspended: [ids], badges: [ids], scores: {id: 0..1} }
-let MERCHANT_STATUS = { suspended: [], badges: [], scores: {} };
-async function loadMerchantStatus() {
-  try {
-    const r = await fetch('/api/merchant-status');
-    if (r.ok) MERCHANT_STATUS = await r.json();
-  } catch {}
-  return MERCHANT_STATUS;
+// { suspended: [ids], badges: [ids], scores: {id: 0..1}, typicalRows: {cat: n} }
+// Promise-cached (6 Aug 2026, same pattern as loadFxRates below) — now
+// called TWICE per render: once early by renderComparePrices() to size the
+// initial skeleton, once again inside comparePrices() as before. Without
+// caching that's a duplicate network round-trip for no reason; the second
+// call now just returns the same in-flight/resolved promise.
+let MERCHANT_STATUS = { suspended: [], badges: [], scores: {}, typicalRows: {} };
+let merchantStatusPromise = null;
+function loadMerchantStatus() {
+  if (merchantStatusPromise) return merchantStatusPromise;
+  merchantStatusPromise = (async () => {
+    try {
+      const r = await fetch('/api/merchant-status');
+      if (r.ok) MERCHANT_STATUS = await r.json();
+    } catch { /* keep defaults */ }
+    return MERCHANT_STATUS;
+  })();
+  return merchantStatusPromise;
 }
 
 async function comparePrices(eventName, venueCity, eventDate, venueName, category, country) {
@@ -733,8 +743,27 @@ function renderCmpDebugPanel() {
 // (TM data comes from the event detail fetch, not a separate adapter call)
 // ===========================
 
-function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, eventDate, venueName, category, country) {
+async function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, eventDate, venueName, category, country) {
   if (!container) return;
+
+  // CLS fix (6 Aug 2026): await merchant-status BEFORE the first paint, not
+  // after, so the initial skeleton can be sized close to the real eventual
+  // row count via MERCHANT_STATUS.typicalRows (nightly-computed per
+  // category — see price-rollup.js and go.js's 'rows' beacon). This is a
+  // genuine architecture change, not a bigger guess: two earlier CLS fixes
+  // (Session 16, 280px then 450px) both tried a single FIXED height and
+  // both measurably failed live PageSpeed re-tests on a high-seller-count
+  // event, because "how tall should the loading state be" isn't one
+  // number — it depends on category and current source coverage, and both
+  // drift over time. Trading a few ms of first paint (this endpoint is
+  // edge-cached 5 min, so typically a warm/fast hit) for a skeleton that's
+  // actually the right shape is what moves CLS; a skeleton that's wrong
+  // then corrects itself before real rows arrive would cause TWO shifts,
+  // not fewer.
+  await loadMerchantStatus();
+  const FALLBACK_SKELETON_ROWS = 4; // used only before any beacon data exists for this category (day one, or right after the D1 migration)
+  const skeletonRowCount = Math.max(2, Math.min(8,
+    MERCHANT_STATUS.typicalRows?.[category] || FALLBACK_SKELETON_ROWS));
 
   // Render the shell immediately with a loading state — TM row is NOT
   // rendered yet because we need to know what other adapters return first.
@@ -796,6 +825,23 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
            WCAG AA's 4.5:1 minimum. #666 (5.74:1) passes and is the SAME
            shade already used for .compare-from above. */
         .compare-loading { padding:20px; text-align:center; color:#666; font-size:14px; }
+        /* Skeleton loading rows (CLS fix, 6 Aug 2026) — reuse .compare-row
+           so height/padding is IDENTICAL to a real row by construction,
+           which is what actually matters for CLS: zero mismatch between
+           the loading state's box model and the real content's. Only the
+           cell CONTENTS differ (shimmer blocks vs real text/logo/button). */
+        .skeleton-block { background:#eee; border-radius:4px; display:inline-block; position:relative; overflow:hidden; }
+        .skeleton-block::after {
+          content:''; position:absolute; inset:0; transform:translateX(-100%);
+          background:linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+          animation:compare-skeleton-shimmer 1.4s ease-in-out infinite;
+        }
+        @keyframes compare-skeleton-shimmer { 100% { transform:translateX(100%); } }
+        @media (prefers-reduced-motion: reduce) { .skeleton-block::after { animation:none; } }
+        .skeleton-logo { width:36px; height:36px; border-radius:6px; }
+        .skeleton-name { width:55%; height:14px; }
+        .skeleton-price { width:48px; height:17px; }
+        .skeleton-button { width:92px; height:34px; border-radius:6px; }
         /* A11y fix (2 Aug 2026): #999 measured 2.85:1 against .compare-block's
            white background — fails WCAG AA badly (same failure, same 2.85:1,
            as the shared footer disclaimer already fixed elsewhere this
@@ -818,14 +864,14 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
           .compare-buy { padding:7px 9px; font-size:11px; }
         }
       </style>
-      <table id="compare-rows" aria-label="Ticket price comparison across sellers">
+      <table id="compare-rows" aria-label="Ticket price comparison across sellers" aria-busy="true">
         <colgroup>
           <col style="width:56px">
           <col>
           <col style="width:1%">
         </colgroup>
         <tbody id="adapter-prices">
-          <tr><td colspan="3" class="compare-loading">Checking prices across sellers…</td></tr>
+          ${buildSkeletonRows(skeletonRowCount)}
         </tbody>
       </table>
       <div class="compare-footnote">Prices shown are the lowest available and may exclude booking fees. Ticketmaster and SportsEvents365 prices are live; other sellers' prices are refreshed several times a day. Resale prices may differ from face value. Always confirm the final price on the seller's site before purchasing.</div>
@@ -954,9 +1000,41 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
     withPrices.forEach(result => {
       slot.insertAdjacentHTML('beforeend', buildRow(result.source, result.price, result.url, result.currency, result.implausible));
     });
+    document.getElementById('compare-rows')?.removeAttribute('aria-busy');
+
+    // CLS fix data collection (6 Aug 2026) — one signal per successful
+    // render, recording the REAL final row count for this category. See
+    // go.js's beacon handler and price-rollup.js's nightly aggregation;
+    // this is what teaches the skeleton (above) how many rows to show next
+    // time. Fires after the count is fully final (post dedup + plausibility
+    // gate), not before.
+    signalBeacon('rows&n=' + withPrices.length + '&cat=' + encodeURIComponent(category || 'unknown'));
 
     highlightBestPrice();
   });
+}
+
+// Skeleton loading rows (CLS fix, 6 Aug 2026) — see renderComparePrices()'s
+// skeletonRowCount and the .skeleton-block CSS above. Deliberately reuses
+// .compare-row so height/padding matches a real row exactly; aria-hidden
+// since these carry no real information (the table's aria-busy="true"
+// already tells assistive tech this region is loading).
+function buildSkeletonRows(n) {
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    out += `
+      <tr class="compare-row" aria-hidden="true">
+        <td class="compare-logo-cell"><div class="skeleton-block skeleton-logo"></div></td>
+        <td><div class="skeleton-block skeleton-name"></div></td>
+        <td>
+          <div class="compare-right-inner">
+            <div class="skeleton-block skeleton-price"></div>
+            <div class="skeleton-block skeleton-button"></div>
+          </div>
+        </td>
+      </tr>`;
+  }
+  return out;
 }
 
 // Builds a single comparison row as an HTML string.
