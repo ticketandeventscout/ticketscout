@@ -206,10 +206,30 @@ export async function onRequestGet({ request, env }) {
   try { const v = await kv.get(STATE_KEY(section)); if (v) state = JSON.parse(v); } catch {}
 
   const now = new Date().toISOString();
+  const nowMs = Date.parse(now);
   const becameDormant = [], recovered = [], toExpire = [];
   let checked = 0, liquidCount = 0, protectedCount = 0;
 
-  for (const slug of batch) {
+  // TIMEOUT FIX (added after football/venue/sports sweeps started timing out
+  // at scale — theatre/concert never hit this because more of their entities
+  // are liquid and skip the awin-category fallback fetch below).
+  // Each slug can cost up to 4 sequential round-trips (2x KV read, 1x KV read,
+  // 1x live fetch). At limit=200 that's up to 800 serial round-trips — fine
+  // for sections with mostly-liquid entities, a timeout risk for sections
+  // (like off-season football/sports, or venues which are never directly
+  // "liquid") where nearly every slug falls through to the fetch.
+  //
+  // Fix has two parts:
+  //   1. Process slugs in small concurrent chunks instead of one at a time.
+  //   2. Stop early if we're approaching the caller's timeout budget, and
+  //      only advance the cursor by what was ACTUALLY processed — so a run
+  //      that runs out of time just resumes cleanly next sweep instead of
+  //      failing the whole batch. Nothing is skipped or double-counted.
+  const CHUNK_SIZE = 10;
+  const TIME_BUDGET_MS = 45000; // headroom under the external ~60s worker timeout
+  const startedAt = Date.now();
+
+  async function processSlug(slug) {
     checked++;
     const prev = state[slug] || { misses: 0 };
 
@@ -240,14 +260,12 @@ export async function onRequestGet({ request, env }) {
     if (!isProtected && rec && (rec.wikidataId || rec.mbid)) isProtected = true;
     if (isProtected) protectedCount++;
 
-    const nowMs = Date.parse(now);
-
     if (liquid) {
       liquidCount++;
       // Recovery clears firstMiss entirely — a returning entity starts clean.
       if (isDormant(prev, nowMs)) recovered.push(slug);
       state[slug] = { misses: 0, firstMiss: null, lastSeen: now, protected: isProtected };
-      continue;
+      return;
     }
 
     const misses = (prev.misses || 0) + 1;
@@ -263,6 +281,15 @@ export async function onRequestGet({ request, env }) {
     if (isExpired(next, nowMs) && !isProtected) {
       toExpire.push({ slug, name, missAgeDays: Math.round(missAgeDays(next, nowMs)) });
     }
+  }
+
+  let processedCount = 0;
+  let timedOut = false;
+  for (let i = 0; i < batch.length; i += CHUNK_SIZE) {
+    if (Date.now() - startedAt > TIME_BUDGET_MS) { timedOut = true; break; }
+    const chunk = batch.slice(i, i + CHUNK_SIZE);
+    await Promise.all(chunk.map(processSlug));
+    processedCount += chunk.length;
   }
 
   // ── EXPIRY ──────────────────────────────────────────────────────────────
@@ -299,7 +326,7 @@ export async function onRequestGet({ request, env }) {
     try { await kv.delete(`${section}:hub:index`); } catch {}
   }
 
-  const nextCursor = cursor + batch.length;
+  const nextCursor = cursor + processedCount;
   const done = nextCursor >= slugs.length;
 
   if (!dry) {
@@ -312,7 +339,7 @@ export async function onRequestGet({ request, env }) {
     dryRun: dry,
     expireEnabled: allowExpire,
     totalInSection: slugs.length,
-    batch: { cursor, size: batch.length },
+    batch: { cursor, size: batch.length, processed: processedCount, timedOut },
     checked,
     liquid: liquidCount,
     protectedEntities: protectedCount,
@@ -329,8 +356,10 @@ export async function onRequestGet({ request, env }) {
       : undefined,
     done,
     next: done ? null : `?trigger=1&section=${section}&limit=${limit}${allowExpire ? '&expire=1' : ''}${dry ? '&dry=1' : ''}`,
-    message: dry
-      ? 'Dry run — no state written, nothing expired.'
-      : (allowExpire ? 'Sweep complete.' : 'Sweep complete. Add &expire=1 to purge past-threshold entities.')
+    message: timedOut
+      ? `Time budget reached — processed ${processedCount}/${batch.length} of this batch, cursor saved. Resumes automatically next sweep.`
+      : (dry
+        ? 'Dry run — no state written, nothing expired.'
+        : (allowExpire ? 'Sweep complete.' : 'Sweep complete. Add &expire=1 to purge past-threshold entities.'))
   });
 }
