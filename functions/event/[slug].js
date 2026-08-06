@@ -180,9 +180,37 @@ export async function onRequestGet(ctx) {
   // Indexable only when we have real registry data AND the event is upcoming
   const indexable = !!row && !isPast;
 
+  // CLS FIX v2 (6 Aug 2026): the first attempt removed the static
+  // min-height:450px outright and made CLS WORSE (0.144 → 0.397, confirmed
+  // live via PageSpeed) — #detail-compare went from growing off an
+  // already-substantial 450px baseline to growing off nearly zero, a much
+  // bigger height delta that pushed everything below it (hotels widget, SEO
+  // text block) further down, registering as MORE cumulative shift, not
+  // less. The fix isn't "no reservation" or "a different guessed number" —
+  // it's a reservation genuinely informed by real data, computed fresh on
+  // every request from the SAME 'compare:typical-rows' KV key compare.js's
+  // own skeleton uses (see price-rollup.js's nightly aggregation of the
+  // 'rows' beacon). Self-tunes as real seller coverage changes; nobody
+  // re-guesses a number again. Row-height estimate (60px) is read directly
+  // off compare.js's own CSS: 12px+12px cell padding plus a 36px logo slot
+  // is the tallest content per row. Title (~40px) and footnote (~65px,
+  // wraps to 2-3 lines at 11px) are the same fixed CSS in every render, so
+  // they're constants, not guesses.
+  let skeletonRowCount = 4; // matches compare.js's own FALLBACK_SKELETON_ROWS
+  try {
+    const raw = await env.GIGSBERG_KV?.get('compare:typical-rows');
+    if (raw) {
+      const typicalRows = JSON.parse(raw).typicalRows || {};
+      if (typicalRows[category]) skeletonRowCount = typicalRows[category];
+    }
+  } catch { /* KV miss or not-yet-populated — fallback default is fine */ }
+  skeletonRowCount = Math.max(2, Math.min(8, skeletonRowCount));
+  const estimatedCompareHeight = 40 + (skeletonRowCount * 60) + 65;
+
   const html = renderPage({
     slug: rawSlug, category, cat, name, eventDate, venue, city, image,
-    price, currency, tmUrl, tmPrice, isPast, indexable, entitySlug
+    price, currency, tmUrl, tmPrice, isPast, indexable, entitySlug,
+    estimatedCompareHeight
   });
 
   const resp = new Response(html, {
@@ -377,40 +405,29 @@ function renderPage(d) {
         </div>
       </div>
       <div id="detail-pricehist"></div>
-      <!-- CWV fix, ROUND 2 (1 Aug 2026): the first estimate (280px) was
-           confirmed via a live PageSpeed re-test to have made ZERO
-           measurable difference to this element's CLS contribution — still
-           exactly 0.144 before and after. This page's own copy above says
-           "up to 13 verified ticket sites"; at ~60px/row (compare.js's
-           actual .compare-row height: 36px logo + 24px padding + border),
-           13 rows is roughly 780px — nearly 3x what was reserved. 450px is
-           a deliberate middle ground (~7-8 rows), not a claim to have
-           solved this: reserving the full ~780px worst case would create a
-           large visible empty gap on the much more common 1-3 seller
-           events, which is its own UX cost. This should measurably reduce
-           the shift for high-profile, many-seller events like this one
-           without overcorrecting for typical ones — but it is still an
-           ESTIMATE. If a fresh PageSpeed run on THIS page still shows
-           #detail-compare as a major CLS contributor, the honest long-term
-           fix is a skeleton-row loading state sized to the real seller
-           count (known server-side, if event_pages or similar tracks it),
-           not another guessed pixel value. -->
-      <!-- CLS FIX (6 Aug 2026): removed a hardcoded min-height:450px that
-           lived on this wrapper — the "450px" guess from the earlier CLS
-           attempts (280px, then 450px; both confirmed live to make no
-           measurable difference). It sat OUTSIDE compare.js's own
-           container, so compare.js's later skeleton-row sizing fix (same
-           day) never touched it: renderComparePrices() only replaces this
-           div's CHILDREN via innerHTML, never its own style attribute — so
-           this fixed number kept forcing a mismatch against whatever real
-           content rendered inside it, regardless of how accurately that
-           inner content was sized. Confirmed live: CLS stayed at exactly
-           0.144 even after the skeleton fix shipped, because this outer
-           guess was the actual culprit the whole time, not the inner
-           content. Removed rather than replaced with a different guessed
-           number — compare.js's own typicalRows-driven skeleton is the
-           one thing that should own sizing here now. -->
-      <div id="detail-compare"><div class="loading">Loading live prices…</div></div>
+      <!-- CLS fix, ROUND 3 (6 Aug 2026) — history for whoever reads this next:
+           Round 1 (1 Aug): static 280px. Confirmed live: zero measurable
+           difference — still 0.144.
+           Round 2 (1 Aug): static 450px, reasoned from ~60px/row × a
+           deliberate 7-8 row middle ground, expressly flagged then as "an
+           ESTIMATE... the honest long-term fix is a skeleton-row loading
+           state sized to the real seller count, known server-side, if
+           tracked" — i.e. this exact fix, not yet built at the time.
+           Round 3a (6 Aug): removed the reservation outright once
+           compare.js grew its own client-side skeleton system. Confirmed
+           live via PageSpeed this was WORSE (0.144 → 0.397): with zero
+           reservation, #detail-compare grew from near-zero to full height
+           instead of from an already-substantial baseline — a much bigger
+           delta that pushed the hotels widget and SEO text block further
+           down, registering as MORE total shift, not less.
+           Round 3b (this version): the actually-honest fix Round 2
+           predicted. estimatedCompareHeight is computed server-side, per
+           request, from the SAME 'compare:typical-rows' KV data
+           compare.js's own client-side skeleton reads (nightly-aggregated
+           real seller counts, see price-rollup.js + go.js's 'rows'
+           beacon) — genuinely data-driven, self-tunes as real coverage
+           changes, nobody re-guesses a number again. -->
+      <div id="detail-compare" style="min-height:${d.estimatedCompareHeight}px;"><div class="loading">Loading live prices…</div></div>
       <div id="detail-hotels"></div>
     </div>
 
