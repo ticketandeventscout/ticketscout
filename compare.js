@@ -747,11 +747,35 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
       <div class="compare-title">Compare prices from verified sellers</div>
       <style>
         .compare-block { font-family:'Inter','Helvetica Neue',Arial,sans-serif; box-sizing:border-box; }
-        .compare-row { display:flex; align-items:center; gap:10px; padding:12px 20px; border-bottom:1px solid #f0f0f0; box-sizing:border-box; }
+        /* Real-table rewrite (6 Aug 2026): replaces the flexbox-div markup +
+           role="table"/"row"/"cell" ARIA stopgap from 1 Aug. Screen readers
+           and AI agents now get genuine table semantics from the DOM itself
+           instead of a bolted-on accessibility-tree signal, and rows behave
+           correctly under user zoom/reflow the way real tables do. Layout is
+           unchanged visually: <col> widths reproduce the old flex
+           proportions (fixed logo column, flexible name column,
+           shrink-to-content price/CTA column via the standard width:1%
+           trick), and the price+CTA cluster keeps its own internal flex
+           layout — that is presentation WITHIN a cell, not an override of
+           row/cell display types, so it carries no accessibility risk. All
+           existing class names (.compare-row, .compare-source-name,
+           .compare-price-wrap, etc.) are unchanged, so highlightBestPrice()
+           needed zero JS changes — verified it only ever calls
+           querySelector/dataset on the row element itself, which behaves
+           identically on a <tr> as it did on a <div>. NEEDS A LIVE VISUAL
+           CHECK on a real event page (desktop + both mobile breakpoints
+           below) before treating this as fully done — table auto-layout
+           column sizing can behave slightly differently across browsers
+           than flexbox did.
+        */
+        #compare-rows { width:100%; border-collapse:collapse; }
+        .compare-row { border-bottom:1px solid #f0f0f0; }
         .compare-row:last-child { border-bottom:none; }
+        .compare-row td, .compare-row th { padding:12px 20px; vertical-align:middle; text-align:left; font-weight:normal; }
+        .compare-logo-cell { width:36px; }
         .compare-source-logo { width:36px; height:36px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
-        .compare-source-name { flex:1; font-size:14px; font-weight:600; color:#1a1a1a; }
-        .compare-right { display:flex; align-items:center; gap:8px; }
+        .compare-source-name { font-size:14px; font-weight:600; color:#1a1a1a; }
+        .compare-right-inner { display:flex; align-items:center; gap:8px; justify-content:flex-end; }
         /* A11y fix (1 Aug 2026): #888 measured 3.54:1 against white — fails
            WCAG AA's 4.5:1 minimum, confirmed via live PageSpeed Insights.
            #666 (5.74:1) passes comfortably and is the SAME shade already
@@ -779,24 +803,31 @@ function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCity, ev
         .compare-footnote { font-size:11px; color:#666; text-align:center; padding:12px 20px 4px; line-height:1.5; }
         .compare-title { font-size:14px; font-weight:600; color:#1a1a1a; padding:14px 20px 10px; border-bottom:1px solid #f0f0f0; }
         @media(max-width:560px) {
-          .compare-row { padding:11px 14px; gap:8px; }
+          .compare-row td, .compare-row th { padding:11px 14px; }
+          .compare-right-inner { gap:8px; }
           .compare-source-name { font-size:13px; }
           .compare-from { font-size:10px; width:24px; }
           .price-label { font-size:15px; min-width:52px; }
           .compare-buy { padding:8px 11px; font-size:12px; }
         }
         @media(max-width:400px) {
-          .compare-row { padding:10px 12px; gap:6px; }
+          .compare-row td, .compare-row th { padding:10px 12px; }
+          .compare-right-inner { gap:6px; }
           .compare-from { display:none; }
           .price-label { font-size:14px; min-width:48px; }
           .compare-buy { padding:7px 9px; font-size:11px; }
         }
       </style>
-      <div id="compare-rows" role="table" aria-label="Ticket price comparison across sellers">
-        <div id="adapter-prices">
-          <div class="compare-loading">Checking prices across sellers…</div>
-        </div>
-      </div>
+      <table id="compare-rows" aria-label="Ticket price comparison across sellers">
+        <colgroup>
+          <col style="width:56px">
+          <col>
+          <col style="width:1%">
+        </colgroup>
+        <tbody id="adapter-prices">
+          <tr><td colspan="3" class="compare-loading">Checking prices across sellers…</td></tr>
+        </tbody>
+      </table>
       <div class="compare-footnote">Prices shown are the lowest available and may exclude booking fees. Ticketmaster and SportsEvents365 prices are live; other sellers' prices are refreshed several times a day. Resale prices may differ from face value. Always confirm the final price on the seller's site before purchasing.</div>
     </div>
   `;
@@ -1008,35 +1039,30 @@ function buildRow(source, price, url, currency, implausible) {
   const priceText = price ? `${symbol}${Math.round(price)}` : null;
   const dataPrice = price ? Math.round(price) : 0;
   const style     = SOURCE_STYLES[source] || { logo: null, bg: '#1a6fc4', color: '#fff', abbr: source.slice(0,2).toUpperCase() };
-  // ARIA additions (1 Aug 2026): this markup renders as flexbox <div>s, not a
-  // <table>, for layout reasons the existing CSS/media queries are tuned
-  // around — that's left untouched here (a real layout rewrite needs live
-  // visual verification this session doesn't have). role="table"/"row"/
-  // "cell" give screen readers AND AI agents the SAME semantic "this is
-  // tabular data" signal purely via the accessibility tree, with zero
-  // effect on rendering — no CSS/layout risk.
-  // aria-label on the CTA fixes a separate, genuinely concrete issue: every
-  // row's link previously said the identical "Get tickets →", so a screen
-  // reader's "list all links" view or an agent trying to identify "the
-  // TicketNetwork one" had no way to distinguish 13 identical-looking links
-  // from each other without also parsing surrounding DOM. Each link now
-  // names its own seller and price.
+  // Real-table rewrite (6 Aug 2026): row is now a <tr> with a logo <td>, a
+  // name <th scope="row"> (a row header is semantically a <th>, not a <td>
+  // — this is more correct than the old role="rowheader" div, not just a
+  // like-for-like swap), and a price+CTA <td> whose internal cluster keeps
+  // its own flex layout. data-price/data-implausible stay on the <tr> itself
+  // — highlightBestPrice() reads them via row.dataset, unchanged.
   const ctaLabel = `Get tickets from ${source}${priceText ? ` — ${priceText}` : ''}`;
 
   return `
-    <div class="compare-row" role="row" data-price="${dataPrice}" data-implausible="${implausible ? '1' : '0'}">
-      <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+    <tr class="compare-row" data-price="${dataPrice}" data-implausible="${implausible ? '1' : '0'}">
+      <td class="compare-logo-cell">
         ${buildLogoEl(style)}
-      </div>
-      <div class="compare-source-name" role="rowheader">${source}${MERCHANT_STATUS.badges.includes(MERCHANT_IDS[source]) ? ' <span class="trusted-badge" title="Consistently reliable pricing and availability over 60+ days">✓ Trusted Seller</span>' : ''}</div>
-      <div class="compare-right" role="cell">
-        ${priceText
-          ? `<div class="compare-from">From</div><div class="compare-price-wrap"><div class="price-label">${priceText}</div></div>`
-          : `<div class="compare-price-wrap"><div class="price-label" style="font-size:13px;color:#666;">Check site</div></div>`
-        }
-        <a href="${goUrl(url, source, price)}" target="_blank" rel="sponsored nofollow noopener noreferrer" class="compare-buy" aria-label="${ctaLabel}">Get tickets →</a>
-      </div>
-    </div>
+      </td>
+      <th class="compare-source-name" scope="row">${source}${MERCHANT_STATUS.badges.includes(MERCHANT_IDS[source]) ? ' <span class="trusted-badge" title="Consistently reliable pricing and availability over 60+ days">✓ Trusted Seller</span>' : ''}</th>
+      <td>
+        <div class="compare-right-inner">
+          ${priceText
+            ? `<div class="compare-from">From</div><div class="compare-price-wrap"><div class="price-label">${priceText}</div></div>`
+            : `<div class="compare-price-wrap"><div class="price-label" style="font-size:13px;color:#666;">Check site</div></div>`
+          }
+          <a href="${goUrl(url, source, price)}" target="_blank" rel="sponsored nofollow noopener noreferrer" class="compare-buy" aria-label="${ctaLabel}">Get tickets →</a>
+        </div>
+      </td>
+    </tr>
   `;
 }
 
