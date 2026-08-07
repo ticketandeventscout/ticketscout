@@ -282,20 +282,26 @@ async function listEntities(env, url) {
 
   const entities = [];
   const genreCounts = new Map();
-  for (const s of slugs.slice(0, HUB_BUILD_CAP)) {
-    let name = toTitleCase(s.replace(/-/g, ' '));
-    let genre = 'Other';
-    try {
-      const raw = await kv.get(KV_PREFIX + s);
-      if (raw) {
-        const rec = JSON.parse(raw);
-        if (rec.name) name = rec.name;
-        const label = canonicalGenre(rec.genre);
-        if (label) genre = label;
-      }
-    } catch { /* keep the de-slugged fallback */ }
-    entities.push({ slug: s, name, genre, url: '/sports/' + s });
-    genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
+  // Same timeout-risk fix as rebuildFullHub() below.
+  const capped = slugs.slice(0, HUB_BUILD_CAP);
+  const CHUNK_SIZE = 10;
+  for (let i = 0; i < capped.length; i += CHUNK_SIZE) {
+    const chunk = capped.slice(i, i + CHUNK_SIZE);
+    await Promise.all(chunk.map(async (s) => {
+      let name = toTitleCase(s.replace(/-/g, ' '));
+      let genre = 'Other';
+      try {
+        const raw = await kv.get(KV_PREFIX + s);
+        if (raw) {
+          const rec = JSON.parse(raw);
+          if (rec.name) name = rec.name;
+          const label = canonicalGenre(rec.genre);
+          if (label) genre = label;
+        }
+      } catch { /* keep the de-slugged fallback */ }
+      entities.push({ slug: s, name, genre, url: '/sports/' + s });
+      genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
+    }));
   }
 
   const payload = {
@@ -355,41 +361,55 @@ async function rebuildFullHub(env, url) {
   const startIdx = cursor ? slugs.findIndex(s => s > cursor) : 0;
   const batch = startIdx < 0 ? [] : slugs.slice(startIdx, startIdx + limit);
 
-  for (const s of batch) {
-    let name = toTitleCase(s.replace(/-/g, ' '));
-    let genre = 'Other';
-    try {
-      const raw = await kv.get(KV_PREFIX + s);
-      if (raw) {
-        const rec = JSON.parse(raw);
-        if (rec.name) name = rec.name;
-        const label = canonicalGenre(rec.genre);
-        if (label) genre = label;
-      }
-    } catch { /* keep the de-slugged fallback */ }
-    acc.entities.push({ slug: s, name, genre, url: '/sports/' + s });
-    acc.genreCounts[genre] = (acc.genreCounts[genre] || 0) + 1;
+  // TIMEOUT FIX (7 Aug 2026) — see concert.js's identical fix for the full
+  // rationale: sequential KV reads for up to 600 entities in one call is
+  // very likely the actual cause of today's rebuild-sports-hub timeout.
+  // Chunked concurrent reads instead — same fix, same reasoning, same
+  // safety (no ordering dependency between entities).
+  const CHUNK_SIZE = 10;
+  for (let i = 0; i < batch.length; i += CHUNK_SIZE) {
+    const chunk = batch.slice(i, i + CHUNK_SIZE);
+    await Promise.all(chunk.map(async (s) => {
+      let name = toTitleCase(s.replace(/-/g, ' '));
+      let genre = 'Other';
+      try {
+        const raw = await kv.get(KV_PREFIX + s);
+        if (raw) {
+          const rec = JSON.parse(raw);
+          if (rec.name) name = rec.name;
+          const label = canonicalGenre(rec.genre);
+          if (label) genre = label;
+        }
+      } catch { /* keep the de-slugged fallback */ }
+      acc.entities.push({ slug: s, name, genre, url: '/sports/' + s });
+      acc.genreCounts[genre] = (acc.genreCounts[genre] || 0) + 1;
+    }));
   }
 
   const lastSlug = batch.length ? batch[batch.length - 1] : cursor;
   const done = (startIdx + batch.length) >= slugs.length;
 
+  // FIX (7 Aug 2026) — see concert.js's identical fix for the full
+  // rationale: promote current progress every call, not just once fully
+  // done, so a stalled multi-day pass still shows growing coverage on the
+  // live page instead of staying stuck at the original 600-entity cap.
+  const partialPayload = {
+    count: acc.entities.length,
+    totalRegistered: slugs.length,
+    truncated: !done,
+    genres: Object.entries(acc.genreCounts).map(([genre, count]) => ({ genre, count }))
+      .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
+    entities: acc.entities,
+    builtAt: new Date().toISOString()
+  };
+  try { await kv.put(HUB_INDEX_KEY, JSON.stringify(partialPayload), { expirationTtl: HUB_INDEX_TTL }); } catch {}
+
   if (done) {
-    const payload = {
-      count: acc.entities.length,
-      totalRegistered: slugs.length,
-      truncated: false,
-      genres: Object.entries(acc.genreCounts).map(([genre, count]) => ({ genre, count }))
-        .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
-      entities: acc.entities,
-      builtAt: new Date().toISOString()
-    };
     try {
-      await kv.put(HUB_INDEX_KEY, JSON.stringify(payload), { expirationTtl: HUB_INDEX_TTL });
       await kv.delete(HUB_BUILDING_KEY);
       await kv.delete(HUB_CURSOR_KEY);
     } catch (e) {
-      return json({ error: 'promote failed: ' + String(e) }, 500);
+      return json({ error: 'cleanup failed (hub index already promoted, safe to ignore): ' + String(e) }, 500);
     }
     return json({ done: true, totalEntities: acc.entities.length, totalRegistered: slugs.length, promoted: true }, 200);
   }

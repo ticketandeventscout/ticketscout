@@ -102,19 +102,26 @@ async function listEntities(env, url) {
 
   const entities = [];
   const genreCounts = new Map();
-  for (const s of slugs.slice(0, HUB_BUILD_CAP)) {
-    let name = toTitleCase(s.replace(/-/g, ' '));
-    let genre = 'Other';
-    try {
-      const raw = await kv.get('concert:artist:' + s);
-      if (raw) {
-        const rec = JSON.parse(raw);
-        if (rec.name) name = rec.name;
-        genre = canonicalGenre(rec.genre);
-      }
-    } catch { /* keep the de-slugged fallback */ }
-    entities.push({ slug: s, name, genre, url: '/concert/' + s });
-    genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
+  // Same timeout-risk fix as rebuildFullHub() below — chunked concurrent
+  // KV reads instead of one at a time, for the same reason.
+  const capped = slugs.slice(0, HUB_BUILD_CAP);
+  const CHUNK_SIZE = 10;
+  for (let i = 0; i < capped.length; i += CHUNK_SIZE) {
+    const chunk = capped.slice(i, i + CHUNK_SIZE);
+    await Promise.all(chunk.map(async (s) => {
+      let name = toTitleCase(s.replace(/-/g, ' '));
+      let genre = 'Other';
+      try {
+        const raw = await kv.get('concert:artist:' + s);
+        if (raw) {
+          const rec = JSON.parse(raw);
+          if (rec.name) name = rec.name;
+          genre = canonicalGenre(rec.genre);
+        }
+      } catch { /* keep the de-slugged fallback */ }
+      entities.push({ slug: s, name, genre, url: '/concert/' + s });
+      genreCounts.set(genre, (genreCounts.get(genre) || 0) + 1);
+    }));
   }
 
   const payload = {
@@ -179,40 +186,70 @@ async function rebuildFullHub(env, url) {
   const startIdx = cursor ? slugs.findIndex(s => s > cursor) : 0;
   const batch = startIdx < 0 ? [] : slugs.slice(startIdx, startIdx + limit);
 
-  for (const s of batch) {
-    let name = toTitleCase(s.replace(/-/g, ' '));
-    let genre = 'Other';
-    try {
-      const raw = await kv.get('concert:artist:' + s);
-      if (raw) {
-        const rec = JSON.parse(raw);
-        if (rec.name) name = rec.name;
-        genre = canonicalGenre(rec.genre);
-      }
-    } catch { /* keep the de-slugged fallback */ }
-    acc.entities.push({ slug: s, name, genre, url: '/concert/' + s });
-    acc.genreCounts[genre] = (acc.genreCounts[genre] || 0) + 1;
+  // TIMEOUT FIX (7 Aug 2026): this was a sequential `for` loop — one KV
+  // round-trip at a time, awaited in series, for up to 600 entities in a
+  // single call. Very likely the actual cause of today's rebuild-concert-hub
+  // timeout — 600 sequential reads can comfortably approach the 60s budget
+  // on their own even before anything else in the request. Same bug class,
+  // same fix as entity-lifecycle.js's timeout fix earlier this session:
+  // no ordering dependency between entities, so fetching them concurrently
+  // in small chunks is strictly safe and turns 600 sequential round-trips
+  // into 60 chunked ones.
+  const CHUNK_SIZE = 10;
+  for (let i = 0; i < batch.length; i += CHUNK_SIZE) {
+    const chunk = batch.slice(i, i + CHUNK_SIZE);
+    await Promise.all(chunk.map(async (s) => {
+      let name = toTitleCase(s.replace(/-/g, ' '));
+      let genre = 'Other';
+      try {
+        const raw = await kv.get('concert:artist:' + s);
+        if (raw) {
+          const rec = JSON.parse(raw);
+          if (rec.name) name = rec.name;
+          genre = canonicalGenre(rec.genre);
+        }
+      } catch { /* keep the de-slugged fallback */ }
+      acc.entities.push({ slug: s, name, genre, url: '/concert/' + s });
+      acc.genreCounts[genre] = (acc.genreCounts[genre] || 0) + 1;
+    }));
   }
 
   const lastSlug = batch.length ? batch[batch.length - 1] : cursor;
   const done = (startIdx + batch.length) >= slugs.length;
 
+  // FIX (7 Aug 2026): this used to only write HUB_INDEX_KEY (the key the
+  // public page actually reads) once `done` was true — an all-or-nothing
+  // promotion across what can now be an ~11-day pass (6,507 entities ÷ 600
+  // per daily call), up from the 2,597 this system was built around. Any
+  // single failed day anywhere in that run (cron timeouts happen — see
+  // rebuild-concert-hub's own failure in yesterday's dump) meant NONE of
+  // the accumulated progress ever reached the live page, no matter how
+  // close to done it got, because it never re-attempts a stalled cursor on
+  // its own — it just sits there until the next scheduled call resumes it.
+  // Confirmed live: the concert hub was showing exactly 600 entities,
+  // ONLY the original capped fallback, despite this having likely run
+  // repeatedly in the background for weeks. Now promotes the CURRENT
+  // accumulated state on every call — so each day's progress is visible
+  // on the live page immediately, growing incrementally toward the full
+  // registry instead of being invisible until one perfect uninterrupted
+  // pass completes.
+  const partialPayload = {
+    count: acc.entities.length,
+    totalRegistered: slugs.length,
+    truncated: !done,
+    genres: Object.entries(acc.genreCounts).map(([genre, count]) => ({ genre, count }))
+      .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
+    entities: acc.entities,
+    builtAt: new Date().toISOString()
+  };
+  try { await kv.put(HUB_INDEX_KEY, JSON.stringify(partialPayload), { expirationTtl: HUB_INDEX_TTL }); } catch {}
+
   if (done) {
-    const payload = {
-      count: acc.entities.length,
-      totalRegistered: slugs.length,
-      truncated: false,
-      genres: Object.entries(acc.genreCounts).map(([genre, count]) => ({ genre, count }))
-        .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre)),
-      entities: acc.entities,
-      builtAt: new Date().toISOString()
-    };
     try {
-      await kv.put(HUB_INDEX_KEY, JSON.stringify(payload), { expirationTtl: HUB_INDEX_TTL });
       await kv.delete(HUB_BUILDING_KEY);
       await kv.delete(HUB_CURSOR_KEY);
     } catch (e) {
-      return jsonResponse({ error: 'promote failed: ' + String(e) }, 500);
+      return jsonResponse({ error: 'cleanup failed (hub index already promoted, safe to ignore): ' + String(e) }, 500);
     }
     return jsonResponse({ done: true, totalEntities: acc.entities.length, totalRegistered: slugs.length, promoted: true }, 200);
   }
