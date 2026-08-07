@@ -163,18 +163,44 @@ export async function onRequestGet({ request, env }) {
     // smaller working set regardless of how large price_samples grows
     // going forward, unlike the unbounded version which would only get
     // worse over time.
-    const { results } = await db.prepare(
-      `SELECT en.slug,
-              MIN(CASE WHEN ps.sampled_at >= ? THEN ps.min_price_gbp END)  AS current,
-              MIN(CASE WHEN ps.sampled_at BETWEEN ? AND ? THEN ps.min_price_gbp END) AS weekAgo,
-              MIN(ps.min_price_gbp)                                        AS low30d,
-              COUNT(DISTINCT ev.id)                                        AS upcomingEvents
-       FROM entities en
-       JOIN events ev  ON ev.entity_id = en.id AND ev.status = 'live'
-       JOIN price_samples ps ON ps.event_id = ev.id
-       WHERE ps.sampled_at >= ?
-       GROUP BY en.slug`
-    ).bind(dayAgo, weekLo, weekHi, monthAgo).all();
+    // FIX 2 (7 Aug 2026): the WHERE bound above is correct and matters for
+    // the future, but it does NOT reduce today's actual memory pressure —
+    // every row currently in price_samples is already within 30 days (the
+    // oldest sample is 25 days old), so right now that filter excludes
+    // nothing at all. The OTHER real cost in this same query is
+    // COUNT(DISTINCT ev.id): SQLite has to build and maintain a distinct-
+    // value set PER GROUP throughout the scan, which is expensive when a
+    // popular entity has many live events each with many price samples.
+    // Splitting it into its own query removes that cost from the big JOIN
+    // entirely — this second query only touches entities+events (no
+    // price_samples, no dedup needed since ev.id is already unique per row
+    // in a simple two-table join), then the two result sets are merged by
+    // slug in JS below. Same final numbers, cheaper to compute.
+    const [{ results }, upcomingRes] = await Promise.all([
+      db.prepare(
+        `SELECT en.slug,
+                MIN(CASE WHEN ps.sampled_at >= ? THEN ps.min_price_gbp END)  AS current,
+                MIN(CASE WHEN ps.sampled_at BETWEEN ? AND ? THEN ps.min_price_gbp END) AS weekAgo,
+                MIN(ps.min_price_gbp)                                        AS low30d
+         FROM entities en
+         JOIN events ev  ON ev.entity_id = en.id AND ev.status = 'live'
+         JOIN price_samples ps ON ps.event_id = ev.id
+         WHERE ps.sampled_at >= ?
+         GROUP BY en.slug`
+      ).bind(dayAgo, weekLo, weekHi, monthAgo).all(),
+      db.prepare(
+        `SELECT en.slug, COUNT(ev.id) AS upcomingEvents
+         FROM entities en
+         JOIN events ev ON ev.entity_id = en.id AND ev.status = 'live'
+         GROUP BY en.slug`
+      ).all()
+    ]);
+    const upcomingBySlug = Object.fromEntries(
+      (upcomingRes.results || []).map(r => [r.slug, r.upcomingEvents])
+    );
+    for (const row of (results || [])) {
+      row.upcomingEvents = upcomingBySlug[row.slug] || 0;
+    }
     await checkpoint(kv, `step3a_summariesQuery_rows${(results || []).length}`, t0);
 
     // FIX (1 Aug 2026): this loop was previously one sequential, awaited
