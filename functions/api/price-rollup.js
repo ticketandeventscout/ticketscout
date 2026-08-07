@@ -43,8 +43,42 @@ export async function onRequestGet({ request, env }) {
   const kv  = env.GIGSBERG_KV;
   const db  = env.PRICE_DB;
 
+  // DIAGNOSTIC (7 Aug 2026) — read-only, no writes, safe to run any time.
+  // Added after a live run hit D1_ERROR: out of memory (SQLITE_NOMEM) on
+  // the step3a summaries query, with price_samples at 6,510,833 rows and
+  // that SAME run's own rolledAndDeleted (step2b's cleanup) reporting 0.
+  // Before assuming step2b's 30-day retention delete is broken, check
+  // directly and cheaply (COUNT/MIN queries, not the expensive JOIN that
+  // failed) whether there's actually anything older than the cutoff for it
+  // to have deleted, rather than guessing either way.
+  if (url.searchParams.get('diag') === '1') {
+    if (!db) return json({ error: 'Missing PRICE_DB binding' }, 500);
+    try {
+      const cutoff = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
+      const [totalRow, oldRow, rangeRow] = await Promise.all([
+        db.prepare('SELECT COUNT(*) AS n FROM price_samples').first(),
+        db.prepare('SELECT COUNT(*) AS n FROM price_samples WHERE sampled_at < ?').bind(cutoff).first(),
+        db.prepare('SELECT MIN(sampled_at) AS oldest, MAX(sampled_at) AS newest FROM price_samples').first(),
+      ]);
+      const fmt = (unixSec) => unixSec ? new Date(unixSec * 1000).toISOString() : null;
+      return json({
+        diag: true,
+        cutoffUsedByRollup: fmt(cutoff),
+        totalRows: totalRow?.n ?? null,
+        rowsOlderThanCutoff: oldRow?.n ?? null,
+        oldestSample: fmt(rangeRow?.oldest),
+        newestSample: fmt(rangeRow?.newest),
+        interpretation: (oldRow?.n ?? 0) > 0
+          ? 'Rows older than the cutoff DO exist — step2b\'s DELETE should be matching them. If rolledAndDeleted keeps showing 0 despite this, that IS a real bug in step2b, not a coincidence — check for a silent failure between the INSERT and DELETE inside that same try block.'
+          : 'No rows older than the cutoff exist right now — rolledAndDeleted:0 is CORRECT behaviour, not a bug. The 6.5M-row size is from genuine sample volume within the 30-day window, not a broken retention step.'
+      }, 200);
+    } catch (e) {
+      return json({ error: 'diag query failed: ' + String(e) }, 500);
+    }
+  }
+
   if (url.searchParams.get('trigger') !== '1') {
-    return json({ usage: '?trigger=1 — run the nightly rollup (safe to run manually any time)' }, 200);
+    return json({ usage: '?trigger=1 — run the nightly rollup (safe to run manually any time). ?diag=1 — read-only check of price_samples retention, no writes.' }, 200);
   }
   if (!kv) return json({ error: 'Missing GIGSBERG_KV binding' }, 500);
   if (!db) return json({ error: 'Missing PRICE_DB binding' }, 500);
@@ -113,7 +147,22 @@ export async function onRequestGet({ request, env }) {
     const dayAgo   = now - 24 * 3600;
     const weekLo   = now - 8 * 24 * 3600;
     const weekHi   = now - 6 * 24 * 3600;
+    const monthAgo = now - 30 * 24 * 3600;
 
+    // FIX (7 Aug 2026): this query had NO time bound on price_samples at
+    // all, despite the `low30d` column name — MIN(ps.min_price_gbp) was
+    // computed across that entity's ENTIRE unbounded sample history, not
+    // actually 30 days. Confirmed live: with 6,510,833 raw samples, this
+    // JOIN + GROUP BY + COUNT(DISTINCT) across the full unfiltered table
+    // failed with "D1_ERROR: out of memory: SQLITE_NOMEM" — D1 has to
+    // build a hash-based aggregation over the whole joined result set with
+    // nothing pre-filtered out. Adding this WHERE bound both fixes a
+    // silent correctness bug (low30d now genuinely means 30 days) AND
+    // should eliminate the OOM, since D1 only has to aggregate the last
+    // 30 days of samples per entity instead of its full history — a much
+    // smaller working set regardless of how large price_samples grows
+    // going forward, unlike the unbounded version which would only get
+    // worse over time.
     const { results } = await db.prepare(
       `SELECT en.slug,
               MIN(CASE WHEN ps.sampled_at >= ? THEN ps.min_price_gbp END)  AS current,
@@ -123,8 +172,9 @@ export async function onRequestGet({ request, env }) {
        FROM entities en
        JOIN events ev  ON ev.entity_id = en.id AND ev.status = 'live'
        JOIN price_samples ps ON ps.event_id = ev.id
+       WHERE ps.sampled_at >= ?
        GROUP BY en.slug`
-    ).bind(dayAgo, weekLo, weekHi).all();
+    ).bind(dayAgo, weekLo, weekHi, monthAgo).all();
     await checkpoint(kv, `step3a_summariesQuery_rows${(results || []).length}`, t0);
 
     // FIX (1 Aug 2026): this loop was previously one sequential, awaited
