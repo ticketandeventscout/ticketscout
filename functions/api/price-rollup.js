@@ -135,7 +135,22 @@ export async function onRequestGet({ request, env }) {
     // turns ~119s of sequential network round-trips into a handful of
     // seconds, with no change to WHAT gets written — same key, same value,
     // same 3-day TTL — only how the writes are scheduled.
-    const CHUNK_SIZE = 25; // bounded, not unlimited — avoids flooding KV with
+    //
+    // FIX 2 (7 Aug 2026): row count grew 4,241 → 4,711 in less than a week,
+    // and chunk COUNT scales linearly with row count at a fixed chunk size —
+    // so this step was quietly creeping back toward the ceiling again.
+    // Confirmed via checkpoint data on a live manual run: total rollup
+    // runtime was 55.7s (dangerously close to the 60s cron timeout), and
+    // this ONE step alone was 31.1s of that — 189 chunks × ~165ms/chunk.
+    // That per-chunk time is round-trip latency, not bandwidth (each write
+    // is a tiny JSON payload), so it should stay roughly flat as chunk SIZE
+    // grows, meaning chunk COUNT is what actually drives wall-clock time
+    // here. Raising CHUNK_SIZE 25 → 100 cuts chunk count ~189 → ~48,
+    // estimated ~8s instead of ~31s (~23s saved) — verify against a fresh
+    // checkpoint read after this deploys rather than trusting the estimate;
+    // if KV write latency behaves differently than assumed, or Cloudflare's
+    // per-invocation subrequest ceiling gets hit, dial this back down.
+    const CHUNK_SIZE = 100; // bounded, not unlimited — avoids flooding KV with
                             // thousands of simultaneous requests in one go
     const validRows = (results || []).filter(row => row.current != null);
     for (let i = 0; i < validRows.length; i += CHUNK_SIZE) {
