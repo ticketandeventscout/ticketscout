@@ -731,7 +731,22 @@
       if (attr) el.setAttribute(attr, val); else el.textContent = val;
     }
 
+    // L4 fix (7 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): AggregateOffer price
+    // range, sourced from the SAME price:summary KV data already powering
+    // the price-trend badge lower on this page (via /api/price-history) —
+    // no new endpoint needed. Two module-level variables bridge two
+    // independent async sources that both feed the SAME schema-org tag:
+    // updateMeta() runs when TM/Awin event data loads; the price-history
+    // fetch runs separately and can resolve before OR after it. Whichever
+    // finishes SECOND re-renders the full graph using both pieces of data,
+    // so neither one overwrites the other regardless of arrival order —
+    // updateMeta()'s own setEl() call used to be a full REPLACE of the tag,
+    // which would have silently destroyed whichever piece wrote first.
+    let __lastMetaArgs = null;
+    let __priceSummaryForSchema = null;
+
     function updateMeta(artist, events, tmImage) {
+      __lastMetaArgs = { artist, events, tmImage };
       const name = artist.name;
       const slug = artist.slug;
       const pageUrl = `https://ticketscout.co.uk/concert/${slug}`;
@@ -765,6 +780,7 @@
         const d = e.dates?.start?.dateTime || e.dates?.start?.localDate;
         return typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d);
       });
+      const graph = [];
       if (schemaSource.length > 0) {
         const schemaEvents = schemaSource.slice(0, 5).map(e => {
           const venue    = e._embedded?.venues?.[0];
@@ -811,9 +827,44 @@
             'url': pageUrl
           };
         });
+        graph.push(...schemaEvents);
+      }
+      // L4: entity-level AggregateOffer, real data only — lowPrice from
+      // price:summary's low30d (the genuine 30-day floor, compiled nightly
+      // across every source, not just whatever this one page's TM/Awin
+      // calls happened to surface), highPrice from `current` when it's
+      // above that floor (current can never be BELOW low30d by
+      // definition — low30d is a rolling minimum). offerCount from the
+      // same summary's upcomingEvents. Modelled as a Product ("{artist}
+      // Tickets") with an AggregateOffer in `offers` — the standard,
+      // Google-supported pattern for a price range across ticket options,
+      // rather than attaching pricing directly to the MusicGroup/Person
+      // node, which isn't a valid `offers` host in schema.org's core
+      // vocabulary.
+      if (__priceSummaryForSchema && __priceSummaryForSchema.current != null) {
+        const s = __priceSummaryForSchema;
+        const low  = s.low30d != null ? Math.min(s.low30d, s.current) : s.current;
+        const high = s.low30d != null ? Math.max(s.low30d, s.current) : s.current;
+        graph.push({
+          '@type': 'Product',
+          'name': `${name} Tickets`,
+          'url': pageUrl,
+          'image': image,
+          'offers': {
+            '@type': 'AggregateOffer',
+            'priceCurrency': 'GBP',
+            'lowPrice': low,
+            'highPrice': high,
+            ...(s.upcomingEvents ? { 'offerCount': s.upcomingEvents } : {}),
+            'availability': 'https://schema.org/InStock',
+            'url': pageUrl
+          }
+        });
+      }
+      if (graph.length > 0) {
         setEl('schema-org', null, JSON.stringify({
           '@context': 'https://schema.org',
-          '@graph': schemaEvents
+          '@graph': graph
         }));
       }
     }
@@ -1496,6 +1547,14 @@
       .then(function (d) {
         if (!d || !d.summary || d.summary.current == null) return;
         var s = d.summary;
+        // L4: feed this same data into the JSON-LD graph too, re-rendering
+        // it if updateMeta() already ran once without this — see the
+        // comment on __priceSummaryForSchema above updateMeta() for why
+        // this doesn't clobber the MusicEvent entries either order.
+        __priceSummaryForSchema = s;
+        if (__lastMetaArgs) {
+          updateMeta(__lastMetaArgs.artist, __lastMetaArgs.events, __lastMetaArgs.tmImage);
+        }
         var text, bg, fg;
         if (s.trend === 'down' && s.low30d != null && s.current <= s.low30d * 1.05) {
           text = '\u2193 Lowest price in 30 days \u2014 from \u00a3' + Math.round(s.current);
@@ -1510,13 +1569,70 @@
           return; // flat trend: no badge — avoid noise
         }
         var h1 = document.getElementById('artist-name');
-        if (!h1 || document.getElementById('price-trend-badge')) return;
-        var badge = document.createElement('div');
-        badge.id = 'price-trend-badge';
-        badge.textContent = text;
-        badge.style.cssText = 'display:inline-block;margin-top:8px;padding:4px 12px;'
-          + 'border-radius:14px;font-size:13px;font-weight:600;background:' + bg + ';color:' + fg + ';';
-        h1.insertAdjacentElement('afterend', badge);
+        if (h1 && !document.getElementById('price-trend-badge')) {
+          var badge = document.createElement('div');
+          badge.id = 'price-trend-badge';
+          badge.textContent = text;
+          badge.style.cssText = 'display:inline-block;margin-top:8px;padding:4px 12px;'
+            + 'border-radius:14px;font-size:13px;font-weight:600;background:' + bg + ';color:' + fg + ';';
+          h1.insertAdjacentElement('afterend', badge);
+        }
+      })
+      .catch(function () {});
+
+    // L4 fix (7 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): add AggregateOffer
+    // priceRange to this entity's JSON-LD once real price-summary data is
+    // available. Deliberately a SEPARATE fetch().then() from the badge
+    // logic above, even though both hit the same endpoint and both bail
+    // out on the same missing-summary condition — enriching the schema is
+    // purely additive to whatever updateMeta() already built, and keeping
+    // it decoupled means a bug here can never affect the badge (or vice
+    // versa) even though they look almost identical.
+    // low30d is the only genuinely real "low" figure this data tracks — no
+    // real "high" price is tracked anywhere, so highPrice is deliberately
+    // left out rather than fabricated from `current` (which means
+    // "cheapest right now", a different concept from "highest ever seen").
+    // offerCount maps from upcomingEvents — one real event is one real offer.
+    fetch('/api/price-history?slug=' + encodeURIComponent(slug))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.summary || d.summary.low30d == null) return;
+        var s = d.summary;
+        try {
+          var schemaEl = document.getElementById('schema-org');
+          var schema = JSON.parse(schemaEl.textContent || '{}');
+          if (!schema['@graph'] || !schema['@graph'].length) return; // nothing to enrich if no events rendered
+
+          // Reuse the artist name already inside the rendered schema
+          // (set correctly by updateMeta() above) rather than guessing at
+          // a new global — this can only exist if updateMeta() already ran.
+          var name = (schema['@graph'][0] && schema['@graph'][0].organizer && schema['@graph'][0].organizer.name) || '';
+          if (!name) return;
+
+          var performerId = 'https://ticketscout.co.uk/concert/' + slug + '#performer';
+          schema['@graph'].push({
+            '@type': 'MusicGroup',
+            '@id': performerId,
+            'name': name,
+            'offers': {
+              '@type': 'AggregateOffer',
+              'lowPrice': s.low30d,
+              'priceCurrency': 'GBP',
+              'offerCount': s.upcomingEvents || schema['@graph'].length,
+              'url': location.origin + location.pathname
+            }
+          });
+          // Point each event's performer at the shared node instead of a
+          // separately-declared inline one, per JSON-LD @id-linking
+          // convention (same pattern as the homepage's Organization/WebSite
+          // linking, M6) — avoids duplicate MusicGroup declarations.
+          schema['@graph'].forEach(function (node) {
+            if (node['@type'] === 'MusicEvent' && node.performer) {
+              node.performer = { '@id': performerId };
+            }
+          });
+          schemaEl.textContent = JSON.stringify(schema);
+        } catch (e) { /* never let schema enrichment break page rendering */ }
       })
       .catch(function () {});
   })();
