@@ -113,6 +113,15 @@ export async function onRequestGet(ctx) {
         note: 'TM quota breaker is open — no calls made, cursor not advanced. Retry later.' }, 200);
     }
 
+    // M3 v2 slug opt-in (6 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md) — see
+    // tsExtractTmRecords()'s own comment for the full rationale. Resolved
+    // ONCE per sweep run (not per-entity inside the loop) and reused for
+    // every tsExtractTmRecords() call below. Defaults OFF — tsEventSlug()
+    // itself is completely untouched and every existing slug keeps working
+    // exactly as before until this KV key is explicitly set.
+    let slugV2Enabled = false;
+    try { slugV2Enabled = (await kv.get('feature:concert-slug-v2')) === 'on'; } catch {}
+
     let registry = null;
     try { const r = await kv.get('sitemap:registry'); if (r) registry = JSON.parse(r); }
     catch (e) { return jsonResponse({ error: 'registry read failed: ' + String(e) }, 500); }
@@ -195,7 +204,7 @@ export async function onRequestGet(ctx) {
         }
         if (!r.ok) { details.push({ slug, error: 'HTTP ' + r.status }); continue; }
         const data = await r.json();
-        recs = tsExtractTmRecords(data);
+        recs = tsExtractTmRecords(data, slugV2Enabled);
       } catch (e) {
         details.push({ slug, error: String(e) });
         continue;
@@ -586,6 +595,13 @@ export async function onRequestGet(ctx) {
   let quotaExhausted = false;
   try { quotaExhausted = !!(kv && await kv.get('tm:quota:exhausted')); } catch {}
 
+  // M3 v2 slug opt-in (6 Aug 2026) — same flag, same default-off behaviour
+  // as the sweep path above. One extra KV read per live TM proxy request;
+  // acceptable alongside the quota-breaker check just above, which already
+  // does the same thing every request.
+  let slugV2Enabled = false;
+  try { slugV2Enabled = !!(kv && (await kv.get('feature:concert-slug-v2')) === 'on'); } catch {}
+
   if (!quotaExhausted) {
     try {
       const tmResponse = await fetch(tmUrl.toString());
@@ -600,7 +616,7 @@ export async function onRequestGet(ctx) {
         // /event/{slug} pages can server-render them. Throttled per-query via
         // the Cache API (edge cache already limits calls; this caps D1 writes).
         tsCaptureThrottled(env, (p) => ctx.waitUntil(p), 'tm:' + lastGoodKey,
-          () => tsExtractTmRecords(data));
+          () => tsExtractTmRecords(data, slugV2Enabled));
         return resp;
       }
       if (tmResponse.status === 429 && kv) {
@@ -791,7 +807,22 @@ function pickHeroImage(images) {
   return (goodEnough || sorted[sorted.length - 1]).url;
 }
 
-function tsExtractTmRecords(data) {
+// M3 v2 slug opt-in (6 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): future
+// concert URLs read concert-2026-08-22-coldplay-wembley-stadium instead of
+// just concert-2026-08-22-coldplay, opening long-tail query surface
+// ("{artist} {venue} tickets") that currently has zero coverage.
+// tsEventSlug() ITSELF IS COMPLETELY UNTOUCHED — frozen, per the roadmap's
+// explicit instruction not to change existing slugs. This only changes
+// WHAT NAME STRING gets handed to it, and only when slugV2Enabled is
+// explicitly true (default false — see the two 'feature:concert-slug-v2'
+// KV reads in onRequestGet, one per code path). With the flag off, this
+// function's behaviour is byte-for-byte identical to before this change.
+// Scoped to category==='concert' only, matching the roadmap's exact scope
+// (football/sports fixture names are already venue-independent long-tail
+// queries in their own right; theatre isn't mentioned in M3's slug
+// instruction, only its title/H1 instruction — the two are handled
+// separately, see _slug_.js).
+function tsExtractTmRecords(data, slugV2Enabled) {
   const events = data?._embedded?.events
     || (data?.id && data?.name && data?.dates ? [data] : []);
   const today = new Date().toISOString().slice(0, 10);
@@ -800,9 +831,13 @@ function tsExtractTmRecords(data) {
     const category = tsTmCategory(e);
     const date = e?.dates?.start?.localDate || '';
     if (!category || !date || date < today) continue;
-    const slug = tsEventSlug(category, date, normaliseFixtureName(e.name));
-    if (!slug) continue;
     const venue = e?._embedded?.venues?.[0];
+    const baseName = normaliseFixtureName(e.name);
+    const slugName = (slugV2Enabled && category === 'concert' && venue?.name)
+      ? `${baseName} ${venue.name}`
+      : baseName;
+    const slug = tsEventSlug(category, date, slugName);
+    if (!slug) continue;
     records.push({
       slug, category, name: e.name, date,
       venue: venue?.name || null,

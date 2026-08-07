@@ -151,6 +151,47 @@ function extractApiKey(baseUrl) {
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
 
+  // ── M4 cleanup: already-indexed junk product pages ──────────────────────
+  // The forward-looking filter (isJunkProduct(), see tsBulkSyncAwinEvents
+  // above) stops NEW junk from registering, but doesn't touch what's
+  // already sitting in event_pages from before the filter existed — the
+  // roadmap's own count was six such pages, confirmed live with full Event
+  // schema + offers. Same isJunkProduct() check, applied here against
+  // EXISTING event_pages.name. Dry-run by default, same convention as
+  // every other write tool in this codebase (duplicate-events.js's merge
+  // mode, ticketmaster.js's ?sweep=1, etc.) — DELETES rather than a
+  // separate noindex flag, since event_pages has no per-row indexability
+  // column and a product listing that isn't a real ticketed event
+  // shouldn't have a page at all, not just a hidden one.
+  // Usage: ?cleanjunk=1&trigger=1                — dry run, reports matches
+  //        ?cleanjunk=1&trigger=1&confirm=yes    — deletes them
+  if (url.searchParams.get('cleanjunk') === '1' && url.searchParams.get('trigger') === '1') {
+    const db = env.PRICE_DB;
+    if (!db) return jsonResp({ error: 'Missing PRICE_DB' }, 500);
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    try {
+      const rows = await db.prepare(
+        "SELECT slug, category, name, event_date, venue, source FROM event_pages WHERE source LIKE 'awin:%'"
+      ).all();
+      const matches = (rows.results || []).filter(r => isJunkProduct(r.name));
+      if (confirm && matches.length) {
+        const stmt = db.prepare('DELETE FROM event_pages WHERE slug = ?1');
+        await db.batch(matches.map(m => stmt.bind(m.slug)));
+      }
+      return jsonResp({
+        cleanjunk: true, dryRun: !confirm,
+        totalAwinRowsScanned: (rows.results || []).length,
+        junkFound: matches.length,
+        matches: matches.map(m => ({ slug: m.slug, name: m.name, category: m.category, date: m.event_date, venue: m.venue })),
+        message: confirm
+          ? `Deleted ${matches.length} junk product page(s).`
+          : 'Dry run — nothing deleted. Add &confirm=yes to remove these.'
+      }, 200);
+    } catch (e) {
+      return jsonResp({ error: 'cleanjunk failed: ' + String(e) }, 500);
+    }
+  }
+
   // ── Diagnostic: search the LIVE cached chunks by name (before trigger gate
   //    so ?find=arsenal works standalone with no refresh) ───────────────────
   // ?find=arsenal                                   — product_name OR description
@@ -812,6 +853,34 @@ function jsonResp(body, status) {
 const EVENT_SYNC_GATE_KEY = 'event:sync:awin:last';
 const EVENT_SYNC_MIN_GAP  = 20 * 60 * 60 * 1000; // 20h — once per day despite 4 daily crons
 
+// M4 fix (6 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): Awin/Gigsberg feeds
+// bundle non-ticket add-on products (parking passes, hospitality packages,
+// gift cards, membership products) alongside real event tickets in the
+// SAME feed structure — tsBulkSyncAwinEvents registered every dated row
+// unconditionally, so six of these were confirmed live, indexed with full
+// Event schema + offers, e.g. a parking pass presenting itself to Google as
+// a ticketed event. Applied against row.product_name specifically (the
+// literal Awin catalog SKU name), not free-form prose — this is a much
+// safer surface for single-word matches than the EVENT_PATTERNS system
+// above, whose own documented discipline warns against bare generic nouns
+// precisely because THOSE match against real performer/team names. A
+// product catalogue SKU literally titled "Emirates Stadium — Parking Pass"
+// or "Arsenal FC Gift Card" doesn't carry that same collision risk.
+const JUNK_PRODUCT_PATTERNS = [
+  /\bgift[\s-]?card\b/i,
+  /\bopen\s+training\b/i,
+  /\bpremium\s+experience\b/i,
+  /\bhospitality\b/i,
+  /\bcamping\b/i,
+  /\bparking\b/i,
+  /\bmerchandise\b/i,
+  /\bmembership\b/i,
+];
+function isJunkProduct(name) {
+  const n = String(name || '');
+  return JUNK_PRODUCT_PATTERNS.some(re => re.test(n));
+}
+
 async function tsBulkSyncAwinEvents(env, kv, rows) {
   if (!env.PRICE_DB) return { skipped: 'no PRICE_DB binding' };
 
@@ -844,10 +913,12 @@ async function tsBulkSyncAwinEvents(env, kv, rows) {
     return '';
   };
   const bySlug = new Map();
+  let junkSkipped = 0;
   for (const row of rows) {
     const desc = row.description || '';
     const date = extractSyncDate(row);
     if (!date || date < today) continue; // dateless/past rows can't have stable pages
+    if (isJunkProduct(row.product_name)) { junkSkipped++; continue; } // M4: not a real ticketed event
 
     const category = genreToCategory(awinGenre(row.merchant_category, row.category_name));
     const slug = tsEventSlug(category, date, normaliseFixtureName(row.product_name));
@@ -890,7 +961,7 @@ async function tsBulkSyncAwinEvents(env, kv, rows) {
 
   try { await kv.put(EVENT_SYNC_GATE_KEY, new Date().toISOString()); } catch {}
 
-  return { totalRows: rows.length, uniqueEvents: records.length, upserted: written, pruned };
+  return { totalRows: rows.length, uniqueEvents: records.length, upserted: written, pruned, junkSkipped };
 }
 
 // {category}-{yyyy-mm-dd}-{normalised-name} — MUST MATCH all other copies.

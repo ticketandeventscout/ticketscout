@@ -11,6 +11,49 @@
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
+  <!-- M6 fix (6 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): brand-term
+       ownership — "ticketscout" ranked at position 3.31 for 16 impressions
+       with no Organization/WebSite schema to anchor it. Two fields the
+       roadmap asked for are deliberately OMITTED rather than guessed:
+       - sameAs (social profiles): none exist anywhere in this codebase —
+         confirmed via a full-repo search. Fabricating social URLs would be
+         false structured data, worse than having none. Add this back once
+         real profiles exist.
+       - logo: no dedicated logo asset exists either. Using /ogdefault.png
+         since it's the one real, already-deployed image asset — not ideal
+         (it's an OG banner, not a square brand mark), but honest. Swap for
+         a proper logo file if one gets made.
+       SearchAction target reflects how search ACTUALLY works on this site
+       (confirmed in events.js: handleSearch() sets window.location.hash,
+       there is no real query-string search path) — a hash-based target
+       accurately describing the real mechanism, not an invented ?q= path
+       that wouldn't work if used directly. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://ticketscout.co.uk/#organization",
+        "name": "TicketScout",
+        "url": "https://ticketscout.co.uk",
+        "logo": "https://ticketscout.co.uk/ogdefault.png"
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://ticketscout.co.uk/#website",
+        "name": "TicketScout",
+        "url": "https://ticketscout.co.uk",
+        "publisher": { "@id": "https://ticketscout.co.uk/#organization" },
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": "https://ticketscout.co.uk/#/search/{search_term_string}",
+          "query-input": "required name=search_term_string"
+        }
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
 
@@ -39,7 +82,7 @@
       </a>
       <div class="nav-links">
         <a href="/concert">Concerts</a>
-        <a href="/football/">Football</a>
+        <a href="/football">Football</a>
         <a href="/theatre">Theatre</a>
         <a href="/sports">Sports</a>
       </div>
@@ -60,7 +103,7 @@
       <div class="cat-row" id="cat-row">
         <button class="cat-pill active" onclick="filterCategory(this, 'all')">All events</button>
         <button class="cat-pill" onclick="window.location.href='/concert'">Concerts</button>
-        <button class="cat-pill" onclick="window.location.href='/football/'">Football</button>
+        <button class="cat-pill" onclick="window.location.href='/football'">Football</button>
         <button class="cat-pill" onclick="window.location.href='/theatre'">Theatre</button>
         <button class="cat-pill" onclick="window.location.href='/sports'">Sports</button>
       </div>

@@ -40,7 +40,7 @@ const HOST = 'https://ticketscout.co.uk';
 const SLUG_RE = /^(football|concert|theatre|sports)-(\d{4}-\d{2}-\d{2})-([a-z0-9][a-z0-9-]*)$/;
 
 const CATEGORY_META = {
-  football: { label: 'Football',  hub: '/football/', schemaType: 'SportsEvent',  noun: 'match'  },
+  football: { label: 'Football',  hub: '/football',  schemaType: 'SportsEvent',  noun: 'match'  },
   concert:  { label: 'Concerts',  hub: '/concert',   schemaType: 'MusicEvent',   noun: 'show'   },
   theatre:  { label: 'Theatre',   hub: '/theatre',   schemaType: 'TheaterEvent', noun: 'show'   },
   sports:   { label: 'Sports',    hub: '/sports' ,   schemaType: 'SportsEvent',  noun: 'event'  }
@@ -235,7 +235,30 @@ function renderPage(d) {
   const where   = [d.venue, d.city].filter(Boolean).join(', ');
   const metaBits = [dateStr, where].filter(Boolean).join(' · ');
 
-  const title = `${d.name} Tickets — ${dateStr} | Compare Prices | TicketScout`;
+  // M3 fix (6 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): concert/theatre
+  // title+H1 now include venue+city, targeting long-tail queries with
+  // currently zero coverage ("{artist} {city} tickets", "{artist} {venue}
+  // tickets"). Scoped to concert/theatre only, per spec — football/sports
+  // titles are unchanged (a fixture name like "Arsenal vs Chelsea" already
+  // IS the venue-independent long-tail query; adding venue there wouldn't
+  // open new query surface the way it does for a touring artist). Reuses
+  // the SAME `where` string already built above for .detail-meta — no new
+  // venue/city formatting logic, so this can never drift out of sync with
+  // what's already displayed elsewhere on the page.
+  const isConcertOrTheatre = d.category === 'concert' || d.category === 'theatre';
+  const title = isConcertOrTheatre
+    ? `${d.name}${where ? ' at ' + where : ''} — ${dateStr} Tickets | TicketScout`
+    : `${d.name} Tickets — ${dateStr} | Compare Prices | TicketScout`;
+  // H1 intentionally drops the " | TicketScout" brand suffix the roadmap's
+  // title-tag spec included — that's standard practice for a title TAG
+  // (browser tab / SERP), but redundant inside a page's own visible
+  // heading, especially with the same brand name already in the header
+  // above. Keyword content (artist/venue/city/date) matches the title
+  // exactly, which is the actual SEO intent (title/H1 alignment); only the
+  // branding repetition is dropped.
+  const h1Text = isConcertOrTheatre
+    ? `${d.name}${where ? ' at ' + where : ''} — ${dateStr} Tickets`
+    : d.name;
   const description = d.isPast
     ? `${d.name} took place on ${dateStr}${where ? ' at ' + where : ''}. Browse upcoming ${d.cat.label.toLowerCase()} events and compare ticket prices on TicketScout.`
     : `Compare ${d.name} ticket prices${where ? ' at ' + where : ''} on ${dateStr}. See prices from up to 13 verified ticket sites side by side — find the cheapest ${d.cat.noun} tickets on TicketScout.`;
@@ -369,7 +392,7 @@ function renderPage(d) {
       </a>
       <div class="nav-links">
         <a href="/concert">Concerts</a>
-        <a href="/football/">Football</a>
+        <a href="/football">Football</a>
         <a href="/theatre">Theatre</a>
       </div>
     </div>
@@ -392,7 +415,7 @@ function renderPage(d) {
       <div class="detail-card">
         ${d.image ? `<img class="detail-img" src="${esc(cfImageUrl(d.image, 700))}" alt="${esc(d.name)}" fetchpriority="high" />` : ''}
         <div class="detail-body">
-          <h1 class="detail-name" style="font-size:24px; margin:0 0 6px;">${esc(d.name)}</h1>
+          <h1 class="detail-name" style="font-size:24px; margin:0 0 6px;">${esc(h1Text)}</h1>
           <div class="detail-meta">${esc(metaBits) || 'Details to be confirmed'}</div>
           <!-- The "Tickets from £X" line was removed deliberately. It came
                from the event_pages row — one seller's cached price, usually
@@ -864,7 +887,7 @@ function recentlyFinishedResponse({ cat, name, eventDate, venue, city, entityUrl
 <p><strong>${esc(name)}</strong>${where ? ' · ' + esc(where) : ''} was on ${esc(prettyDate(eventDate))}.</p>
 <p><a href="${esc(entityUrl)}" style="font-weight:600;">See ${esc(name)}'s upcoming ${esc(cat.noun)}s →</a></p>
 <p><a href="${esc(cat.hub)}">Browse upcoming ${esc(cat.label.toLowerCase())} →</a></p>
-<p><a href="/">← Back to TicketScout</a> · <a href="/football/">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
+<p><a href="/">← Back to TicketScout</a> · <a href="/football">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
 </main></body></html>`;
   return new Response(body, {
     status: 200,
@@ -888,7 +911,7 @@ function goneResponse({ cat, name, eventDate, venue, city }) {
 <h1 style="color:#0c2d5a;">This event has already taken place</h1>
 <p><strong>${esc(name)}</strong>${where ? ' · ' + esc(where) : ''} was on ${esc(prettyDate(eventDate))}.</p>
 <p><a href="${esc(cat.hub)}">Browse upcoming ${esc(cat.label.toLowerCase())} →</a></p>
-<p><a href="/">← Back to TicketScout</a> · <a href="/football/">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
+<p><a href="/">← Back to TicketScout</a> · <a href="/football">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
 </main></body></html>`;
   return new Response(body, {
     status: 410,
@@ -909,7 +932,7 @@ function notFound() {
 <body><main class="container" style="max-width:700px; margin:60px auto; padding:0 16px; text-align:center;">
 <h1 style="color:#0c2d5a;">Event not found</h1>
 <p>We couldn't find that event. It may have passed or the link may be incorrect.</p>
-<p><a href="/">← Back to TicketScout</a> · <a href="/football/">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
+<p><a href="/">← Back to TicketScout</a> · <a href="/football">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
 </main></body></html>`;
   return new Response(body, {
     status: 404,
