@@ -201,11 +201,23 @@ export async function onRequestGet({ request, env }) {
       let colMap = null;
       const samples = [];
       let rowsScanned = 0;
-      const MAX_ROWS_SCANNED = 20000; // safety ceiling — stop even if the target merchant never appears
+      let streamEnded = false;
+      // FIX (9 Aug 2026): the first live run scanned 6,827 rows, found ZERO
+      // Gigsberg rows, and the stream ended (reader.read() returned done)
+      // before this ceiling was reached — even though the SAME feed's
+      // regular refresh, run moments earlier, reported 23,821 Gigsberg rows
+      // out of ~35,139 total. Two real possibilities: Gigsberg's block sits
+      // later in the file than row 6,827, or the fetch was genuinely
+      // truncated. Raised well past the full feed's known size so a merchant
+      // positioned anywhere in the file gets found, and streamEnded is now
+      // reported explicitly so a genuine truncation is distinguishable from
+      // "merchant just wasn't in range" instead of silently returning zero
+      // samples with no explanation.
+      const MAX_ROWS_SCANNED = 45000;
 
       while (samples.length < SAMPLE_TARGET && rowsScanned < MAX_ROWS_SCANNED) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) { streamEnded = true; break; }
         buffer += decoder.decode(value, { stream: true });
         let nl;
         while ((nl = buffer.indexOf('\n')) !== -1) {
@@ -240,20 +252,31 @@ export async function onRequestGet({ request, env }) {
       try { await reader.cancel(); } catch {}
 
       const currencyColumnFound = colMap && colMap.currency !== -1;
+      let interpretation;
+      if (samples.length === 0) {
+        interpretation = merchantFilter
+          ? `No rows matching merchant filter "${merchantFilter}" were found in ${rowsScanned} scanned rows` +
+            (streamEnded ? ' (the feed stream ended before the scan ceiling — either this merchant sits later in the file than this scan reached in a prior run, or genuinely was not present in this fetch; re-run with a higher effective range or without a merchant filter to sanity-check the feed is complete).' : '.')
+          : `No data rows were parsed at all in ${rowsScanned} scanned rows — check rawHeaderLine, the feed may be empty or malformed on this fetch.`;
+      } else if (!currencyColumnFound) {
+        interpretation = 'CONFIRMED: the currency column was NOT found in this header by any known alias — every sampled row is defaulting to GBP regardless of its real currency. This is the bug. Check rawHeaderLine for what the actual column is named today and add it as a new alias to the find() call for currency in buildColMapFromHeader.';
+      } else if (samples.some(s => s.currency_raw_value && s.currency_raw_value.toUpperCase() !== 'GBP')) {
+        interpretation = 'Currency column IS found and non-GBP values ARE present in the raw feed for these sampled rows — parsing is working correctly here. If the live compare table is still showing wrong symbols for this merchant, the bug is downstream of this file, not in the feed parsing.';
+      } else {
+        interpretation = 'Currency column is found, and every one of the ' + samples.length + ' sampled rows reads GBP. Either this merchant genuinely prices in GBP only, or the column is found by name but pointing at the wrong data — check currency_raw_value against rawHeaderLine manually.';
+      }
+
       return jsonResp({
         currencydiag: true,
         merchantFilter: merchantFilter || '(none — first rows of any merchant)',
         rowsScanned,
+        streamEndedBeforeTarget: streamEnded,
         samplesFound: samples.length,
         currencyColumnFoundInHeader: currencyColumnFound,
         currencyColumnIndex: colMap ? colMap.currency : null,
         rawHeaderLine: headerLine ? headerLine.slice(0, 2000) : null,
         samples,
-        interpretation: !currencyColumnFound
-          ? 'CONFIRMED: the currency column was NOT found in this header by any known alias — every sampled row is defaulting to GBP regardless of its real currency. This is the bug. Check rawHeaderLine for what the actual column is named today and add it as a new alias to the find() call for currency in buildColMapFromHeader.'
-          : (samples.some(s => s.currency_raw_value && s.currency_raw_value.toUpperCase() !== 'GBP')
-              ? 'Currency column IS found and non-GBP values ARE present in the raw feed — the parsing is working correctly for these sampled rows. If the live compare table is still showing wrong symbols, the bug is downstream of this file, not in the feed parsing.'
-              : 'Currency column is found, but every sampled row happens to read GBP. Either this merchant/sample genuinely is GBP-only, or the column is found by name but pointing at the wrong data — check currency_raw_value against rawHeaderLine manually.')
+        interpretation
       }, 200);
     } catch (e) {
       return jsonResp({ error: 'currencydiag failed: ' + String(e) }, 500);
