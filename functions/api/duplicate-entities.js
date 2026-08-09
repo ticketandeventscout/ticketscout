@@ -207,13 +207,26 @@ export async function onRequestGet({ request, env }) {
     } catch (e) { return jsonResponse({ error: 'inspect failed: ' + String(e) }, 500); }
   }
 
-  // ── Audit search text: scan a whole category for the SAME ambiguity ────
-  // shape that caused the wolves/Chattanooga Red Wolves SC mismatch — a
-  // bare, short, single-word search term that a live keyword search could
-  // easily match to an unrelated entity. Read-only. Same heuristic the
-  // merge tool's winner-safety check uses, applied here to every entity in
-  // the registry, not just merge candidates — wolves was found via a merge
-  // attempt, but this class of bug can affect ANY entity, merged or not.
+  // ── Audit search text: targeted, not a whole-registry scan ─────────────
+  // FIX (9 Aug 2026): the first version of this scanned every entity in the
+  // category for a bare single-word search term under 10 characters, and
+  // flagged 259 of 1,636 football entities — Arsenal, Chelsea, Liverpool,
+  // Juventus among them. All genuinely correct, unique official names; the
+  // word-count heuristic alone can't tell those apart from "Wolves", and
+  // 259 flagged entities isn't a reviewable list, it's noise.
+  //
+  // The actual distinguishing fact about wolves wasn't its word count — it's
+  // that wolves ALREADY had a KNOWN duplicate pair (the Tier A match against
+  // wolverhampton, same Wikidata ID). A short, possibly-ambiguous search
+  // term is a real risk specifically when something ELSE in the registry
+  // could plausibly share that name — which is exactly what a duplicate
+  // pair proves. Reuses classifyCategory() (the SAME function scan/merge
+  // mode already use) rather than re-deriving duplicate detection here, and
+  // checks each PAIR's own two search texts against EACH OTHER — flagging
+  // only when at least one side looks like a bare nickname. This turns a
+  // 259-entity, mostly-noise list into one bounded by however many real
+  // duplicate pairs exist (~30-50 for football), each one a genuine reason
+  // to look, not a coincidence of word count.
   // Usage: ?auditsearch=1&trigger=1&category=football
   if (url.searchParams.get('auditsearch') === '1' && url.searchParams.get('trigger') === '1') {
     const kv = env.GIGSBERG_KV;
@@ -228,33 +241,46 @@ export async function onRequestGet({ request, env }) {
     if (!registry?.sections) return jsonResponse({ error: 'sitemap:registry not built yet' }, 503);
     const slugs = Object.keys(registry.sections[cat] || {});
 
+    const { tierA, tierB } = await classifyCategory(kv, cat, slugs);
+    const pairs = [...tierA.map(g => ({ ...g, evidence: 'tierA_sameExternalId' })),
+                    ...tierB.map(g => ({ ...g, evidence: 'tierB_suffixEquivalent' }))];
+
+    const looksAmbiguous = (t) => { const s = t || ''; return !!s && !s.includes(' ') && s.length < 10; };
     const flagged = [];
-    let checked = 0;
-    const CHUNK = 25;
-    for (let i = 0; i < slugs.length; i += CHUNK) {
-      const chunk = slugs.slice(i, i + CHUNK);
-      await Promise.all(chunk.map(async (slug) => {
-        try {
-          const raw = await kv.get(prefix + slug);
-          if (!raw) return;
-          checked++;
-          const rec = JSON.parse(raw);
-          const searchText = rec.search || rec.name || '';
-          if (searchText && !searchText.includes(' ') && searchText.length < 10) {
-            flagged.push({ slug, searchText, storedName: rec.name || null });
-          }
-        } catch { /* unreadable record — skip, not a finding */ }
-      }));
+    for (const pair of pairs) {
+      if (pair.slugs.length !== 2) continue;
+      const [a, b] = pair.slugs;
+      try {
+        const [aRaw, bRaw] = await Promise.all([kv.get(prefix + a), kv.get(prefix + b)]);
+        const aRec = aRaw ? JSON.parse(aRaw) : null;
+        const bRec = bRaw ? JSON.parse(bRaw) : null;
+        const aText = aRec ? (aRec.search || aRec.name || null) : null;
+        const bText = bRec ? (bRec.search || bRec.name || null) : null;
+        if ((looksAmbiguous(aText) || looksAmbiguous(bText)) && aText !== bText) {
+          // The aText === bText exclusion matters: aberdeen/aberdeen-fc both
+          // legitimately search as "Aberdeen" — identical, short, and
+          // completely fine, since there's no disagreement to be wrong
+          // about. wolves/wolverhampton's actual problem was that the two
+          // sides disagreed ("Wolves" vs "Wolverhampton Wanderers") AND one
+          // side was the bare, riskier version — that combination is what's
+          // worth a look, not bareness alone.
+          flagged.push({
+            evidence: pair.evidence,
+            slugA: a, searchTextA: aText, ambiguousA: looksAmbiguous(aText),
+            slugB: b, searchTextB: bText, ambiguousB: looksAmbiguous(bText)
+          });
+        }
+      } catch { /* unreadable record on either side — skip, not a finding */ }
     }
 
     return jsonResponse({
       auditsearch: true, category: cat,
-      entitiesChecked: checked,
+      duplicatePairsChecked: pairs.filter(p => p.slugs.length === 2).length,
       flaggedCount: flagged.length,
       flagged,
       interpretation: flagged.length
-        ? `${flagged.length} entities have a bare, single-word search term under 10 characters — the same shape that caused wolves to pull in Chattanooga Red Wolves SC fixtures instead of Wolverhampton Wanderers. Each is WORTH CHECKING, not automatically wrong — a real one-word club/artist name looks identical to a bad one. Use ?inspect=1 on any of these to see the full stored record, and ?fixsearch=1 to correct one once you've confirmed it live (check the actual live compare table for that slug).`
-        : 'No entities in this category currently have a bare single-word search term under 10 characters.'
+        ? `${flagged.length} of ${pairs.length} known duplicate pairs have at least one side with a bare, ambiguous search term — this is the exact shape that caused wolves to pull in Chattanooga Red Wolves SC. Check each pair's actual live compare table before using ?fixsearch=1 — a duplicate pair existing doesn't guarantee the short name is wrong, only that it's worth a look.`
+        : `No known duplicate pair in this category currently has an ambiguous-looking search term on either side.`
     }, 200);
   }
 
