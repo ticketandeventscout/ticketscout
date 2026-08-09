@@ -66,8 +66,25 @@ const TYPE_SUFFIXES = ['fc', 'afc', 'cf', 'sc', 'ac', 'sk', 'bk', 'if', 'tc', 'r
 function stripTypeSuffix(slug) {
   const parts = String(slug || '').split('-').filter(Boolean);
   while (parts.length > 1 && TYPE_SUFFIXES.includes(parts[parts.length - 1])) parts.pop();
-  // A leading type suffix is just as common: fc-barcelona, ac-milan.
+  // A leading type marker is just as common: fc-barcelona, ac-milan.
   while (parts.length > 1 && TYPE_SUFFIXES.includes(parts[0])) parts.shift();
+  return parts.join('-');
+}
+
+// Trailing-only variant. Stripping a LEADING marker is materially riskier
+// than stripping a trailing one, because the leading marker is often the
+// ONLY thing separating two genuinely different clubs that share a city
+// name. The first live run proved this, producing two confirmed false
+// positives:
+//   fc-barcelona + barcelona-sc  -> FC Barcelona (Spain) is not
+//                                   Barcelona Sporting Club (Ecuador)
+//   afc-toronto  + toronto-fc    -> AFC Toronto (women, NSL) is not
+//                                   Toronto FC (MLS)
+// Pairs that match on trailing-only stripping are reported separately as
+// the safer set, so the risky ones can be reviewed rather than trusted.
+function stripTrailingOnly(slug) {
+  const parts = String(slug || '').split('-').filter(Boolean);
+  while (parts.length > 1 && TYPE_SUFFIXES.includes(parts[parts.length - 1])) parts.pop();
   return parts.join('-');
 }
 
@@ -101,7 +118,7 @@ export async function onRequestGet({ request, env }) {
   const out = {
     scan: true,
     categories: {},
-    totals: { tierA: 0, tierB: 0, tierC: 0, enrichedChecked: 0, entitiesScanned: 0 },
+    totals: { tierA: 0, tierB: 0, tierBRisky: 0, tierC: 0, enrichedChecked: 0, entitiesScanned: 0 },
     notes: []
   };
 
@@ -125,9 +142,18 @@ export async function onRequestGet({ request, env }) {
           if (!raw) return;
           enriched++;
           const meta = JSON.parse(raw);
+          // enrich-entities.js stores { slug, category, facts: {...},
+          // aboutText, source, licence, fetchedAt } — the external IDs live
+          // under .facts, NOT at the top level. Reading meta.wikidataId
+          // directly returns undefined for every entity, which is exactly
+          // why the first run of this scan reported tierA: 0 against 856
+          // enriched entities: not "no duplicates found", but "the field was
+          // never read". Kept tolerant of both shapes so a future refactor
+          // of the meta envelope cannot silently zero this tier again.
+          const facts = meta.facts || meta;
           const ids = [];
-          if (meta.wikidataId) ids.push('wikidata:' + meta.wikidataId);
-          if (meta.mbid) ids.push('mbid:' + meta.mbid);
+          if (facts.wikidataId) ids.push('wikidata:' + facts.wikidataId);
+          if (facts.mbid) ids.push('mbid:' + facts.mbid);
           for (const id of ids) {
             if (!byExternalId.has(id)) byExternalId.set(id, []);
             byExternalId.get(id).push(slug);
@@ -159,12 +185,22 @@ export async function onRequestGet({ request, env }) {
       byStripped.get(key).push(slug);
     }
     const tierB = [];
+    const tierBRisky = [];
     for (const [key, group] of byStripped) {
       if (group.length < 2) continue;
       if (group.every(s => explained.has(s))) continue;
-      tierB.push({ normalised: key, slugs: group.sort() });
+      // If the group still holds together when ONLY trailing markers are
+      // stripped, the match does not depend on the risky leading-strip and
+      // is the safer set. Otherwise it only matched because a leading
+      // marker was removed — quarantine it for review.
+      const trailingKeys = new Set(group.map(stripTrailingOnly));
+      (trailingKeys.size === 1 ? tierB : tierBRisky).push({
+        normalised: key,
+        slugs: group.sort()
+      });
     }
     for (const g of tierB) for (const s of g.slugs) explained.add(s);
+    for (const g of tierBRisky) for (const s of g.slugs) explained.add(s);
 
     // ── Tier C: prefix relationships (REVIEW ONLY) ──────────────────────
     // Word-boundary prefixes only, so 'leeds' pairs with 'leeds-united' but
@@ -188,11 +224,13 @@ export async function onRequestGet({ request, env }) {
       enrichedWithExternalId: enriched,
       tierA_sameExternalId: tierA,
       tierB_suffixEquivalent: tierB,
+      tierB_riskyLeadingPrefix: tierBRisky,
       tierC_prefixReviewOnly: tierC.slice(0, 50),
       tierC_truncated: tierC.length > 50
     };
     out.totals.tierA += tierA.length;
     out.totals.tierB += tierB.length;
+    out.totals.tierBRisky += tierBRisky.length;
     out.totals.tierC += tierC.length;
   }
 
@@ -208,6 +246,7 @@ export async function onRequestGet({ request, env }) {
   }
 
   out.notes.push('Tier A is authoritative (same Wikidata/MusicBrainz ID = same real-world entity) and is the only tier that catches abbreviation pairs like wolves + wolverhampton-wanderers. It only covers entities enrich-entities.js has already processed — check enrichedWithExternalId against entities to see the coverage.');
+  out.notes.push('tierB_riskyLeadingPrefix matched ONLY because a leading fc-/afc-/sc- marker was stripped. That marker is often the only thing separating two real clubs sharing a city name — confirmed live: fc-barcelona vs barcelona-sc (Spain vs Ecuador) and afc-toronto vs toronto-fc (NSL women vs MLS) are DIFFERENT clubs. Review every pair in this list individually; do not bulk-action it.');
   out.notes.push('Tier C WILL contain false positives by design: bristol-city/bristol-rovers and sheffield-united/sheffield-wednesday are real distinct clubs that share a prefix. Review every pair before acting; never bulk-action this tier.');
   out.notes.push('READ-ONLY — nothing merged, deleted or redirected. Merging is a separate step, to be scoped against these findings.');
 
