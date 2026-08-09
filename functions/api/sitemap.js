@@ -120,9 +120,60 @@ export async function onRequestGet({ request, env }) {
   }
 
   // ── Sitemap index (also mirrored by the static /sitemap.xml file) ──────
+  //
+  // <lastmod> per child (added 9 Aug 2026, technical SEO audit): this is
+  // Google's primary signal for deciding WHICH child sitemaps to re-fetch
+  // and how often. Without it, on a registry that auto-commits pages
+  // continuously, Google has no way to know the concert section changed
+  // today — which directly delays discovery of new event pages, and on a
+  // ticket site speed-to-index is the business.
+  //
+  // CRITICAL — accuracy is the whole point. Google disregards <lastmod>
+  // SITEWIDE once it detects the value is always "now", which a naive
+  // "regenerate live on every request" implementation produces by default
+  // and which would be strictly worse than emitting nothing at all. So
+  // every value below is derived from the SAME real data the child sitemap
+  // itself emits — never Date.now():
+  //   - entity sections → max of the registry's per-slug commit dates
+  //   - event           → max of event_pages.updated_at (real content change)
+  //   - static          → STATIC_LASTMOD, the hand-maintained constant
+  // A section with no derivable date omits <lastmod> entirely rather than
+  // substituting a guess; an absent lastmod is a neutral signal, a wrong
+  // one poisons the whole file's credibility.
   if (sec === 'index') {
-    const entries = SECTIONS.map(s =>
-      `  <sitemap><loc>${HOST}/api/sitemap?sec=${s}</loc></sitemap>`).join('\n');
+    const lastmods = {};
+
+    // Entity sections: registry stores { slug: lastmod } per section, the
+    // exact values the child sitemap emits per URL. Max = section's newest
+    // real content change.
+    try {
+      const r = await kv.get('sitemap:registry');
+      const reg = r ? JSON.parse(r) : null;
+      if (reg?.sections) {
+        for (const s of Object.keys(reg.sections)) {
+          const dates = Object.values(reg.sections[s] || {}).filter(Boolean);
+          if (dates.length) lastmods[s] = dates.reduce((a, b) => (a > b ? a : b));
+        }
+      }
+    } catch { /* omit rather than guess */ }
+
+    // Event section: same source and same slice() the child sitemap uses.
+    if (env.PRICE_DB) {
+      try {
+        const row = await env.PRICE_DB.prepare(
+          "SELECT MAX(updated_at) AS newest FROM event_pages WHERE event_date >= date('now')"
+        ).first();
+        const newest = String(row?.newest || '').slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(newest)) lastmods.event = newest;
+      } catch { /* omit rather than guess */ }
+    }
+
+    lastmods.static = STATIC_LASTMOD;
+
+    const entries = SECTIONS.map(s => {
+      const lm = lastmods[s];
+      return `  <sitemap><loc>${HOST}/api/sitemap?sec=${s}</loc>${lm ? `<lastmod>${lm}</lastmod>` : ''}</sitemap>`;
+    }).join('\n');
     return xml(
       `<?xml version="1.0" encoding="UTF-8"?>\n` +
       `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</sitemapindex>`);
