@@ -716,6 +716,31 @@
     async function init() {
       const slug = getSlug();
 
+      // CLIENT-SIDE REDIRECT CHECK (9 Aug 2026, live incident) — see
+      // functions/api/entity-redirect.js's own header comment for the full
+      // story. Short version: this page has no server-side router Function,
+      // so redirectSlug:football:{slug} (written by duplicate-entities.js's
+      // merge tool) was never being honoured — both sides of a merge kept
+      // rendering independently. This is a weaker signal than a true HTTP
+      // 301 for search engines, but it's what's safely buildable without a
+      // new Function that might conflict with whatever currently routes
+      // /football/* to this file. Runs BEFORE anything else — no fetch, no
+      // render — so a redirected visitor never sees the wrong page flash up
+      // first. Bails out silently on any failure; a lookup problem should
+      // never be able to break a normal page load.
+      if (slug && slug !== 'football') {
+        try {
+          const r = await fetch(`/api/entity-redirect?category=football&slug=${encodeURIComponent(slug)}`);
+          if (r.ok) {
+            const d = await r.json();
+            if (d && d.redirect) {
+              window.location.replace('/' + d.redirect);
+              return; // stop here — the browser is already navigating away
+            }
+          }
+        } catch { /* redirect check failing should never block a normal page load */ }
+      }
+
       if (!slug || slug === 'football') {
         document.getElementById('genre-badge').textContent = 'Football';
         document.getElementById('artist-name').textContent = 'Football Tickets';
