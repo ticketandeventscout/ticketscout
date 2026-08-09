@@ -74,7 +74,11 @@ const ENTITY_PREFIX = {
 // and county are all load-bearing (sheffield-united vs sheffield-wednesday,
 // bristol-city vs bristol-rovers). Stripping those would manufacture
 // duplicates that do not exist.
-const TYPE_SUFFIXES = ['fc', 'afc', 'cf', 'sc', 'ac', 'sk', 'bk', 'if', 'tc', 'rc'];
+const TYPE_SUFFIXES = ['fc', 'afc', 'cf', 'sc', 'ac', 'sk', 'bk', 'bc', 'if', 'tc', 'rc', 'ceif'];
+// 'bc' added 9 Aug 2026 — confirmed missing live: "Atalanta" vs "Atalanta BC"
+// was a false positive in auditsearch's output, since 'bc' wasn't in this
+// list at all (only 'bk' was). 'ceif' added the same day for the same
+// reason ("Fortaleza" vs "Fortaleza CEIF").
 
 function stripTypeSuffix(slug) {
   const parts = String(slug || '').split('-').filter(Boolean);
@@ -246,6 +250,10 @@ export async function onRequestGet({ request, env }) {
                     ...tierB.map(g => ({ ...g, evidence: 'tierB_suffixEquivalent' }))];
 
     const looksAmbiguous = (t) => { const s = t || ''; return !!s && !s.includes(' ') && s.length < 10; };
+    // Convert space-separated text to the same hyphenated form stripTypeSuffix
+    // already handles for slugs, so the identical suffix-stripping logic can
+    // be reused unchanged rather than re-derived for text specifically.
+    const textToComparableSlug = (t) => (t || '').toLowerCase().trim().replace(/\s+/g, '-');
     const flagged = [];
     for (const pair of pairs) {
       if (pair.slugs.length !== 2) continue;
@@ -256,14 +264,21 @@ export async function onRequestGet({ request, env }) {
         const bRec = bRaw ? JSON.parse(bRaw) : null;
         const aText = aRec ? (aRec.search || aRec.name || null) : null;
         const bText = bRec ? (bRec.search || bRec.name || null) : null;
-        if ((looksAmbiguous(aText) || looksAmbiguous(bText)) && aText !== bText) {
-          // The aText === bText exclusion matters: aberdeen/aberdeen-fc both
-          // legitimately search as "Aberdeen" — identical, short, and
-          // completely fine, since there's no disagreement to be wrong
-          // about. wolves/wolverhampton's actual problem was that the two
-          // sides disagreed ("Wolves" vs "Wolverhampton Wanderers") AND one
-          // side was the bare, riskier version — that combination is what's
-          // worth a look, not bareness alone.
+        // FIX (9 Aug 2026): the first live run of this check flagged 31 of
+        // 58 pairs — Chelsea/Chelsea FC, Bologna/Bologna FC, Ajax/AFC Ajax
+        // and so on. Every single one was the SAME club name with a
+        // football-type marker added or not — nothing like the wolves
+        // pattern, where the two sides disagreed on the NAME ITSELF, not
+        // just whether "FC" was appended. Plain aText !== bText correctly
+        // excludes identical strings but not these trivially-related ones.
+        // Reusing stripTypeSuffix() (the exact function already proven for
+        // slug comparison in classifyCategory's Tier B) on both sides'
+        // text catches this: "Chelsea" and "Chelsea FC" reduce to the same
+        // base after stripping, "Wolves" and "Wolverhampton Wanderers" do
+        // not — that's the real distinguishing signal.
+        const aBase = stripTypeSuffix(textToComparableSlug(aText));
+        const bBase = stripTypeSuffix(textToComparableSlug(bText));
+        if ((looksAmbiguous(aText) || looksAmbiguous(bText)) && aBase !== bBase) {
           flagged.push({
             evidence: pair.evidence,
             slugA: a, searchTextA: aText, ambiguousA: looksAmbiguous(aText),
