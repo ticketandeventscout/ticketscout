@@ -107,6 +107,35 @@ export async function onRequestGet({ request, env }) {
       out.newPages = { unavailable: true,
         note: 'created_at column not present yet — run: ALTER TABLE event_pages ADD COLUMN created_at TEXT; (Cloudflare dashboard → D1 → Console). Existing rows will show NULL/legacy until they are next touched by a real content change; only rows registered after the migration get a true created_at.' };
     }
+    // Per-month event shard sizes (added 9 Aug 2026 alongside sharding).
+    // The sitemap spec ceiling is 50,000 URLs per file and the query cap is
+    // 45,000; a shard that reaches either truncates SILENTLY, dropping the
+    // tail of that month from discovery with no error anywhere. Surfacing
+    // the largest shard here makes that visible before it happens rather
+    // than after. If a single month ever genuinely approaches 45k, the next
+    // step is sub-sharding that month (e.g. by fortnight), not raising the
+    // cap — 50,000 is the spec, not our choice.
+    try {
+      const shards = await db.prepare(
+        "SELECT substr(event_date,1,7) AS ym, COUNT(*) AS n FROM event_pages " +
+        "WHERE event_date >= date('now') GROUP BY ym ORDER BY n DESC LIMIT 5"
+      ).all();
+      const rows = shards.results || [];
+      out.eventShards = {
+        shardCount: null, // filled below
+        largest: rows.map(r => ({ month: r.ym, urls: r.n })),
+        capPerShard: 45000,
+        specCeiling: 50000,
+        warning: rows.length && rows[0].n > 36000
+          ? `Largest shard (${rows[0].ym}) is at ${rows[0].n} URLs — over 80% of the 45,000 cap. Consider sub-sharding this month before it truncates.`
+          : null
+      };
+      const total = await db.prepare(
+        "SELECT COUNT(DISTINCT substr(event_date,1,7)) AS n FROM event_pages WHERE event_date >= date('now')"
+      ).first();
+      out.eventShards.shardCount = total?.n ?? null;
+    } catch (e) { out.notes.push('event shard sizing unavailable: ' + String(e)); }
+
     // Registry entity counts per section.
     try {
       const r = await kv.get('sitemap:registry');
@@ -142,6 +171,7 @@ export async function onRequestGet({ request, env }) {
   // one poisons the whole file's credibility.
   if (sec === 'index') {
     const lastmods = {};
+    const eventShards = [];
 
     // Entity sections: registry stores { slug: lastmod } per section, the
     // exact values the child sitemap emits per URL. Max = section's newest
@@ -157,26 +187,76 @@ export async function onRequestGet({ request, env }) {
       }
     } catch { /* omit rather than guess */ }
 
-    // Event section: same source and same slice() the child sitemap uses.
-    if (env.PRICE_DB) {
-      try {
-        const row = await env.PRICE_DB.prepare(
-          "SELECT MAX(updated_at) AS newest FROM event_pages WHERE event_date >= date('now')"
-        ).first();
-        const newest = String(row?.newest || '').slice(0, 10);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(newest)) lastmods.event = newest;
-      } catch { /* omit rather than guess */ }
-    }
-
     lastmods.static = STATIC_LASTMOD;
 
-    const entries = SECTIONS.map(s => {
-      const lm = lastmods[s];
-      return `  <sitemap><loc>${HOST}/api/sitemap?sec=${s}</loc>${lm ? `<lastmod>${lm}</lastmod>` : ''}</sitemap>`;
-    }).join('\n');
+    // ── Event shards, by month (added 9 Aug 2026) ────────────────────────
+    // The event section is sharded per calendar month rather than emitted as
+    // one file. Two reasons, one urgent and one structural:
+    //
+    // URGENT: on 9 Aug 2026 GSC reported 44,000 discovered URLs for this
+    // section against a query LIMIT of 45,000 and a hard sitemap-spec
+    // ceiling of 50,000 URLs / 50MB per file. On a registry that
+    // auto-commits continuously that headroom is weeks, not months — and
+    // the failure is SILENT: the LIMIT simply truncates and the tail of the
+    // inventory stops being discoverable, with no error anywhere.
+    //
+    // STRUCTURAL: sharding by MONTH rather than by page number keeps shard
+    // membership stable. An event's date never changes, so an event never
+    // moves between shards — which means each shard's <lastmod> is
+    // genuinely meaningful and Google re-fetches only the months that
+    // actually changed. Page-numbered shards (?page=1, ?page=2) would
+    // reshuffle every time an event is added or expires, making every
+    // shard's lastmod change daily and forcing a full re-crawl each time.
+    // It also matches how this inventory naturally expires: whole months
+    // fall off the front as they pass.
+    //
+    // One query gets every shard's URL, its count and its real lastmod.
+    if (env.PRICE_DB) {
+      try {
+        const { results } = await env.PRICE_DB.prepare(
+          "SELECT substr(event_date,1,7) AS ym, MAX(updated_at) AS newest, COUNT(*) AS n " +
+          "FROM event_pages WHERE event_date >= date('now') " +
+          "GROUP BY ym ORDER BY ym"
+        ).all();
+        for (const row of (results || [])) {
+          if (!/^\d{4}-\d{2}$/.test(row.ym || '')) continue;
+          const lm = String(row.newest || '').slice(0, 10);
+          eventShards.push({
+            month: row.ym,
+            count: row.n || 0,
+            lastmod: /^\d{4}-\d{2}-\d{2}$/.test(lm) ? lm : null
+          });
+        }
+      } catch { /* fall through to the un-sharded entry below */ }
+    }
+
+    const entries = [];
+    for (const s of SECTIONS) {
+      if (s === 'event') {
+        if (eventShards.length) {
+          for (const sh of eventShards) {
+            entries.push(
+              `  <sitemap><loc>${HOST}/api/sitemap?sec=event&amp;month=${sh.month}</loc>` +
+              `${sh.lastmod ? `<lastmod>${sh.lastmod}</lastmod>` : ''}</sitemap>`);
+          }
+        } else {
+          // FAIL-SAFE: if the shard query failed for any reason, fall back to
+          // the single un-sharded event sitemap rather than emitting no event
+          // entry at all. Truncated-at-45k discovery is bad; ZERO event
+          // discovery would be far worse.
+          entries.push(`  <sitemap><loc>${HOST}/api/sitemap?sec=event</loc></sitemap>`);
+        }
+      } else {
+        const lm = lastmods[s];
+        entries.push(
+          `  <sitemap><loc>${HOST}/api/sitemap?sec=${s}</loc>` +
+          `${lm ? `<lastmod>${lm}</lastmod>` : ''}</sitemap>`);
+      }
+    }
+
     return xml(
       `<?xml version="1.0" encoding="UTF-8"?>\n` +
-      `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</sitemapindex>`);
+      `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries.join('\n')}\n</sitemapindex>`);
   }
 
   if (!SECTIONS.includes(sec)) {
@@ -194,13 +274,39 @@ export async function onRequestGet({ request, env }) {
   // Individual fixtures/shows served by functions/event/[slug].js.
   // Only upcoming events are listed; lastmod is the row's updated_at,
   // which only moves on real content change (never render time).
+  //
+  // SHARDED BY MONTH (9 Aug 2026) — see the index branch above for the full
+  // rationale. ?sec=event&month=YYYY-MM returns just that month.
+  //
+  // ?sec=event with NO month still returns the whole (capped) list. That is
+  // deliberate backwards compatibility: GSC already has the un-sharded URL
+  // on file from before sharding existed, and a section that suddenly
+  // errored or emptied would look like a regression to Google. It is no
+  // longer referenced by the index, so it will simply age out of GSC on its
+  // own. Do not delete this path just because nothing links to it.
   if (sec === 'event') {
     const db = env.PRICE_DB;
     if (!db) return xml('<e>Missing PRICE_DB binding</e>', 503);
+    const month = (url.searchParams.get('month') || '').trim();
+
+    // Validated strictly: this value is interpolated into a bound parameter,
+    // but a malformed month should return an empty urlset rather than
+    // silently matching nothing in a confusing way.
+    if (month && !/^\d{4}-\d{2}$/.test(month)) {
+      return xml('<e>Invalid month — expected YYYY-MM</e>', 400);
+    }
+
     try {
-      const { results } = await db.prepare(
-        "SELECT slug, updated_at FROM event_pages WHERE event_date >= date('now') ORDER BY slug LIMIT 45000"
-      ).all();
+      const { results } = month
+        ? await db.prepare(
+            "SELECT slug, updated_at FROM event_pages " +
+            "WHERE event_date >= date('now') AND substr(event_date,1,7) = ?1 " +
+            "ORDER BY slug LIMIT 45000"
+          ).bind(month).all()
+        : await db.prepare(
+            "SELECT slug, updated_at FROM event_pages WHERE event_date >= date('now') ORDER BY slug LIMIT 45000"
+          ).all();
+
       const entries = (results || []).map(r =>
         `  <url><loc>${HOST}/event/${r.slug}</loc><lastmod>${String(r.updated_at || '').slice(0, 10)}</lastmod></url>`
       ).join('\n');
