@@ -220,52 +220,68 @@ export async function onRequestGet({ request, env }) {
       const samples = [];
       let rowsScanned = 0;
       let streamEnded = false;
-      // FIX (9 Aug 2026): the first live run scanned 6,827 rows, found ZERO
-      // Gigsberg rows, and the stream ended (reader.read() returned done)
-      // before this ceiling was reached — even though the SAME feed's
-      // regular refresh, run moments earlier, reported 23,821 Gigsberg rows
-      // out of ~35,139 total. Two real possibilities: Gigsberg's block sits
-      // later in the file than row 6,827, or the fetch was genuinely
-      // truncated. Raised well past the full feed's known size so a merchant
-      // positioned anywhere in the file gets found, and streamEnded is now
-      // reported explicitly so a genuine truncation is distinguishable from
-      // "merchant just wasn't in range" instead of silently returning zero
-      // samples with no explanation.
+
+      // FIX (9 Aug 2026), third pass: this loop used to split on
+      // buffer.indexOf('\n') with no awareness of CSV quoting — but RFC4180
+      // allows a quoted field to contain a literal newline, and Gigsberg's
+      // descriptions are long, comma-and-clause-heavy free text exactly
+      // likely to contain one. A naive split fragments that single logical
+      // record into pieces the moment it hits an embedded newline, and loses
+      // track of the open quote for everything after — which is why THIS
+      // diagnostic scanned the entire correct feed (35,139 rows, confirmed
+      // matching the real refresh exactly) and still found zero Gigsberg
+      // rows, despite the real refresh reporting 23,821 of them.
+      //
+      // The production parseFeedStream() below never had this bug — it
+      // tracks inQuotes character-by-character across the whole buffer and
+      // only treats a newline as a row boundary when outside quotes. That is
+      // copied verbatim here instead of re-deriving a simplified version a
+      // third time. Production data was never at risk; this was a
+      // diagnostic-tool-only bug across all three attempts.
       const MAX_ROWS_SCANNED = 45000;
 
-      while (samples.length < SAMPLE_TARGET && rowsScanned < MAX_ROWS_SCANNED) {
+      outer:
+      while (rowsScanned < MAX_ROWS_SCANNED) {
         const { done, value } = await reader.read();
         if (done) { streamEnded = true; break; }
         buffer += decoder.decode(value, { stream: true });
-        let nl;
-        while ((nl = buffer.indexOf('\n')) !== -1) {
-          const line = buffer.slice(0, nl).replace(/\r$/, '');
-          buffer = buffer.slice(nl + 1);
-          if (!line) continue;
 
-          if (!headerLine) {
-            headerLine = line;
-            colMap = buildColMapFromHeader(headerLine);
-            continue;
+        let searchFrom = 0;
+        let inQuotes = false;
+        for (let ci = 0; ci < buffer.length; ci++) {
+          const ch = buffer[ci];
+          if (ch === '"') inQuotes = !inQuotes;
+          if (ch === '\n' && !inQuotes) {
+            const line = buffer.slice(searchFrom, ci).replace(/\r$/, '');
+            searchFrom = ci + 1;
+
+            if (!headerLine) {
+              headerLine = line;
+              colMap = buildColMapFromHeader(headerLine);
+              continue;
+            }
+            if (!line.trim()) continue;
+
+            rowsScanned++;
+            const fields = parseCsvLine(line);
+            const merchantIdx = colMap.merchant_name;
+            const merchantName = merchantIdx !== -1 && merchantIdx < fields.length ? fields[merchantIdx] : '';
+            if (!merchantFilter || merchantName.toLowerCase().includes(merchantFilter)) {
+              const curIdx = colMap.currency;
+              samples.push({
+                merchant: merchantName,
+                product_name: (colMap.product_name !== -1 ? fields[colMap.product_name] : '')?.slice(0, 60),
+                price_raw: colMap.search_price !== -1 ? fields[colMap.search_price] : null,
+                currency_column_index: curIdx,
+                currency_raw_value: curIdx !== -1 && curIdx < fields.length ? fields[curIdx] : null,
+                currency_after_fallback: (curIdx !== -1 && curIdx < fields.length ? fields[curIdx] : '') || 'GBP (defaulted — column value was empty or column not found)'
+              });
+              if (samples.length >= SAMPLE_TARGET) break outer;
+            }
+            if (rowsScanned >= MAX_ROWS_SCANNED) break outer;
           }
-
-          rowsScanned++;
-          const fields = parseCsvLine(line);
-          const merchantIdx = colMap.merchant_name;
-          const merchantName = merchantIdx !== -1 && merchantIdx < fields.length ? fields[merchantIdx] : '';
-          if (merchantFilter && !merchantName.toLowerCase().includes(merchantFilter)) continue;
-
-          const curIdx = colMap.currency;
-          samples.push({
-            merchant: merchantName,
-            product_name: (colMap.product_name !== -1 ? fields[colMap.product_name] : '')?.slice(0, 60),
-            price_raw: colMap.search_price !== -1 ? fields[colMap.search_price] : null,
-            currency_column_index: curIdx,
-            currency_raw_value: curIdx !== -1 && curIdx < fields.length ? fields[curIdx] : null,
-            currency_after_fallback: (curIdx !== -1 && curIdx < fields.length ? fields[curIdx] : '') || 'GBP (defaulted — column value was empty or column not found)'
-          });
-          if (samples.length >= SAMPLE_TARGET) break;
         }
+        buffer = buffer.slice(searchFrom);
       }
       try { await reader.cancel(); } catch {}
 
