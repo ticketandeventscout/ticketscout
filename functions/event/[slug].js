@@ -308,6 +308,26 @@ function renderPage(d) {
     ...performerBlock,
     ...(d.image ? { image: [d.image] } : {}),
     url: canonical,
+    // OFFERS — see the client-side correction in compare.js.
+    //
+    // d.price is ONE seller's cached price from the event_pages row (usually
+    // SE365) and, as the .detail-meta comment below records, it routinely
+    // disagrees with the cheapest row actually shown in the compare table —
+    // £92 here against a £69.52 best price on the same page in the logged
+    // example. Emitting that as lowPrice tells Google a number the visible
+    // page contradicts, which is exactly the structured-data/content
+    // mismatch Google penalises.
+    //
+    // It stays here as a SERVER-RENDERED PLACEHOLDER on purpose: it is real
+    // (not fabricated), it is present in the initial HTML for a crawler that
+    // never runs JS, and it is better than no offers block at all. Once
+    // compare.js has resolved every adapter it OVERWRITES this block via
+    // #event-schema with the true lowPrice / highPrice / offerCount across
+    // all sellers actually displayed — the real comparison proposition, and
+    // the only version that matches what the user sees.
+    //
+    // Do not "simplify" this by deleting the block: a JS-less crawl would
+    // then get no price signal at all.
     ...(d.price && !d.isPast ? {
       offers: {
         '@type': 'AggregateOffer',
@@ -364,7 +384,7 @@ function renderPage(d) {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
-  <script type="application/ld+json">${JSON.stringify(eventLd).replace(/</g, '\\u003c')}</script>
+  <script type="application/ld+json" id="event-schema">${JSON.stringify(eventLd).replace(/</g, '\\u003c')}</script>
   <script type="application/ld+json">${JSON.stringify(breadcrumbLd).replace(/</g, '\\u003c')}</script>
 </head>
 <body>
@@ -470,7 +490,7 @@ function renderPage(d) {
     </div>
   </footer>
 
-  <script src="/compare.js?v=20260806a"></script>
+  <script src="/compare.js?v=20260809a"></script>
   <script>
     (function () {
       var EV = ${hydrate};

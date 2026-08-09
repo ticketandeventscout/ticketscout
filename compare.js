@@ -1010,8 +1010,68 @@ async function renderComparePrices(container, eventName, tmPrice, tmUrl, venueCi
     // gate), not before.
     signalBeacon('rows&n=' + withPrices.length + '&cat=' + encodeURIComponent(category || 'unknown'));
 
+    updateEventSchemaOffers(withPrices);
+
     highlightBestPrice();
   });
+}
+
+// Event-page AggregateOffer correction (9 Aug 2026, technical SEO audit).
+//
+// The SSR event page (_slug_.js) emits an AggregateOffer whose lowPrice is
+// d.price — ONE seller's cached price from the event_pages row, usually
+// SE365. That value routinely disagrees with the cheapest row this table
+// actually displays: the logged example is £92 in the row against a £69.52
+// best price on the same page. Structured data contradicting the visible
+// page is exactly the mismatch Google penalises, so once the real prices
+// are in hand they replace it.
+//
+// Unlike the ENTITY-level AggregateOffer added the same day (concert.html
+// et al), highPrice is genuinely known here and is therefore included: this
+// is one event, and every seller in this table is quoting for that same
+// event, so max/min across them is a real price range rather than a
+// fabricated ceiling. That range IS the comparison proposition — it is the
+// thing this site exists to show.
+//
+// Only PLAUSIBLE priced rows count. Implausible rows (the median gate above:
+// under 40% of median, i.e. a speculative listing or a wrong-event match)
+// are excluded — they are deliberately barred from the "Best price" badge
+// for the same reason, and letting one set lowPrice in schema would tell
+// Google a price the page itself refuses to headline.
+//
+// Runs on the SSR /event/{slug} page only. events.js's hash-route detail
+// view renders no #event-schema tag, so this is a silent no-op there — the
+// getElementById guard is the whole check.
+function updateEventSchemaOffers(withPrices) {
+  try {
+    const el = document.getElementById('event-schema');
+    if (!el) return; // not the SSR event page — nothing to correct
+
+    const prices = withPrices
+      .filter(r => r.price && !r.implausible)
+      .map(r => r.price);
+    if (!prices.length) return; // no trustworthy price: leave the SSR block alone
+
+    const schema = JSON.parse(el.textContent || '{}');
+    if (!schema['@type']) return;
+
+    const low = Math.min(...prices);
+    const high = Math.max(...prices);
+
+    schema.offers = {
+      '@type': 'AggregateOffer',
+      lowPrice: Math.round(low * 100) / 100,
+      // Only emit highPrice when it differs — a range where low === high is
+      // noise, and schema.org treats a single-value range as meaningless.
+      ...(high > low ? { highPrice: Math.round(high * 100) / 100 } : {}),
+      priceCurrency: 'GBP', // adapters are normalised to GBP upstream (see fx.js)
+      offerCount: prices.length,
+      availability: 'https://schema.org/InStock',
+      url: location.origin + location.pathname
+    };
+
+    el.textContent = JSON.stringify(schema);
+  } catch (e) { /* never let schema correction break the page */ }
 }
 
 // Skeleton loading rows (CLS fix, 6 Aug 2026) — see renderComparePrices()'s
