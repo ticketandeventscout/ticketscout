@@ -151,6 +151,115 @@ function extractApiKey(baseUrl) {
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
 
+  // ── Currency diagnostic (added 9 Aug 2026) ──────────────────────────────
+  // Investigating a real discrepancy: the live compare table showed Gigsberg
+  // prices as "£161" and "£121" while Gigsberg's OWN page for the same two
+  // events showed live EUR ranges (€106-205, €84-668) that comfortably
+  // contain those exact numbers. That pattern — our number sits inside
+  // today's live EUR range, just with the wrong symbol — is what you would
+  // see if row.currency were never actually EUR in our data: the price
+  // passes through unconverted while the symbol silently becomes GBP.
+  //
+  // The mechanism exists and is real, not speculative: buildColMapFromHeader
+  // finds the currency column BY NAME in the feed's header row each refresh.
+  // If Awin ever renames that column, or a merchant's export doesn't include
+  // it, find() returns -1. safeGet(-1) then does fields[-1] — JS arrays have
+  // no negative indexing, so this is undefined, coerced to '' by
+  // `(fields[-1] || '').trim()`, and '' || 'GBP' silently defaults to GBP.
+  // Every row from that refresh would carry the right PRICE and the wrong
+  // CURRENCY, with no error anywhere — exactly this bug shape.
+  //
+  // This does not assume the hypothesis is correct — it fetches the feed
+  // fresh, re-derives the column mapping the exact same way refreshCache
+  // does, and reports the REAL header + REAL sampled currency values so
+  // that can be confirmed or ruled out before anything is changed. Module-
+  // level ACTIVE_COL state is NOT trusted here: Workers isolates are not
+  // guaranteed warm between requests, so a live re-derivation is the only
+  // way to know what is actually happening right now, not what happened on
+  // whichever refresh last touched this isolate.
+  //
+  // Reads only a small prefix of the (gzip-streamed) feed and stops early —
+  // does not parse the whole multi-MB file.
+  //
+  // Usage: ?currencydiag=1&trigger=1
+  //        ?currencydiag=1&trigger=1&merchant=Gigsberg
+  if (url.searchParams.get('currencydiag') === '1' && url.searchParams.get('trigger') === '1') {
+    const feedUrl = env.AWIN_CATEGORY_FEED_URL;
+    if (!feedUrl) return jsonResp({ error: 'Missing AWIN_CATEGORY_FEED_URL' }, 500);
+    const merchantFilter = (url.searchParams.get('merchant') || '').toLowerCase();
+    const SAMPLE_TARGET = 15;
+
+    try {
+      const resp = await fetch(feedUrl);
+      if (!resp.ok) return jsonResp({ error: `feed fetch failed: HTTP ${resp.status}` }, 502);
+
+      const stream = resp.body.pipeThrough(new DecompressionStream('gzip'));
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let headerLine = null;
+      let colMap = null;
+      const samples = [];
+      let rowsScanned = 0;
+      const MAX_ROWS_SCANNED = 20000; // safety ceiling — stop even if the target merchant never appears
+
+      while (samples.length < SAMPLE_TARGET && rowsScanned < MAX_ROWS_SCANNED) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, nl).replace(/\r$/, '');
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+
+          if (!headerLine) {
+            headerLine = line;
+            colMap = buildColMapFromHeader(headerLine);
+            continue;
+          }
+
+          rowsScanned++;
+          const fields = parseCsvLine(line);
+          const merchantIdx = colMap.merchant_name;
+          const merchantName = merchantIdx !== -1 && merchantIdx < fields.length ? fields[merchantIdx] : '';
+          if (merchantFilter && !merchantName.toLowerCase().includes(merchantFilter)) continue;
+
+          const curIdx = colMap.currency;
+          samples.push({
+            merchant: merchantName,
+            product_name: (colMap.product_name !== -1 ? fields[colMap.product_name] : '')?.slice(0, 60),
+            price_raw: colMap.search_price !== -1 ? fields[colMap.search_price] : null,
+            currency_column_index: curIdx,
+            currency_raw_value: curIdx !== -1 && curIdx < fields.length ? fields[curIdx] : null,
+            currency_after_fallback: (curIdx !== -1 && curIdx < fields.length ? fields[curIdx] : '') || 'GBP (defaulted — column value was empty or column not found)'
+          });
+          if (samples.length >= SAMPLE_TARGET) break;
+        }
+      }
+      try { await reader.cancel(); } catch {}
+
+      const currencyColumnFound = colMap && colMap.currency !== -1;
+      return jsonResp({
+        currencydiag: true,
+        merchantFilter: merchantFilter || '(none — first rows of any merchant)',
+        rowsScanned,
+        samplesFound: samples.length,
+        currencyColumnFoundInHeader: currencyColumnFound,
+        currencyColumnIndex: colMap ? colMap.currency : null,
+        rawHeaderLine: headerLine ? headerLine.slice(0, 2000) : null,
+        samples,
+        interpretation: !currencyColumnFound
+          ? 'CONFIRMED: the currency column was NOT found in this header by any known alias — every sampled row is defaulting to GBP regardless of its real currency. This is the bug. Check rawHeaderLine for what the actual column is named today and add it as a new alias to the find() call for currency in buildColMapFromHeader.'
+          : (samples.some(s => s.currency_raw_value && s.currency_raw_value.toUpperCase() !== 'GBP')
+              ? 'Currency column IS found and non-GBP values ARE present in the raw feed — the parsing is working correctly for these sampled rows. If the live compare table is still showing wrong symbols, the bug is downstream of this file, not in the feed parsing.'
+              : 'Currency column is found, but every sampled row happens to read GBP. Either this merchant/sample genuinely is GBP-only, or the column is found by name but pointing at the wrong data — check currency_raw_value against rawHeaderLine manually.')
+      }, 200);
+    } catch (e) {
+      return jsonResp({ error: 'currencydiag failed: ' + String(e) }, 500);
+    }
+  }
+
   // ── M4 cleanup: already-indexed junk product pages ──────────────────────
   // The forward-looking filter (isJunkProduct(), see tsBulkSyncAwinEvents
   // above) stops NEW junk from registering, but doesn't touch what's
