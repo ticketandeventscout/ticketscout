@@ -183,13 +183,17 @@ async function classifyCategory(kv, cat, slugs) {
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
 
+  if (url.searchParams.get('repair') === '1' && url.searchParams.get('trigger') === '1') {
+    return runRepair(url, env);
+  }
+
   if (url.searchParams.get('merge') === '1' && url.searchParams.get('trigger') === '1') {
     return runMerge(url, env);
   }
 
   if (url.searchParams.get('scan') !== '1' || url.searchParams.get('trigger') !== '1') {
     return jsonResponse({
-      error: 'Pass ?scan=1&trigger=1 to scan (read-only). Pass ?merge=1&trigger=1 to merge the safe tiers (dry-run by default, &confirm=yes to write). Optional on scan: &category=X, &tier=A|B|C|all'
+      error: 'Pass ?scan=1&trigger=1 to scan (read-only). Pass ?merge=1&trigger=1 to merge the safe tiers (dry-run by default, &confirm=yes to write). Pass ?repair=1&trigger=1 to restore registry entries removed by a redirect that is not actually honored by the router (dry-run by default). Optional on scan: &category=X, &tier=A|B|C|all'
     }, 400);
   }
 
@@ -429,5 +433,107 @@ async function runMerge(url, env) {
     message: dryRun
       ? 'Dry run — nothing written. Review the merges list, then add &confirm=yes to write redirects and update the registry.'
       : 'Merge complete. Existing URLs for every loser slug now 301 to the winner automatically via the redirect check already live in each category router.'
+  }, 200);
+}
+
+// =============================================================================
+// REPAIR MODE (added 9 Aug 2026, live incident)
+// =============================================================================
+// The merge tool above writes TWO things per pair: a redirectSlug KV key,
+// and a registry deletion for the loser slug. The registry write does not
+// depend on the router at all — it always succeeds. The redirect only takes
+// effect if that category's page router actually CHECKS redirectSlug before
+// rendering, the way functions/venue/[slug].js is confirmed to (tested live,
+// O2 Arena, working). functions/football/[slug].js was never seen or
+// verified before this tool was used against it — and a live confirm=yes run
+// proved it does NOT check the key: neither wolves nor wolverhampton
+// redirects, both still render fully independently, exactly as before.
+//
+// Net effect for every affected pair: the loser's page is still fully live
+// and rendering (its own entity KV record was deliberately never deleted —
+// see the merge function's own comment on that), but it is no longer listed
+// in sitemap:registry, so it silently dropped out of the sitemap. A live,
+// still-crawlable page with no internal link path to it is exactly the
+// orphan-page problem this whole audit thread has been trying to PREVENT —
+// so this is a real regression, even though (confirmed by testing) nobody
+// is being served wrong content on the winner's URL because of it.
+//
+// This restores the registry side ONLY. It does not touch redirectSlug keys
+// (leaving them in place is harmless — they just currently do nothing for
+// football) and does not touch any entity KV record.
+//
+// SIGNAL USED: an entity is a repair candidate when ALL THREE are true —
+//   1. its {prefix}{slug} KV record still exists (the page can genuinely
+//      still render — nothing to restore a registry entry FOR otherwise)
+//   2. redirectSlug:{category}:{slug} ALSO exists (this is the precise part:
+//      a real merge-style removal always leaves this key behind, so its
+//      presence distinguishes "removed by a merge" from "removed on purpose
+//      for some unrelated reason" — which should NOT be resurrected)
+//   3. it is currently absent from sitemap:registry.sections[category]
+// Deliberately category-general, not football-only — the same risk applies
+// to concert/theatre/sports until each one's router is individually
+// confirmed the way venue's was.
+//
+// Usage: ?repair=1&trigger=1&category=football               — dry run
+//        ?repair=1&trigger=1&category=football&confirm=yes    — writes
+async function runRepair(url, env) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
+
+  const onlyCategory = (url.searchParams.get('category') || '').trim().toLowerCase();
+  if (!onlyCategory) return jsonResponse({ error: '&category=X is required for repair mode — this is a scoped, one-category-at-a-time restore, not a blanket operation' }, 400);
+  const prefix = ENTITY_PREFIX[onlyCategory];
+  if (!prefix) return jsonResponse({ error: `No entity KV prefix known for category "${onlyCategory}"` }, 400);
+  const confirm = url.searchParams.get('confirm') === 'yes';
+  const dryRun = !confirm;
+
+  let registry = null;
+  try { const r = await kv.get('sitemap:registry'); if (r) registry = JSON.parse(r); }
+  catch (e) { return jsonResponse({ error: 'registry read failed: ' + String(e) }, 500); }
+  if (!registry?.sections) return jsonResponse({ error: 'sitemap:registry not built yet' }, 503);
+  const currentSlugsInRegistry = new Set(Object.keys(registry.sections[onlyCategory] || {}));
+
+  // List every entity KV record for this category. Cloudflare KV list() is
+  // paginated (up to 1000 keys per call) — walk the cursor fully rather than
+  // assuming one page covers everything; football alone has ~1,600 entities.
+  const entityKeys = [];
+  let cursor = undefined;
+  do {
+    const page = await kv.list({ prefix, cursor, limit: 1000 });
+    for (const k of page.keys) entityKeys.push(k.name.slice(prefix.length));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+
+  const missingFromRegistry = entityKeys.filter(slug => !currentSlugsInRegistry.has(slug));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const candidates = [];
+  const CHUNK = 25;
+  for (let i = 0; i < missingFromRegistry.length; i += CHUNK) {
+    const chunk = missingFromRegistry.slice(i, i + CHUNK);
+    await Promise.all(chunk.map(async (slug) => {
+      try {
+        const redirect = await kv.get(`redirectSlug:${onlyCategory}:${slug}`);
+        if (redirect) candidates.push({ slug, currentRedirectPointsTo: redirect });
+      } catch { /* no readable redirect key = not a repair candidate */ }
+    }));
+  }
+
+  if (!dryRun && candidates.length) {
+    for (const c of candidates) registry.sections[onlyCategory][c.slug] = today;
+    try { await kv.put('sitemap:registry', JSON.stringify(registry)); }
+    catch (e) { return jsonResponse({ error: 'registry write failed: ' + String(e), candidates }, 500); }
+  }
+
+  return jsonResponse({
+    repair: true, dryRun, category: onlyCategory,
+    entityRecordsFound: entityKeys.length,
+    currentlyInRegistry: currentSlugsInRegistry.size,
+    missingFromRegistry: missingFromRegistry.length,
+    repairCandidates: candidates.length,
+    candidates,
+    message: dryRun
+      ? `Dry run — nothing written. ${candidates.length} slug(s) still have a live entity record and an existing redirect key but are missing from the registry — these are the ones a redirect-writing tool removed. Add &confirm=yes to restore them to the registry (does not touch redirectSlug keys or entity records).`
+      : `Restored ${candidates.length} slug(s) to sitemap:registry.sections.${onlyCategory}. Their pages were never actually missing — only unlisted. This does NOT fix the underlying issue (the router still doesn't honour the redirect) — it just stops the sitemap regression while that gets fixed properly.`
   }, 200);
 }
