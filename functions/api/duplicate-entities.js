@@ -56,6 +56,19 @@
 
 const CATEGORIES = ['concert', 'football', 'theatre', 'sports', 'venue'];
 
+// Per-category entity record prefix — confirmed from discover-pages.js and
+// enrich-entities.js's own PREFIXES maps. Needed for the winner-safety check
+// below: the search text sent to EVERY live compare-table adapter
+// (Ticketmaster, Awin, SE365, VividSeats, Ticombo, TicketNetwork) comes from
+// THIS record's own .search/.name field, not the URL slug — confirmed in
+// football.html: `team.search || team.name`. venue has no equivalent
+// per-entity search record (venue pages don't drive live keyword search the
+// same way), so it is intentionally absent here.
+const ENTITY_PREFIX = {
+  concert: 'concert:artist:', football: 'football:team:',
+  theatre: 'theatre:show:', sports: 'sports:team:'
+};
+
 // Club/company type suffixes only. Deliberately NOT including words that
 // distinguish real clubs — united, city, rovers, wanderers, town, athletic
 // and county are all load-bearing (sheffield-united vs sheffield-wednesday,
@@ -325,7 +338,50 @@ async function runMerge(url, env) {
 
       const plan = { category: cat, evidence: g.evidence, winner, loser, redirectKey: `redirectSlug:${cat}:${loser}`, redirectValue: `${cat}/${winner}` };
 
+      // WINNER-SAFETY CHECK (added 9 Aug 2026, live incident) — first live
+      // use of this tool merged wolves + wolverhampton with wolves as
+      // winner (shorter slug), and wolves' OWN entity record turned out to
+      // hold the bare, ambiguous name "Wolves" — which the live compare
+      // table's own adapters (Ticketmaster, Awin, SE365, VividSeats,
+      // Ticombo, TicketNetwork) send as the search term, per football.html:
+      // `team.search || team.name`. A bare nickname can match an unrelated
+      // team of the same name; wolverhampton's fuller stored name did not
+      // have this problem. Slug LENGTH says nothing about SEARCH TEXT
+      // quality, and the two are independent — this check surfaces the
+      // actual stored name/search text for BOTH candidates on every single
+      // plan, dry-run or not, specifically so this class of mistake is
+      // visible before confirming, not discovered live afterward.
+      const prefix = ENTITY_PREFIX[cat];
+      if (prefix) {
+        try {
+          const [winnerRaw, loserRaw] = await Promise.all([
+            kv.get(prefix + winner), kv.get(prefix + loser)
+          ]);
+          const winnerRec = winnerRaw ? JSON.parse(winnerRaw) : null;
+          const loserRec  = loserRaw  ? JSON.parse(loserRaw)  : null;
+          plan.winnerSearchText = winnerRec ? (winnerRec.search || winnerRec.name || null) : null;
+          plan.loserSearchText  = loserRec  ? (loserRec.search  || loserRec.name  || null) : null;
+          // Heuristic only, not proof of a real problem: a single-word
+          // search text under 10 characters is the SHAPE of the bare
+          // nickname that produced the wolves mismatch, not a guarantee —
+          // a genuinely one-word artist name looks identical and is
+          // completely fine. Because false positives are possible, this
+          // BLOCKS the write by default (see below) rather than silently
+          // proceeding, and needs &includeAmbiguous=yes to override once
+          // manually checked.
+          const wst = plan.winnerSearchText || '';
+          plan.winnerSearchTextLooksAmbiguous = !!wst && !wst.includes(' ') && wst.length < 10;
+        } catch { plan.winnerSearchText = plan.loserSearchText = null; }
+      }
+
       if (!dryRun) {
+        if (plan.winnerSearchTextLooksAmbiguous && url.searchParams.get('includeAmbiguous') !== 'yes') {
+          plan.applied = false;
+          plan.skippedDueToAmbiguousName = true;
+          plan.reason = `Winner's stored search text ("${plan.winnerSearchText}") looks like a bare nickname that could match an unrelated entity in a live keyword search — exactly the failure mode found in the wolves/wolverhampton pair. Not written. Re-run with &includeAmbiguous=yes to force it through if you have manually verified this specific pair is fine, or fix the winner's OWN stored search text at the source first (safer) so the flag naturally clears.`;
+          merges.push(plan);
+          continue;
+        }
         try {
           await kv.put(plan.redirectKey, plan.redirectValue);
 
