@@ -118,7 +118,7 @@ export async function onRequestGet({ request, env }) {
   const out = {
     scan: true,
     categories: {},
-    totals: { tierA: 0, tierB: 0, tierBRisky: 0, tierC: 0, enrichedChecked: 0, entitiesScanned: 0 },
+    totals: { tierA: 0, tierAVariantSuspect: 0, tierB: 0, tierBRisky: 0, tierC: 0, enrichedChecked: 0, entitiesScanned: 0 },
     notes: []
   };
 
@@ -164,14 +164,31 @@ export async function onRequestGet({ request, env }) {
     out.totals.enrichedChecked += enriched;
 
     const tierA = [];
+    const tierAVariantSuspect = [];
     for (const [id, group] of byExternalId) {
-      if (group.length > 1) tierA.push({ externalId: id, slugs: group.sort() });
+      if (group.length <= 1) continue;
+      // RESERVE/VARIANT GUARD (added after the first successful live run).
+      // Tier A is authoritative about what enrich-entities RESOLVED to — not
+      // necessarily about what the entity actually is. enrich-entities looks
+      // Wikidata up by NAME, so "Espanyol B" returns RCD Espanyol's ID and
+      // "Celta de Vigo B" returns Celta's. Both were reported as Tier A
+      // duplicates on the live run, and merging either would have destroyed
+      // a legitimate separate page: a reserve side is a real distinct team
+      // with its own fixtures.
+      // Same applies to -women, -legends, -u21 and -ii suffixes: real
+      // separate entities that share a name root with the senior side.
+      // These are split out rather than dropped — the ID collision is still
+      // worth knowing about, it just means the ENRICHMENT is wrong, which is
+      // its own finding.
+      const hasVariant = group.some(s => /-(b|ii|iii|legends|women|reserves|u\d{2})$/.test(s));
+      (hasVariant ? tierAVariantSuspect : tierA).push({ externalId: id, slugs: group.sort() });
     }
 
     // Pairs already explained by Tier A are not re-reported as B or C —
     // the authoritative evidence supersedes the string heuristics.
     const explained = new Set();
     for (const g of tierA) for (const s of g.slugs) explained.add(s);
+    for (const g of tierAVariantSuspect) for (const s of g.slugs) explained.add(s);
 
     // ── Tier B: suffix-equivalent names ─────────────────────────────────
     const byStripped = new Map();
@@ -223,12 +240,14 @@ export async function onRequestGet({ request, env }) {
       entities: slugs.length,
       enrichedWithExternalId: enriched,
       tierA_sameExternalId: tierA,
+      tierA_variantSuspect_doNotMerge: tierAVariantSuspect,
       tierB_suffixEquivalent: tierB,
       tierB_riskyLeadingPrefix: tierBRisky,
       tierC_prefixReviewOnly: tierC.slice(0, 50),
       tierC_truncated: tierC.length > 50
     };
     out.totals.tierA += tierA.length;
+    out.totals.tierAVariantSuspect += tierAVariantSuspect.length;
     out.totals.tierB += tierB.length;
     out.totals.tierBRisky += tierBRisky.length;
     out.totals.tierC += tierC.length;
@@ -246,6 +265,7 @@ export async function onRequestGet({ request, env }) {
   }
 
   out.notes.push('Tier A is authoritative (same Wikidata/MusicBrainz ID = same real-world entity) and is the only tier that catches abbreviation pairs like wolves + wolverhampton-wanderers. It only covers entities enrich-entities.js has already processed — check enrichedWithExternalId against entities to see the coverage.');
+  out.notes.push('tierA_variantSuspect_doNotMerge: an external-ID collision where one slug is a reserve/variant side (-b, -ii, -women, -legends, -u21). enrich-entities.js looks Wikidata up BY NAME, so "Espanyol B" resolves to RCD Espanyol\'s ID. These are NOT duplicates — a reserve side is a real separate team with its own fixtures. Merging them would delete a legitimate page. The collision instead indicates the ENRICHMENT record is wrong and worth correcting at source.');
   out.notes.push('tierB_riskyLeadingPrefix matched ONLY because a leading fc-/afc-/sc- marker was stripped. That marker is often the only thing separating two real clubs sharing a city name — confirmed live: fc-barcelona vs barcelona-sc (Spain vs Ecuador) and afc-toronto vs toronto-fc (NSL women vs MLS) are DIFFERENT clubs. Review every pair in this list individually; do not bulk-action it.');
   out.notes.push('Tier C WILL contain false positives by design: bristol-city/bristol-rovers and sheffield-united/sheffield-wednesday are real distinct clubs that share a prefix. Review every pair before acting; never bulk-action this tier.');
   out.notes.push('READ-ONLY — nothing merged, deleted or redirected. Merging is a separate step, to be scoped against these findings.');
