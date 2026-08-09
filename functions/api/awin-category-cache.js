@@ -184,14 +184,32 @@ export async function onRequestGet({ request, env }) {
   // Usage: ?currencydiag=1&trigger=1
   //        ?currencydiag=1&trigger=1&merchant=Gigsberg
   if (url.searchParams.get('currencydiag') === '1' && url.searchParams.get('trigger') === '1') {
-    const feedUrl = env.AWIN_CATEGORY_FEED_URL;
-    if (!feedUrl) return jsonResp({ error: 'Missing AWIN_CATEGORY_FEED_URL' }, 500);
+    const kv = env.GIGSBERG_KV;
+    const baseUrl = env.AWIN_CATEGORY_FEED_URL;
+    if (!baseUrl) return jsonResp({ error: 'Missing AWIN_CATEGORY_FEED_URL' }, 500);
+    if (!kv) return jsonResp({ error: 'Missing GIGSBERG_KV' }, 500);
     const merchantFilter = (url.searchParams.get('merchant') || '').toLowerCase();
     const SAMPLE_TARGET = 15;
 
+    // FIX (9 Aug 2026): this used to fetch env.AWIN_CATEGORY_FEED_URL
+    // directly. That is only the BASE url — the real refreshCache() (see
+    // below) calls buildFeedUrl(baseUrl, feedIds), combining it with a
+    // KV-maintained, extendable list of feed IDs (see getFeedIds /
+    // ?feeds=add&id=NNNNN). Fetching the base URL alone pulls whichever
+    // feed IDs happen to be baked into the secret itself — a smaller, older
+    // set. That is exactly what happened on the first two live runs: 6,827
+    // rows, reproducibly, with zero Gigsberg matches — not a truncated
+    // stream, a COMPLETE but DIFFERENT and SMALLER feed than the one the
+    // real refresh assembles, which is why raising the row-scan ceiling had
+    // no effect at all. Now builds the URL exactly the way refreshCache
+    // does, so this diagnostic sees the same feed the live cache is built
+    // from, not a different one.
+    const feedIds = await getFeedIds(kv, env);
+    const feedUrl = buildFeedUrl(baseUrl, feedIds);
+
     try {
       const resp = await fetch(feedUrl);
-      if (!resp.ok) return jsonResp({ error: `feed fetch failed: HTTP ${resp.status}` }, 502);
+      if (!resp.ok) return jsonResp({ error: `feed fetch failed: HTTP ${resp.status}`, feedIdsUsed: feedIds }, 502);
 
       const stream = resp.body.pipeThrough(new DecompressionStream('gzip'));
       const reader = stream.getReader();
@@ -268,6 +286,7 @@ export async function onRequestGet({ request, env }) {
 
       return jsonResp({
         currencydiag: true,
+        feedIdsUsed: feedIds,
         merchantFilter: merchantFilter || '(none — first rows of any merchant)',
         rowsScanned,
         streamEndedBeforeTarget: streamEnded,
