@@ -1,9 +1,42 @@
-User-agent: *
-Allow: /
+# ticketscout.co.uk — robots.txt
+#
+# ⚠️  MAINTENANCE RULE — READ BEFORE EDITING
+# Under RFC 9309 a crawler obeys ONLY the single most specific matching
+# User-agent group and ignores "User-agent: *" entirely once a named group
+# exists for it. That means EVERY named group below must repeat the full
+# Disallow set — a named group inherits NOTHING.
+#
+# This is not theoretical: before 9 Aug 2026 the GPTBot / ClaudeBot /
+# PerplexityBot / Google-Extended / anthropic-ai groups each contained only
+# "Allow: /" with a comment claiming the write/admin blocks "above still
+# apply". They did not. Those five agents had unrestricted access to
+# /api/registry-purge, /api/backfill-genres and /api/enrich-entities —
+# destructive endpoints reachable by an ordinary GET.
+#
+# When adding a new blocked endpoint: add it to EVERY group below, not just
+# the first one. If you only edit one, you have reintroduced the same bug.
+#
+# Sitemap is a non-group directive (host-scoped, not group-scoped), so its
+# position is functionally irrelevant — kept at the top for visibility.
 
-# Read-only data endpoints the page templates fetch at render time MUST be
-# crawlable, or Googlebot renders entity pages with no body and no JSON-LD.
-# Only write/admin/debug/redirect endpoints are blocked below.
+Sitemap: https://ticketscout.co.uk/sitemap.xml
+
+# ---------------------------------------------------------------------------
+# Blocked: write / admin / debug / redirect / cache endpoints only.
+#
+# Read-only data endpoints the page templates fetch at render time are NOT
+# blocked — Googlebot must be able to fetch them or entity pages render with
+# no body and no JSON-LD.
+#
+# "Allow: /api/sitemap" is explicit and FIRST on purpose. Longest-match would
+# win anyway today, but sitemap.js's own header comment depends on this line
+# existing: the child sitemaps live at /api/sitemap?sec=X, so a future
+# blanket "Disallow: /api/" would silently de-list the entire site. Keep it.
+# ---------------------------------------------------------------------------
+
+User-agent: *
+Allow: /api/sitemap
+Allow: /
 Disallow: /api/discover-pages
 Disallow: /api/entity-lifecycle
 Disallow: /api/registry-purge
@@ -27,26 +60,10 @@ Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
 
-# AI crawlers — explicitly welcome (content only; write/admin endpoints above still apply)
-User-agent: GPTBot
-Allow: /
+# --- Search crawlers -------------------------------------------------------
 
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
-
-User-agent: anthropic-ai
-Allow: /
-
-# Search crawlers — named groups do NOT inherit the "*" group, so the same
-# Disallow set is repeated. Rendering needs the read-only /api/ data endpoints,
-# so we do NOT blanket-block /api/ here.
 User-agent: Googlebot
+Allow: /api/sitemap
 Allow: /
 Disallow: /api/discover-pages
 Disallow: /api/entity-lifecycle
@@ -72,6 +89,7 @@ Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
 
 User-agent: Bingbot
+Allow: /api/sitemap
 Allow: /
 Disallow: /api/discover-pages
 Disallow: /api/entity-lifecycle
@@ -96,4 +114,122 @@ Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
 
-Sitemap: https://ticketscout.co.uk/sitemap.xml
+# --- AI crawlers -----------------------------------------------------------
+# Content is welcome; write/admin/debug endpoints are not. Each group repeats
+# the full Disallow set because a named group inherits nothing from "*".
+# THIS IS THE BLOCK THAT WAS BROKEN BEFORE 9 Aug 2026 — see header.
+
+User-agent: GPTBot
+Allow: /api/sitemap
+Allow: /
+Disallow: /api/discover-pages
+Disallow: /api/entity-lifecycle
+Disallow: /api/registry-purge
+Disallow: /api/backfill-genres
+Disallow: /api/enrich-entities
+Disallow: /api/price-sampler
+Disallow: /api/price-rollup
+Disallow: /api/onsale-signals
+Disallow: /api/merchant-status
+Disallow: /api/affiliate-conversions
+Disallow: /api/contact
+Disallow: /api/go
+Disallow: /api/impact-debug
+Disallow: /api/sportsevents365-debug
+Disallow: /api/ticombo-debug
+Disallow: /api/vividseats-debug
+Disallow: /api/gigsberg-cache
+Disallow: /api/ticketnetwork-cache
+Disallow: /api/vividseats-cache
+Disallow: /api/sportsevents365-cache
+Disallow: /api/ticombo-cache
+Disallow: /api/awin-category-cache
+
+User-agent: ClaudeBot
+Allow: /api/sitemap
+Allow: /
+Disallow: /api/discover-pages
+Disallow: /api/entity-lifecycle
+Disallow: /api/registry-purge
+Disallow: /api/backfill-genres
+Disallow: /api/enrich-entities
+Disallow: /api/price-sampler
+Disallow: /api/price-rollup
+Disallow: /api/onsale-signals
+Disallow: /api/merchant-status
+Disallow: /api/affiliate-conversions
+Disallow: /api/contact
+Disallow: /api/go
+Disallow: /api/impact-debug
+Disallow: /api/sportsevents365-debug
+Disallow: /api/ticombo-debug
+Disallow: /api/vividseats-debug
+Disallow: /api/gigsberg-cache
+Disallow: /api/ticketnetwork-cache
+Disallow: /api/vividseats-cache
+Disallow: /api/sportsevents365-cache
+Disallow: /api/ticombo-cache
+Disallow: /api/awin-category-cache
+
+User-agent: anthropic-ai
+Allow: /api/sitemap
+Allow: /
+Disallow: /api/discover-pages
+Disallow: /api/entity-lifecycle
+Disallow: /api/registry-purge
+Disallow: /api/backfill-genres
+Disallow: /api/enrich-entities
+Disallow: /api/price-sampler
+Disallow: /api/price-rollup
+Disallow: /api/onsale-signals
+Disallow: /api/merchant-status
+Disallow: /api/affiliate-conversions
+Disallow: /api/contact
+Disallow: /api/go
+Disallow: /api/impact-debug
+Disallow: /api/sportsevents365-debug
+Disallow: /api/ticombo-debug
+Disallow: /api/vividseats-debug
+Disallow: /api/gigsberg-cache
+Disallow: /api/ticketnetwork-cache
+Disallow: /api/vividseats-cache
+Disallow: /api/sportsevents365-cache
+Disallow: /api/ticombo-cache
+Disallow: /api/awin-category-cache
+
+User-agent: PerplexityBot
+Allow: /api/sitemap
+Allow: /
+Disallow: /api/discover-pages
+Disallow: /api/entity-lifecycle
+Disallow: /api/registry-purge
+Disallow: /api/backfill-genres
+Disallow: /api/enrich-entities
+Disallow: /api/price-sampler
+Disallow: /api/price-rollup
+Disallow: /api/onsale-signals
+Disallow: /api/merchant-status
+Disallow: /api/affiliate-conversions
+Disallow: /api/contact
+Disallow: /api/go
+Disallow: /api/impact-debug
+Disallow: /api/sportsevents365-debug
+Disallow: /api/ticombo-debug
+Disallow: /api/vividseats-debug
+Disallow: /api/gigsberg-cache
+Disallow: /api/ticketnetwork-cache
+Disallow: /api/vividseats-cache
+Disallow: /api/sportsevents365-cache
+Disallow: /api/ticombo-cache
+Disallow: /api/awin-category-cache
+
+# --- Control tokens (NOT crawlers) -----------------------------------------
+# Google-Extended never fetches anything. It is a control token only: it
+# governs whether content Googlebot ALREADY crawled may be used for Gemini /
+# Vertex AI grounding and training. It has zero effect on Googlebot's crawling
+# or indexing — so editing this group will never fix or break an indexing
+# problem. Kept separate from the crawler groups above so that stays obvious.
+# "Allow: /" here means: yes, our content may be used for AI grounding.
+
+User-agent: Google-Extended
+Allow: /
