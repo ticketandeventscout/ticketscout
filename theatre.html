@@ -733,6 +733,25 @@
     async function init() {
       const slug = getSlug();
 
+      // CLIENT-SIDE REDIRECT CHECK (9 Aug 2026) — identical fix to
+      // football.html, same day, same incident. See
+      // functions/api/entity-redirect.js's header comment for the full
+      // story: theatre has no functions/theatre/[slug].js either (confirmed
+      // directly), so redirectSlug:theatre:{slug} was never being honoured.
+      // Runs before anything else renders or fetches.
+      if (slug && slug !== 'theatre') {
+        try {
+          const r = await fetch(`/api/entity-redirect?category=theatre&slug=${encodeURIComponent(slug)}`);
+          if (r.ok) {
+            const d = await r.json();
+            if (d && d.redirect) {
+              window.location.replace('/' + d.redirect);
+              return;
+            }
+          }
+        } catch { /* redirect check failing should never block a normal page load */ }
+      }
+
       if (!slug || slug === 'theatre') {
         document.getElementById('genre-badge').textContent     = 'Theatre';
         document.getElementById('artist-name').textContent     = 'Theatre Tickets';

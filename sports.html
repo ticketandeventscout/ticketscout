@@ -249,6 +249,27 @@
     }
 
     async function init() {
+      // CLIENT-SIDE REDIRECT CHECK (9 Aug 2026) — same fix as football.html
+      // and theatre.html, same day, same incident. See
+      // functions/api/entity-redirect.js's header comment for the full
+      // story: sports has no functions/sports/[slug].js either (confirmed
+      // directly), so redirectSlug:sports:{slug} was never being honoured.
+      // Uses the module-level `slug` (declared above, not re-derived here —
+      // this file's own convention, unlike football/theatre which call a
+      // local getSlug()). Runs before anything else renders or fetches.
+      if (slug) {
+        try {
+          const r = await fetch(`/api/entity-redirect?category=sports&slug=${encodeURIComponent(slug)}`);
+          if (r.ok) {
+            const d = await r.json();
+            if (d && d.redirect) {
+              window.location.replace('/' + d.redirect);
+              return;
+            }
+          }
+        } catch { /* redirect check failing should never block a normal page load */ }
+      }
+
       // Hub mode (/sports with no slug): list the sports entities we hold,
       // so the section is browsable and internally linked rather than a
       // dead end that Google sees as a thin page.

@@ -183,6 +183,118 @@ async function classifyCategory(kv, cat, slugs) {
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
 
+  // ── Inspect: raw entity record read, no scoring, no heuristics ─────────
+  // Usage: ?inspect=1&trigger=1&category=football&slug=wolves
+  if (url.searchParams.get('inspect') === '1' && url.searchParams.get('trigger') === '1') {
+    const kv = env.GIGSBERG_KV;
+    if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
+    const cat = (url.searchParams.get('category') || '').trim().toLowerCase();
+    const slug = (url.searchParams.get('slug') || '').trim().toLowerCase();
+    const prefix = ENTITY_PREFIX[cat];
+    if (!prefix || !slug) return jsonResponse({ error: '&category=X and &slug=Y are both required' }, 400);
+    try {
+      const raw = await kv.get(prefix + slug);
+      const metaRaw = await kv.get(`entity:meta:${cat}:${slug}`);
+      const redirect = await kv.get(`redirectSlug:${cat}:${slug}`);
+      return jsonResponse({
+        inspect: true, key: prefix + slug,
+        record: raw ? JSON.parse(raw) : null,
+        recordExists: !!raw,
+        enrichmentMeta: metaRaw ? JSON.parse(metaRaw) : null,
+        redirectsTo: redirect || null,
+        searchTextThatLiveAdaptersWillUse: raw ? (JSON.parse(raw).search || JSON.parse(raw).name || null) : null
+      }, 200);
+    } catch (e) { return jsonResponse({ error: 'inspect failed: ' + String(e) }, 500); }
+  }
+
+  // ── Audit search text: scan a whole category for the SAME ambiguity ────
+  // shape that caused the wolves/Chattanooga Red Wolves SC mismatch — a
+  // bare, short, single-word search term that a live keyword search could
+  // easily match to an unrelated entity. Read-only. Same heuristic the
+  // merge tool's winner-safety check uses, applied here to every entity in
+  // the registry, not just merge candidates — wolves was found via a merge
+  // attempt, but this class of bug can affect ANY entity, merged or not.
+  // Usage: ?auditsearch=1&trigger=1&category=football
+  if (url.searchParams.get('auditsearch') === '1' && url.searchParams.get('trigger') === '1') {
+    const kv = env.GIGSBERG_KV;
+    if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
+    const cat = (url.searchParams.get('category') || '').trim().toLowerCase();
+    const prefix = ENTITY_PREFIX[cat];
+    if (!prefix) return jsonResponse({ error: `&category=X required, one of ${Object.keys(ENTITY_PREFIX).join(', ')}` }, 400);
+
+    let registry = null;
+    try { const r = await kv.get('sitemap:registry'); if (r) registry = JSON.parse(r); }
+    catch (e) { return jsonResponse({ error: 'registry read failed: ' + String(e) }, 500); }
+    if (!registry?.sections) return jsonResponse({ error: 'sitemap:registry not built yet' }, 503);
+    const slugs = Object.keys(registry.sections[cat] || {});
+
+    const flagged = [];
+    let checked = 0;
+    const CHUNK = 25;
+    for (let i = 0; i < slugs.length; i += CHUNK) {
+      const chunk = slugs.slice(i, i + CHUNK);
+      await Promise.all(chunk.map(async (slug) => {
+        try {
+          const raw = await kv.get(prefix + slug);
+          if (!raw) return;
+          checked++;
+          const rec = JSON.parse(raw);
+          const searchText = rec.search || rec.name || '';
+          if (searchText && !searchText.includes(' ') && searchText.length < 10) {
+            flagged.push({ slug, searchText, storedName: rec.name || null });
+          }
+        } catch { /* unreadable record — skip, not a finding */ }
+      }));
+    }
+
+    return jsonResponse({
+      auditsearch: true, category: cat,
+      entitiesChecked: checked,
+      flaggedCount: flagged.length,
+      flagged,
+      interpretation: flagged.length
+        ? `${flagged.length} entities have a bare, single-word search term under 10 characters — the same shape that caused wolves to pull in Chattanooga Red Wolves SC fixtures instead of Wolverhampton Wanderers. Each is WORTH CHECKING, not automatically wrong — a real one-word club/artist name looks identical to a bad one. Use ?inspect=1 on any of these to see the full stored record, and ?fixsearch=1 to correct one once you've confirmed it live (check the actual live compare table for that slug).`
+        : 'No entities in this category currently have a bare single-word search term under 10 characters.'
+    }, 200);
+  }
+
+  // ── Fix search text: correct one entity's .search field ────────────────
+  // Deliberately single-entity, explicit-value, confirm-gated — this is a
+  // targeted correction after a human has looked at ?inspect=1 output and
+  // the live compare table for that slug, not a bulk or automated action.
+  // Usage: ?fixsearch=1&trigger=1&category=football&slug=wolves&newSearch=Wolverhampton%20Wanderers&confirm=yes
+  if (url.searchParams.get('fixsearch') === '1' && url.searchParams.get('trigger') === '1') {
+    const kv = env.GIGSBERG_KV;
+    if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
+    const cat = (url.searchParams.get('category') || '').trim().toLowerCase();
+    const slug = (url.searchParams.get('slug') || '').trim().toLowerCase();
+    const newSearch = (url.searchParams.get('newSearch') || '').trim();
+    const prefix = ENTITY_PREFIX[cat];
+    if (!prefix || !slug || !newSearch) return jsonResponse({ error: '&category=X, &slug=Y and &newSearch=... are all required' }, 400);
+    const confirm = url.searchParams.get('confirm') === 'yes';
+
+    try {
+      const raw = await kv.get(prefix + slug);
+      if (!raw) return jsonResponse({ error: `No record at ${prefix}${slug}` }, 404);
+      const rec = JSON.parse(raw);
+      const before = rec.search || rec.name || null;
+      if (!confirm) {
+        return jsonResponse({
+          fixsearch: true, dryRun: true, key: prefix + slug,
+          currentSearchText: before, proposedSearchText: newSearch,
+          message: 'Dry run — nothing written. Add &confirm=yes to apply.'
+        }, 200);
+      }
+      rec.search = newSearch;
+      await kv.put(prefix + slug, JSON.stringify(rec));
+      return jsonResponse({
+        fixsearch: true, dryRun: false, key: prefix + slug,
+        previousSearchText: before, newSearchText: newSearch,
+        message: 'Written. Live compare-table adapters for this entity will use the new search text on their next fetch — no cache to clear, this is read live per page load.'
+      }, 200);
+    } catch (e) { return jsonResponse({ error: 'fixsearch failed: ' + String(e) }, 500); }
+  }
+
   if (url.searchParams.get('repair') === '1' && url.searchParams.get('trigger') === '1') {
     return runRepair(url, env);
   }
@@ -193,7 +305,7 @@ export async function onRequestGet({ request, env }) {
 
   if (url.searchParams.get('scan') !== '1' || url.searchParams.get('trigger') !== '1') {
     return jsonResponse({
-      error: 'Pass ?scan=1&trigger=1 to scan (read-only). Pass ?merge=1&trigger=1 to merge the safe tiers (dry-run by default, &confirm=yes to write). Pass ?repair=1&trigger=1 to restore registry entries removed by a redirect that is not actually honored by the router (dry-run by default). Optional on scan: &category=X, &tier=A|B|C|all'
+      error: 'Pass ?scan=1&trigger=1 to scan (read-only). Pass ?merge=1&trigger=1 to merge the safe tiers (dry-run by default, &confirm=yes to write). Pass ?repair=1&trigger=1&category=X to restore registry entries removed by a redirect that is not honoured by the router (dry-run by default). Pass ?inspect=1&trigger=1&category=X&slug=Y to read one entity\'s raw stored record. Pass ?auditsearch=1&trigger=1&category=X to scan for ambiguous single-word search text across a category. Pass ?fixsearch=1&trigger=1&category=X&slug=Y&newSearch=... to correct one entity\'s search text (dry-run by default). Optional on scan: &category=X, &tier=A|B|C|all'
     }, 400);
   }
 
