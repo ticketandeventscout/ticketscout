@@ -18,8 +18,40 @@
 #
 # Sitemap is a non-group directive (host-scoped, not group-scoped), so its
 # position is functionally irrelevant — kept at the top for visibility.
+#
+# WHY THIS POINTS AT /api/sitemap?sec=index AND NOT /sitemap.xml (9 Aug 2026):
+# the static /sitemap.xml in the repo root cannot carry an accurate <lastmod>
+# — any date committed into it is stale the moment the next entity
+# auto-commits, and Google disregards <lastmod> sitewide once it decides the
+# values are untrustworthy, which is strictly worse than emitting none.
+# <lastmod> is Google's primary signal for which child sitemaps to re-fetch
+# and how often, so on a continuously auto-committing registry it directly
+# controls how fast new event pages get discovered.
+#
+# /api/sitemap?sec=index generates that index live with real per-section
+# dates (see functions/api/sitemap.js — every date derives from the same data
+# the child sitemaps emit per URL, never Date.now()).
+#
+# Two other routes to the same goal were tried and rejected on evidence:
+#   - a Pages Function at functions/sitemap.xml.js — never mapped to
+#     /sitemap.xml; 404'd once the static file was removed.
+#   - a _redirects 200-rewrite /sitemap.xml → /api/sitemap?sec=index —
+#     verified on a throwaway /sitemap-test.xml path and it 404'd too, so
+#     _redirects rewrites do not reach Function routes on this deployment
+#     (they do work to static files — see /concerts in _redirects).
+# Pointing the directive straight at the working URL needs no routing
+# behaviour at all and cannot 404. Google accepts a sitemap at ANY URL; there
+# is no requirement that it be named sitemap.xml or sit at the root.
+#
+# The static /sitemap.xml is deliberately LEFT IN PLACE as a fallback — it
+# still lists all seven children correctly, just without <lastmod>, so
+# anything already pointing at it keeps working.
+#
+# "Allow: /api/sitemap" appears in every group below, so this is fetchable.
+# ALSO SUBMIT THIS EXACT URL IN GSC > SITEMAPS — changing the directive here
+# does not update what GSC is already tracking.
 
-Sitemap: https://ticketscout.co.uk/sitemap.xml
+Sitemap: https://ticketscout.co.uk/api/sitemap?sec=index
 
 # ---------------------------------------------------------------------------
 # Blocked: write / admin / debug / redirect / cache endpoints only.
