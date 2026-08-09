@@ -1419,13 +1419,57 @@
           return; // flat trend: no badge — avoid noise
         }
         var h1 = document.getElementById('artist-name');
-        if (!h1 || document.getElementById('price-trend-badge')) return;
-        var badge = document.createElement('div');
-        badge.id = 'price-trend-badge';
-        badge.textContent = text;
-        badge.style.cssText = 'display:inline-block;margin-top:8px;padding:4px 12px;'
-          + 'border-radius:14px;font-size:13px;font-weight:600;background:' + bg + ';color:' + fg + ';';
-        h1.insertAdjacentElement('afterend', badge);
+        if (h1 && !document.getElementById('price-trend-badge')) {
+          var badge = document.createElement('div');
+          badge.id = 'price-trend-badge';
+          badge.textContent = text;
+          badge.style.cssText = 'display:inline-block;margin-top:8px;padding:4px 12px;'
+            + 'border-radius:14px;font-size:13px;font-weight:600;background:' + bg + ';color:' + fg + ';';
+          h1.insertAdjacentElement('afterend', badge);
+        }
+      })
+      .catch(function () {});
+
+    // L4 fix (9 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md) — same fix as
+    // concert.html, adapted to this file's own schema conventions
+    // (SportsTeam + competitor, not MusicGroup + performer). See
+    // concert.html's identical block for the full rationale: purely
+    // additive, decoupled from the badge fetch above so a bug in one can
+    // never affect the other, no highPrice fabricated since nothing here
+    // tracks a real maximum.
+    fetch('/api/price-history?slug=' + encodeURIComponent(slug))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.summary || d.summary.low30d == null) return;
+        var s = d.summary;
+        try {
+          var schemaEl = document.getElementById('schema-org');
+          var schema = JSON.parse(schemaEl.textContent || '{}');
+          if (!schema['@graph'] || !schema['@graph'].length) return;
+
+          var name = (schema['@graph'][0] && schema['@graph'][0].organizer && schema['@graph'][0].organizer.name) || '';
+          if (!name) return;
+
+          var teamId = 'https://ticketscout.co.uk/football/' + slug + '#team';
+          schema['@graph'].push({
+            '@type': 'SportsTeam',
+            '@id': teamId,
+            'name': name,
+            'offers': {
+              '@type': 'AggregateOffer',
+              'lowPrice': s.low30d,
+              'priceCurrency': 'GBP',
+              'offerCount': s.upcomingEvents || schema['@graph'].length,
+              'url': location.origin + location.pathname
+            }
+          });
+          schema['@graph'].forEach(function (node) {
+            if (node['@type'] === 'SportsEvent' && Array.isArray(node.competitor)) {
+              node.competitor = [{ '@id': teamId }];
+            }
+          });
+          schemaEl.textContent = JSON.stringify(schema);
+        } catch (e) { /* never let schema enrichment break page rendering */ }
       })
       .catch(function () {});
   })();

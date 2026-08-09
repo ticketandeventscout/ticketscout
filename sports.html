@@ -604,5 +604,54 @@
   </script>
   <script src="/events.js" defer></script>
   <script src="/autocomplete.js" defer></script>
+
+  <script>
+  // L4 fix (9 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md) — AggregateOffer
+  // priceRange for this entity, same intent as concert/football/theatre's
+  // identical fix, but built differently here on purpose. This page's
+  // existing schema is a single ItemList (not a @graph array) — deliberately
+  // built that way per the H4 comment above to stop the entity page
+  // competing with /event/ pages in Google's own ranking. Editing that
+  // structure to inject a second node risks breaking a fix that was
+  // carefully validated against a real GSC issue. Instead this appends a
+  // COMPLETELY SEPARATE <script type="application/ld+json"> tag — schema.org
+  // and Google both support multiple independent JSON-LD blocks on one page,
+  // so this adds new information without touching the existing, working one
+  // at all. No highPrice fabricated, same reasoning as the other three files.
+  (function () {
+    var slug = window.__SPORTS_SLUG__ || (location.pathname.match(/\/sports\/([a-z0-9-]+)/) || [])[1];
+    if (!slug) return;
+    fetch('/api/price-history?slug=' + encodeURIComponent(slug))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.summary || d.summary.low30d == null) return;
+        var s = d.summary;
+        try {
+          var h1 = document.getElementById('artist-name');
+          var name = h1 ? h1.textContent.replace(/ Tickets$/, '') : '';
+          if (!name || name === 'Sports') return; // still on the loading-state placeholder — nothing real to attach a name to yet
+
+          var el = document.createElement('script');
+          el.type = 'application/ld+json';
+          el.id = 'schema-org-aggregate-offer';
+          el.textContent = JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'SportsTeam',
+            '@id': 'https://ticketscout.co.uk/sports/' + slug + '#team',
+            'name': name,
+            'offers': {
+              '@type': 'AggregateOffer',
+              'lowPrice': s.low30d,
+              'priceCurrency': 'GBP',
+              'offerCount': s.upcomingEvents || 1,
+              'url': location.origin + location.pathname
+            }
+          });
+          document.head.appendChild(el);
+        } catch (e) { /* never let schema enrichment break page rendering */ }
+      })
+      .catch(function () {});
+  })();
+  </script>
 </body>
 </html>

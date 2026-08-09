@@ -1329,13 +1329,53 @@
           return; // flat trend: no badge — avoid noise
         }
         var h1 = document.getElementById('artist-name');
-        if (!h1 || document.getElementById('price-trend-badge')) return;
-        var badge = document.createElement('div');
-        badge.id = 'price-trend-badge';
-        badge.textContent = text;
-        badge.style.cssText = 'display:inline-block;margin-top:8px;padding:4px 12px;'
-          + 'border-radius:14px;font-size:13px;font-weight:600;background:' + bg + ';color:' + fg + ';';
-        h1.insertAdjacentElement('afterend', badge);
+        if (h1 && !document.getElementById('price-trend-badge')) {
+          var badge = document.createElement('div');
+          badge.id = 'price-trend-badge';
+          badge.textContent = text;
+          badge.style.cssText = 'display:inline-block;margin-top:8px;padding:4px 12px;'
+            + 'border-radius:14px;font-size:13px;font-weight:600;background:' + bg + ';color:' + fg + ';';
+          h1.insertAdjacentElement('afterend', badge);
+        }
+      })
+      .catch(function () {});
+
+    // L4 fix (9 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md) — same fix as
+    // concert.html, adapted to this file's own conventions. Uses
+    // Organization rather than a performer-type (MusicGroup/SportsTeam)
+    // since theatre events here carry no performer/cast field at all to
+    // relink — a "show" isn't a performing entity in the same sense, so
+    // there's nothing to point @id references at; this just appends the
+    // new node standalone. See concert.html's identical block for the
+    // full rationale on why it's a decoupled fetch and why highPrice is
+    // deliberately omitted.
+    fetch('/api/price-history?slug=' + encodeURIComponent(slug))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.summary || d.summary.low30d == null) return;
+        var s = d.summary;
+        try {
+          var schemaEl = document.getElementById('schema-org');
+          var schema = JSON.parse(schemaEl.textContent || '{}');
+          if (!schema['@graph'] || !schema['@graph'].length) return;
+
+          var name = (schema['@graph'][0] && schema['@graph'][0].organizer && schema['@graph'][0].organizer.name) || '';
+          if (!name) return;
+
+          schema['@graph'].push({
+            '@type': 'Organization',
+            '@id': 'https://ticketscout.co.uk/theatre/' + slug + '#show',
+            'name': name,
+            'offers': {
+              '@type': 'AggregateOffer',
+              'lowPrice': s.low30d,
+              'priceCurrency': 'GBP',
+              'offerCount': s.upcomingEvents || schema['@graph'].length,
+              'url': location.origin + location.pathname
+            }
+          });
+          schemaEl.textContent = JSON.stringify(schema);
+        } catch (e) { /* never let schema enrichment break page rendering */ }
       })
       .catch(function () {});
   })();
