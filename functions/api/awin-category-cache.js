@@ -217,6 +217,7 @@ export async function onRequestGet({ request, env }) {
       let buffer = '';
       let headerLine = null;
       let colMap = null;
+      let colMapMeta = null;
       const samples = [];
       let rowsScanned = 0;
       let streamEnded = false;
@@ -257,7 +258,22 @@ export async function onRequestGet({ request, env }) {
 
             if (!headerLine) {
               headerLine = line;
-              colMap = buildColMapFromHeader(headerLine);
+              // FIX (9 Aug 2026), FOURTH pass — this is the actual root
+              // cause of every previous zero-result run, untouched by the
+              // feed-URL fix or the quote-parsing fix: buildColMapFromHeader
+              // returns { map, fromHeader, totalCols }, NOT the flat column
+              // map itself. Every prior version of this diagnostic did
+              // `colMap = buildColMapFromHeader(headerLine)` and then read
+              // colMap.merchant_name directly — which was always undefined.
+              // `undefined < fields.length` is always false in JS, so the
+              // merchant-index guard silently failed on EVERY row regardless
+              // of the real data, which is why this returned zero matches no
+              // matter which feed URL or parsing approach was used. The
+              // production code was never affected — parseFeedStream()
+              // correctly does `ACTIVE_COL = built.map`.
+              const built = buildColMapFromHeader(headerLine);
+              colMap = built.map;
+              colMapMeta = { fromHeader: built.fromHeader, totalCols: built.totalCols };
               continue;
             }
             if (!line.trim()) continue;
@@ -285,19 +301,29 @@ export async function onRequestGet({ request, env }) {
       }
       try { await reader.cancel(); } catch {}
 
-      const currencyColumnFound = colMap && colMap.currency !== -1;
+      // NOTE: buildColMapFromHeader() falls back to a legacy hardcoded index
+      // for any column not found by name (mapped[key] = COL[key] || key —
+      // see its own source), so mapped.currency is essentially never
+      // literally -1 once that fallback has run. "!== -1" alone no longer
+      // distinguishes a genuine by-name match from a lucky/unlucky fallback
+      // landing on the right or wrong column. Verify independently by
+      // checking what the header itself actually says sits at that index.
+      const headerNames = headerLine ? parseCsvLine(headerLine) : [];
+      const currencyIndexGenuinelyNamedCurrency = colMap
+        ? (headerNames[colMap.currency] || '').toLowerCase().replace(/[^a-z0-9]/g, '') === 'currency'
+        : false;
       let interpretation;
       if (samples.length === 0) {
         interpretation = merchantFilter
           ? `No rows matching merchant filter "${merchantFilter}" were found in ${rowsScanned} scanned rows` +
             (streamEnded ? ' (the feed stream ended before the scan ceiling — either this merchant sits later in the file than this scan reached in a prior run, or genuinely was not present in this fetch; re-run with a higher effective range or without a merchant filter to sanity-check the feed is complete).' : '.')
           : `No data rows were parsed at all in ${rowsScanned} scanned rows — check rawHeaderLine, the feed may be empty or malformed on this fetch.`;
-      } else if (!currencyColumnFound) {
-        interpretation = 'CONFIRMED: the currency column was NOT found in this header by any known alias — every sampled row is defaulting to GBP regardless of its real currency. This is the bug. Check rawHeaderLine for what the actual column is named today and add it as a new alias to the find() call for currency in buildColMapFromHeader.';
+      } else if (!currencyIndexGenuinelyNamedCurrency) {
+        interpretation = `The currency index (${colMap.currency}) does NOT point at a column actually named "currency" in this header (it points at "${headerNames[colMap.currency] || '(out of range)'}") — buildColMapFromHeader's legacy-index fallback landed on the wrong column. This is the bug: every row is reading the wrong field as currency, defaulting to whatever text sits there, which is likely non-numeric and falls through to 'GBP' regardless of the real price's actual currency.`;
       } else if (samples.some(s => s.currency_raw_value && s.currency_raw_value.toUpperCase() !== 'GBP')) {
-        interpretation = 'Currency column IS found and non-GBP values ARE present in the raw feed for these sampled rows — parsing is working correctly here. If the live compare table is still showing wrong symbols for this merchant, the bug is downstream of this file, not in the feed parsing.';
+        interpretation = 'Currency column IS genuinely found by name and non-GBP values ARE present in the raw feed for these sampled rows — parsing is working correctly here. If the live compare table is still showing wrong symbols for this merchant, the bug is downstream of this file, not in the feed parsing.';
       } else {
-        interpretation = 'Currency column is found, and every one of the ' + samples.length + ' sampled rows reads GBP. Either this merchant genuinely prices in GBP only, or the column is found by name but pointing at the wrong data — check currency_raw_value against rawHeaderLine manually.';
+        interpretation = 'Currency column is genuinely found by name, and every one of the ' + samples.length + ' sampled rows reads GBP. This merchant appears to price in GBP only for these sampled rows — worth sampling more rows or a different merchant filter before concluding the whole feed is GBP-only.';
       }
 
       return jsonResp({
@@ -307,8 +333,9 @@ export async function onRequestGet({ request, env }) {
         rowsScanned,
         streamEndedBeforeTarget: streamEnded,
         samplesFound: samples.length,
-        currencyColumnFoundInHeader: currencyColumnFound,
         currencyColumnIndex: colMap ? colMap.currency : null,
+        currencyColumnGenuinelyNamedCurrency: currencyIndexGenuinelyNamedCurrency,
+        columnsMatchedByNameVsFallback: colMapMeta,
         rawHeaderLine: headerLine ? headerLine.slice(0, 2000) : null,
         samples,
         interpretation
