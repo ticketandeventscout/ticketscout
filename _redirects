@@ -15,3 +15,81 @@
 # Do NOT add /football → /football.html (causes redirect loop with football/ directory)
 
 /concerts  /concert.html   200
+
+
+# ===========================================================================
+# SITEMAP INDEX — added 9 Aug 2026
+# ===========================================================================
+#
+# WHY: robots.txt points Google at /sitemap.xml, which is a STATIC file
+# listing the seven child sitemaps with no <lastmod> at all. <lastmod> on a
+# sitemap index is Google's primary signal for which child sitemaps to
+# re-fetch and how often — on a registry that auto-commits pages
+# continuously, without it Google has no way to know the concert section
+# changed today. On a ticket site, speed-to-index is the business.
+#
+# A static file fundamentally cannot carry an accurate <lastmod>: any date
+# committed into it is stale the moment the next entity auto-commits, and
+# Google disregards <lastmod> SITEWIDE once it decides the values are
+# untrustworthy — strictly worse than emitting none at all.
+#
+# /api/sitemap?sec=index already generates a correct index with real per-
+# section dates (see functions/api/sitemap.js — each date is derived from the
+# same data the child sitemaps emit per URL, never Date.now()).
+#
+# ---------------------------------------------------------------------------
+# PRECEDENCE: in Cloudflare Pages a STATIC FILE at a path ALWAYS wins over
+# any _redirects rule or Function at that same path. So while /sitemap.xml
+# exists as a real file in the repo root, the /sitemap.xml rule below is
+# INERT. That is deliberate — see the staged rollout.
+#
+# This is also why an earlier attempt using a Pages Function
+# (functions/sitemap.xml.js) appeared to do nothing, then 404'd once the
+# static file was deleted. NEVER delete the static file until the replacement
+# is PROVEN to serve correctly.
+#
+# ---------------------------------------------------------------------------
+# STAGED ROLLOUT — in order, do not skip step 2:
+#
+#   1. Deploy this file with the static /sitemap.xml STILL IN PLACE.
+#      Nothing changes. Zero risk.
+#
+#   2. Visit https://ticketscout.co.uk/sitemap-test.xml
+#      - XML with <lastmod> on each <sitemap> entry → mechanism works,
+#        go to step 3.
+#      - 404 page → the rewrite does not reach Function routes on this
+#        deployment. STOP. Do not touch /sitemap.xml. Use Plan B below.
+#
+#      (Why this test is necessary even though /concerts above proves 200
+#      rewrites work: that rule rewrites to a STATIC file. These rewrite to a
+#      FUNCTION route carrying a query string — similar, but not the same
+#      code path. Prove it rather than assume it.)
+#
+#   3. Only after step 2 passes: delete the static /sitemap.xml from the repo
+#      root and redeploy. /sitemap.xml then serves the dynamic index.
+#
+#   4. Verify /sitemap.xml shows <lastmod>, and that the values are VARIED
+#      across sections rather than all identical to today — all-identical-to-
+#      today is the exact pattern that makes Google distrust lastmod sitewide.
+#
+#   5. Once /sitemap.xml is confirmed, the sitemap-test.xml rule can be
+#      deleted. Harmless to leave, but it is scaffolding, not a feature.
+#
+# ---------------------------------------------------------------------------
+# PLAN B — if step 2 fails, needs no routing behaviour at all:
+#
+#   Leave the static /sitemap.xml where it is, delete the two rules below,
+#   and change ONE line in robots.txt:
+#       Sitemap: https://ticketscout.co.uk/api/sitemap?sec=index
+#   Then submit that same URL in GSC > Sitemaps.
+#
+#   Google accepts a sitemap at any URL — it need not be named sitemap.xml
+#   nor sit at the root. robots.txt already has "Allow: /api/sitemap" in
+#   every crawler group, so it is fetchable. Durable, and cannot 404.
+# ===========================================================================
+
+# Step 2 test rule (scaffolding — delete once /sitemap.xml is confirmed)
+/sitemap-test.xml  /api/sitemap?sec=index  200
+
+# The real rule. INERT until the static /sitemap.xml is deleted (step 3).
+/sitemap.xml  /api/sitemap?sec=index  200
