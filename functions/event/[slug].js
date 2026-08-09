@@ -490,7 +490,7 @@ function renderPage(d) {
     </div>
   </footer>
 
-  <script src="/compare.js?v=20260809a"></script>
+  <script src="/compare.js?v=20260809b"></script>
   <script>
     (function () {
       var EV = ${hydrate};
@@ -564,11 +564,29 @@ function renderPage(d) {
   // gives up quietly after ~4s, calling back with null — the chart then just
   // shows its own figure. Reads the same data-price rows and E2 implausible
   // flag compare.js uses for its own "Best price" badge, so we agree with it.
+  //
+  // REGRESSION FIX (9 Aug 2026): this used to return as soon as ANY
+  // '#compare-rows .compare-row' existed. The CLS fix shipped 6 Aug added
+  // SKELETON loading rows that deliberately reuse .compare-row so their
+  // height matches a real row exactly — so from the first paint this
+  // selector matched immediately, the poll returned on placeholder rows that
+  // carry no data-price, every parseFloat was NaN, and the callback got
+  // null. Reconciliation then bailed at its first guard and the card kept
+  // showing the stale sampled figure while the table below it displayed a
+  // cheaper live price (£158.35 vs £122 on the JAY-Z page).
+  //
+  // Two guards now, both reading signals compare.js already sets:
+  //   - aria-busy="true" on #compare-rows means still loading -> keep polling
+  //   - aria-hidden="true" on a row means it is a skeleton -> skip it
+  // Either alone would fix this; both together mean a future change to one
+  // of them cannot silently reintroduce the bug.
   function livePriceThen(cb) {
     var tries = 0, MAX = 20; // 20 × 200ms = 4s
     (function poll() {
-      var rows = document.querySelectorAll('#compare-rows .compare-row');
-      if (rows.length) {
+      var table = document.getElementById('compare-rows');
+      var stillLoading = table && table.getAttribute('aria-busy') === 'true';
+      var rows = document.querySelectorAll('#compare-rows .compare-row:not([aria-hidden="true"])');
+      if (!stillLoading && rows.length) {
         var lo = Infinity;
         rows.forEach(function (row) {
           if (row.dataset.implausible === '1') return;
