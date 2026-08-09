@@ -1048,6 +1048,40 @@
             if (!keptDate || !rDate) return keptFuzzy === rFuzzy;
             return Math.abs(new Date(keptDate) - new Date(rDate)) / 86400000 <= 2;
           });
+    // ── Currency → GBP (fixed 9 Aug 2026) ──────────────────────────────────
+    // WAS: `c === 'GBP' ? p : Math.round(p / 1.27)` — a single hardcoded USD
+    // rate applied to EVERY non-GBP currency. Correct for USD by coincidence,
+    // wrong for everything else, and badly wrong for PLN: Eventim PL quotes
+    // in zloty, where the real rate is ~5.0 per GBP, so a 500 PLN ticket
+    // (~£100) was being displayed as "From £394". EUR (Ticombo) was ~8% out
+    // in the other direction.
+    //
+    // Rates are "units of currency per 1 GBP" — divide a foreign amount by
+    // its rate to get GBP. Same convention, same fallback values and same
+    // /api/fx source as compare.js's toGbp() and fx.js.
+    //
+    // NB there is a SECOND, INVERTED rate table in this codebase: price-
+    // rollup.js writes KV 'fx:rates' as GBP-per-unit (USD ~0.74) and its
+    // consumers — price-sampler.js, sportsevents365.js — MULTIPLY. Both
+    // families are internally consistent; do not mix them. If you ever move
+    // this helper to a shared file, keep that distinction explicit.
+    //
+    // compare.js is not loaded on this page, so this is a small local copy
+    // rather than a call into it. Kicked off at parse time; if the fetch has
+    // not resolved by the time prices are merged, the fallback table is used
+    // — accurate to within a few percent, never wrong by a multiple.
+    let FX_PER_GBP = { GBP: 1, USD: 1.27, EUR: 1.17, PLN: 5.0, CHF: 1.12, CAD: 1.73, AUD: 1.93, SGD: 1.71 };
+    fetch('/api/fx')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && d.rates && d.rates.GBP === 1) FX_PER_GBP = { ...FX_PER_GBP, ...d.rates }; })
+      .catch(() => { /* keep fallback rates */ });
+    function toGbpLocal(amount, currency) {
+      const cur  = String(currency || 'GBP').toUpperCase();
+      const rate = FX_PER_GBP[cur];
+      if (!rate || !amount) return Math.round(amount || 0); // unknown currency → leave as-is
+      return Math.round(amount / rate);
+    }
+
           // Find minimum GBP price across all matched sources
           // Prefer GBP prices; treat USD prices as approximate (divide by 1.27)
           let minGbp = null;
@@ -1055,7 +1089,7 @@
             const p = r.priceRanges?.[0]?.min;
             const c = r.priceRanges?.[0]?.currency || 'GBP';
             if (!p) return;
-            const gbp = c === 'GBP' ? p : Math.round(p / 1.27);
+            const gbp = toGbpLocal(p, c);
             if (minGbp === null || gbp < minGbp) minGbp = gbp;
           });
           if (minGbp !== null) {
