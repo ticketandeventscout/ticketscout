@@ -41,3 +41,14 @@
 # If you are considering adding a sitemap rewrite here again: it was tested,
 # it does not work, and the working solution is already live in robots.txt.
 # ===========================================================================
+
+
+# ===========================================================================
+# /compare — added 10 Aug 2026 (content strategy, TICKETSCOUT-AUDIT-ROADMAP.md
+# recommendation #4). Same proven rewrite pattern as the /concerts rule at
+# the top of this file — a clean URL rewriting to a static .html file — not
+# the sitemap.xml pattern above, which specifically failed on a Function
+# target. compare-page.html is a plain static file, so this is expected to
+# work the same way /concerts already does.
+# ===========================================================================
+/compare  /compare-page.html   200

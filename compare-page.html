@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="How TicketScout compares ticket prices: which 12 sellers we check, how we normalise currencies, and how our Trusted Seller badge is earned — not sold." />
+  <title>How We Compare Ticket Prices | TicketScout</title>
+  <link rel="canonical" href="https://ticketscout.co.uk/compare" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="TicketScout" />
+  <meta property="og:title" content="How We Compare Ticket Prices | TicketScout" />
+  <meta property="og:description" content="Which 12 sellers we check, how prices are normalised to GBP, and how the Trusted Seller badge is earned from real historical accuracy — not paid for." />
+  <meta property="og:url" content="https://ticketscout.co.uk/compare" />
+  <meta property="og:image" content="https://ticketscout.co.uk/ogdefault.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
+
+  <!--
+    content-strategy build (10 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md,
+    recommendation #4): "compare ticket prices", "UK ticket sites", "booking
+    fees explained" already earn real impressions with no dedicated page at
+    all. This is that page.
+
+    Deliberately a NEW static file, not a Function — after today's homepage
+    routing saga, this content doesn't need to be dynamic enough to justify
+    that risk. The one live piece (which sellers currently carry the
+    Trusted Seller badge) is a client-side fetch to /api/merchant-status,
+    an endpoint already proven live and stable all session — no new backend
+    surface, no new routing risk.
+
+    HONESTY CONSTRAINTS carried over from the rest of this session's work:
+    - The 12 sellers listed below are MERCHANT_IDS from merchant-status.js,
+      verbatim — not a marketing-rounded "13+", the real list.
+    - Trust badges are read live from /api/merchant-status, the same data
+      compare.js's own "✓ Trusted Seller" badge uses — never a separate,
+      possibly-inconsistent claim.
+    - Raw trust SCORES are deliberately never shown — merchant-status.js's
+      own header comment marks scores "NOT for display", only badges (a
+      pass/fail earned at ≥0.8 trust AND ≥60 days of data). Showing a raw
+      percentage would imply a false precision this data was never meant to
+      support publicly.
+    - No claim about historical price savings is made anywhere on this page
+      unless it's backed by a real number this session's infrastructure can
+      actually produce — none currently can be trusted enough to publish,
+      so none are claimed. "We compare live" is accurate; "we save you 23%"
+      would not be, without real aggregate analysis this site doesn't
+      generate yet.
+
+    URL: served at /compare via a _redirects rewrite (/compare compare.html
+    200) — same pattern already proven working for /concerts, not a new
+    mechanism.
+  -->
+</head>
+<body>
+
+  <!-- Navigation — identical structure to index.html for consistency -->
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="/" aria-label="TicketScout - Compare UK Ticket Prices" style="text-decoration:none; display:flex; align-items:center; gap:10px;">
+        <svg width="36" height="36" viewBox="0 40 248 200" xmlns="http://www.w3.org/2000/svg">
+          <rect x="40" y="72" width="168" height="136" rx="12" fill="#1a6fc4"/>
+          <circle cx="40" cy="140" r="16" fill="#ffffff"/>
+          <circle cx="208" cy="140" r="16" fill="#ffffff"/>
+          <line x1="40" y1="140" x2="208" y2="140" stroke="#ffffff" stroke-width="2" stroke-dasharray="6 5" opacity="0.5"/>
+          <rect x="62" y="92" width="88" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+          <rect x="62" y="106" width="60" height="6" rx="3" fill="#ffffff" opacity="0.6"/>
+          <g transform="translate(168, 112)">
+            <polygon points="0,-14 3.5,-5 13,-5 5.5,1 8.5,11 0,5.5 -8.5,11 -5.5,1 -13,-5 -3.5,-5" fill="#ffffff" opacity="0.95"/>
+          </g>
+          <rect x="62" y="158" width="50" height="5" rx="2.5" fill="#ffffff" opacity="0.5"/>
+          <rect x="62" y="170" width="72" height="5" rx="2.5" fill="#ffffff" opacity="0.35"/>
+          <rect x="62" y="182" width="40" height="5" rx="2.5" fill="#ffffff" opacity="0.25"/>
+        </svg>
+        <div style="display:flex; flex-direction:column; justify-content:center; line-height:1.2;">
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:700; font-size:22px; color:#0c2d5a; letter-spacing:-0.5px;">TicketScout</span>
+          <span style="font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:400; font-size:11px; color:#1a6fc4; letter-spacing:2px;">compare. save. enjoy.</span>
+        </div>
+      </a>
+      <div class="nav-links">
+        <a href="/concert">Concerts</a>
+        <a href="/football">Football</a>
+        <a href="/theatre">Theatre</a>
+        <a href="/sports">Sports</a>
+      </div>
+    </div>
+  </nav>
+
+  <div style="max-width:760px; margin:0 auto; padding:48px 20px 80px; font-family:'Inter','Helvetica Neue',Arial,sans-serif; color:#1a1a1a; line-height:1.65;">
+
+    <div style="font-size:13px; color:#888; margin-bottom:8px;">
+      <a href="/" style="color:#888; text-decoration:none;">Home</a> › How we compare
+    </div>
+    <h1 style="font-size:32px; font-weight:700; color:#0c2d5a; margin:0 0 6px;">How TicketScout compares ticket prices</h1>
+    <p style="font-size:17px; color:#444; margin:0 0 40px;">Every event page checks up to 12 sellers live and shows you the lowest genuine price first. Here's exactly how, and who we actually check.</p>
+
+    <section style="margin-bottom:40px;">
+      <h2 style="font-size:20px; color:#0c2d5a; margin:0 0 12px;">What "compare" actually means here</h2>
+      <p>When you open an event page, TicketScout queries each seller's own live catalogue — Ticketmaster's official inventory alongside resale marketplaces — at the moment you load the page, not from a cached snapshot from days ago. Prices from different currencies are converted to GBP using live exchange rates so every row is a fair, like-for-like comparison. The cheapest genuine price is highlighted; listings that look implausibly low compared to everything else for the same event (a common sign of a stale or broken listing, not a real deal) are filtered out rather than shown as a false best price.</p>
+      <p>We link you directly to the seller to complete your purchase. TicketScout doesn't sell tickets, doesn't hold your payment details, and doesn't add any booking fee of our own on top of what the seller charges.</p>
+    </section>
+
+    <section style="margin-bottom:40px;">
+      <h2 style="font-size:20px; color:#0c2d5a; margin:0 0 12px;">The sellers we check</h2>
+      <p style="margin-bottom:16px;">Not every seller carries every event — a compare table shows whichever of these actually have that event listed, which is usually somewhere between 3 and 12 of the following:</p>
+      <div id="seller-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px;">
+        <div class="loading" style="grid-column:1/-1; color:#888; font-size:14px;">Loading current seller status…</div>
+      </div>
+      <p style="font-size:13px; color:#666; margin-top:14px;">
+        <span style="display:inline-block; background:#15803d; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; vertical-align:1px;">✓</span>
+        &nbsp;Trusted Seller is earned automatically from real historical accuracy — at least 60 days of tracked listings with consistently reliable pricing and availability — not a paid placement. It's computed nightly from our own price-tracking data, the same signal used on every compare table.
+      </p>
+    </section>
+
+    <section style="margin-bottom:40px;">
+      <h2 style="font-size:20px; color:#0c2d5a; margin:0 0 12px;">What we don't do</h2>
+      <ul style="padding-left:20px; margin:0;">
+        <li style="margin-bottom:8px;">We don't add a booking fee. The price you see (where a seller provides one) is theirs, not ours plus a markup.</li>
+        <li style="margin-bottom:8px;">We don't accept payment to rank a seller higher, or to award the Trusted Seller badge.</li>
+        <li style="margin-bottom:8px;">We don't sell tickets ourselves or hold your money — every purchase happens directly on the seller's own site.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2 style="font-size:20px; color:#0c2d5a; margin:0 0 12px;">A note on resale prices</h2>
+      <p>Several of the sellers we check are resale marketplaces, where prices are set by individual sellers and can be above or below the ticket's original face value depending on demand. We show what's actually listed, but always confirm the final price — including any fees the seller itself charges — on their site before completing a purchase.</p>
+    </section>
+
+    <div style="margin-top:48px; padding-top:24px; border-top:1px solid #eee;">
+      <a href="/" style="color:#1a6fc4; text-decoration:none; font-weight:600;">← Back to TicketScout</a>
+    </div>
+
+  </div>
+
+  <!-- Footer — identical structure to index.html -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <p>© 2026 TicketScout · ticketscout.co.uk · All prices in GBP</p>
+      <p style="margin-top:6px;"><a href="/privacy">Privacy Policy</a> · <a href="/terms">Terms of Use</a> · <a href="/faq">FAQ</a> · <a href="/contact">Contact</a></p>
+      <p style="margin-top:14px; font-size:12px; color:#666; max-width:560px; margin-left:auto; margin-right:auto; line-height:1.5;">
+        TicketScout does not sell tickets and is not a ticket retailer. We display pricing and availability sourced from third-party providers and cannot guarantee its accuracy. Always confirm event details, pricing and availability on the seller's site before purchasing.
+      </p>
+    </div>
+  </footer>
+
+  <script>
+  (function () {
+    // Real display names for the MERCHANT_IDS list in merchant-status.js —
+    // kept as a small local map here rather than fetched, since these
+    // names essentially never change and this avoids a second endpoint.
+    var SELLERS = [
+      { id: 'tm',            name: 'Ticketmaster' },
+      { id: 'gigsberg',      name: 'Gigsberg UK' },
+      { id: 'ftn',           name: 'Football TicketNet' },
+      { id: 'ttd',           name: 'Theatre Tickets Direct' },
+      { id: 'eventim_uk',    name: 'Eventim UK' },
+      { id: 'eventim_pl',    name: 'Eventim PL' },
+      { id: 'se365',         name: 'SportsEvents365' },
+      { id: 'vividseats',    name: 'Vivid Seats' },
+      { id: 'ticketnetwork', name: 'TicketNetwork' },
+      { id: 'ticombo',       name: 'Ticombo' },
+      { id: 'skiddle',       name: 'Skiddle' },
+      { id: 'seatgeek',      name: 'SeatGeek' }
+    ];
+
+    function renderGrid(badges, suspended) {
+      var grid = document.getElementById('seller-grid');
+      grid.innerHTML = '';
+      SELLERS.forEach(function (s) {
+        if (suspended && suspended.indexOf(s.id) !== -1) return; // don't list a currently-suspended source as available
+        var trusted = badges && badges.indexOf(s.id) !== -1;
+        var card = document.createElement('div');
+        card.style.cssText = 'border:1px solid #eee; border-radius:8px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between;';
+        card.innerHTML = '<span style="font-size:14px; font-weight:500;">' + s.name + '</span>' +
+          (trusted ? '<span style="background:#15803d; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px;">✓ Trusted</span>' : '');
+        grid.appendChild(card);
+      });
+    }
+
+    fetch('/api/merchant-status')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { renderGrid((d && d.badges) || [], (d && d.suspended) || []); })
+      .catch(function () { renderGrid([], []); }); // still show the seller list even if the live badge fetch fails
+  })();
+  </script>
+
+</body>
+</html>
