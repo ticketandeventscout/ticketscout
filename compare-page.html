@@ -50,9 +50,25 @@
       would not be, without real aggregate analysis this site doesn't
       generate yet.
 
-    URL: served at /compare via a _redirects rewrite (/compare compare.html
-    200) — same pattern already proven working for /concerts, not a new
-    mechanism.
+    UPDATED 10 Aug 2026: wording aligned directly against terms.html's own
+    phrasing rather than left as an independent paraphrase — "we are not a
+    ticket seller and we are not a party to any transaction", the primary/
+    secondary market distinction, and the "prices may exclude booking fees"
+    disclosure framing (a narrower, more accurate claim than "we never add
+    fees") are all pulled from terms.html verbatim or near-verbatim. Also
+    added an explicit link to /terms so the two pages read as one
+    consistent voice, not two separately-drafted documents that happen to
+    agree.
+
+    Two additional affiliates (TicketsMarter, StubHub) are confirmed but
+    not yet implemented — deliberately NOT listed in the seller grid below,
+    since that would claim something not yet true. Added a generic,
+    non-specific "we're continuing to add more sellers" line instead, so
+    this file doesn't need editing the moment either goes live.
+
+    URL: served at /compare via a _redirects rewrite (/compare
+    /compare-page.html 200) — same pattern already proven working for
+    /concerts, not a new mechanism.
   -->
 </head>
 <body>
@@ -99,8 +115,8 @@
 
     <section style="margin-bottom:40px;">
       <h2 style="font-size:20px; color:#0c2d5a; margin:0 0 12px;">What "compare" actually means here</h2>
-      <p>When you open an event page, TicketScout queries each seller's own live catalogue — Ticketmaster's official inventory alongside resale marketplaces — at the moment you load the page, not from a cached snapshot from days ago. Prices from different currencies are converted to GBP using live exchange rates so every row is a fair, like-for-like comparison. The cheapest genuine price is highlighted; listings that look implausibly low compared to everything else for the same event (a common sign of a stale or broken listing, not a real deal) are filtered out rather than shown as a false best price.</p>
-      <p>We link you directly to the seller to complete your purchase. TicketScout doesn't sell tickets, doesn't hold your payment details, and doesn't add any booking fee of our own on top of what the seller charges.</p>
+      <p>TicketScout is a ticket price comparison service. When you open an event page, we query each seller's own live catalogue at the moment you load the page, not from a cached snapshot from days ago — up to 12 sellers, converted to GBP using live exchange rates so every row is a fair, like-for-like comparison. The cheapest genuine price is highlighted; listings that look implausibly low compared to everything else for the same event (a common sign of a stale or broken listing, not a real deal) are filtered out rather than shown as a false best price.</p>
+      <p>We display pricing from third-party ticket sellers to help you find the best available price. We are not a ticket seller and we are not a party to any transaction between you and a seller — you complete your purchase directly on their site, under their terms.</p>
     </section>
 
     <section style="margin-bottom:40px;">
@@ -113,24 +129,27 @@
         <span style="display:inline-block; background:#15803d; color:#fff; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; vertical-align:1px;">✓</span>
         &nbsp;Trusted Seller is earned automatically from real historical accuracy — at least 60 days of tracked listings with consistently reliable pricing and availability — not a paid placement. It's computed nightly from our own price-tracking data, the same signal used on every compare table.
       </p>
+      <p style="font-size:13px; color:#666; margin-top:10px;">We're continuing to add more sellers over time — this list reflects who we check right now, not the limit of who we ever will.</p>
     </section>
 
     <section style="margin-bottom:40px;">
       <h2 style="font-size:20px; color:#0c2d5a; margin:0 0 12px;">What we don't do</h2>
       <ul style="padding-left:20px; margin:0;">
-        <li style="margin-bottom:8px;">We don't add a booking fee. The price you see (where a seller provides one) is theirs, not ours plus a markup.</li>
+        <li style="margin-bottom:8px;">We don't add a booking fee of our own. Prices are sourced from third-party sellers and may change at any time, and may also exclude booking fees or other charges added at the seller's own checkout — always confirm the final price on their site before purchasing.</li>
         <li style="margin-bottom:8px;">We don't accept payment to rank a seller higher, or to award the Trusted Seller badge.</li>
-        <li style="margin-bottom:8px;">We don't sell tickets ourselves or hold your money — every purchase happens directly on the seller's own site.</li>
+        <li style="margin-bottom:8px;">We don't sell tickets ourselves and we're not a party to any transaction between you and a seller — every purchase happens directly on their site, under their terms.</li>
       </ul>
     </section>
 
     <section>
-      <h2 style="font-size:20px; color:#0c2d5a; margin:0 0 12px;">A note on resale prices</h2>
-      <p>Several of the sellers we check are resale marketplaces, where prices are set by individual sellers and can be above or below the ticket's original face value depending on demand. We show what's actually listed, but always confirm the final price — including any fees the seller itself charges — on their site before completing a purchase.</p>
+      <h2 style="font-size:20px; color:#0c2d5a; margin:0 0 12px;">Primary and secondary market sellers</h2>
+      <p>We display prices from both primary market sellers (official box office outlets and promoter-appointed ticketing partners) and secondary market sellers (resale platforms where fans list tickets they already own). Secondary market prices are set by individual sellers and may be above or below the original ticket price. Always check which type of seller you're buying from, and confirm the final price and any fees on their site, before completing a purchase.</p>
     </section>
 
     <div style="margin-top:48px; padding-top:24px; border-top:1px solid #eee;">
       <a href="/" style="color:#1a6fc4; text-decoration:none; font-weight:600;">← Back to TicketScout</a>
+      <span style="color:#ccc; margin:0 10px;">·</span>
+      <a href="/terms" style="color:#1a6fc4; text-decoration:none;">Full Terms of Use</a>
     </div>
 
   </div>
