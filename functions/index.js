@@ -11,6 +11,51 @@
 // renders with any friction) saw no actual event content on the site's
 // highest-traffic page.
 //
+// HOW THE STATIC TEMPLATE IS FETCHED — read before changing this:
+//   Round 1: `fetch(request)` as a fallback — recursively re-invoked this
+//     same Function. Took the live homepage down on first deploy.
+//   Round 2: `fetch('/index.html')` as a normal network request — looked
+//     like a different path but Cloudflare auto-redirects /index.html to
+//     "/" as a URL-canonicalization default, sending it straight back into
+//     this Function. Caught cleanly by the fallback this time (confirmed
+//     live), not a full outage.
+//   Round 3: `env.ASSETS.fetch('/index.html')` — the correct MECHANISM
+//     (Cloudflare's documented way for a Function to reach a static asset
+//     without going through Functions routing again) but the wrong PATH:
+//     confirmed via live diagnostic that env.ASSETS returns an UNFOLLOWED
+//     308 for /index.html (it doesn't auto-follow redirects the way a
+//     normal fetch does).
+//   Round 4 (current): `env.ASSETS.fetch('/')` — the canonical path.
+//     Confirmed via a second live diagnostic: clean 200, real HTML
+//     content. Confirmed working end-to-end at a disposable /homepage-test
+//     path before being moved here.
+//
+// The one thing that specific test path COULDN'T fully exercise: whether
+// env.ASSETS.fetch('/'), called from INSIDE the Function now actually
+// bound to "/", still correctly reaches the static file instead of
+// re-invoking itself — env.ASSETS is Cloudflare's documented mechanism for
+// exactly this ("a Function needs the static asset it's itself
+// overriding"), so this is expected to work, but it's the one link in this
+// chain that couldn't be pre-verified at the disposable path. Watch this
+// specifically on first load after deploy.
+//
+// ROLLBACK: delete this file. index.html is untouched throughout every
+// round above — Cloudflare goes straight back to serving it statically,
+// exactly as before any of this existed.
+//
+// The client-side trending.js fetch still runs afterward exactly as
+// before and overwrites this with its own live-fetched cards — this only
+// changes what's in the HTML BEFORE that JS runs.
+// =============================================================================
+
+// WHY THIS EXISTS (9 Aug 2026, technical SEO audit's #1 finding)
+// -----------------------------------------------------------------------------
+// index.html was a static file with an EMPTY #events-grid div — just a
+// "Loading events…" placeholder, with real event cards injected entirely
+// by trending.js's client-side fetch. A crawler that doesn't run JS (or
+// renders with any friction) saw no actual event content on the site's
+// highest-traffic page.
+//
 // HISTORY — read before touching this file again:
 //   Round 1 (10 Aug 2026): shipped with `return fetch(request)` as a
 //   "safe fallback". It was not safe — that recursively re-invoked this
@@ -19,19 +64,21 @@
 //   anywhere in this file now, every fallback is either an explicit fetch
 //   to a genuinely different URL, or a fetch-free static string.
 //
-//   Round 2 (10 Aug 2026): the fixed version queried event_pages directly
-//   for source='tm' rows. That has no geographic scoping, and event_pages
-//   is written to by more than trending.js — the TM entity sweep tool also
-//   writes source='tm' rows while cursoring the full registry, including
-//   international artists with no UK relevance. Confirmed live: the raw
-//   query surfaced Portland/San Francisco shows for touring band Bailen.
-//   Fixed: this now calls /api/trending SERVER-SIDE — the exact same
-//   endpoint the client-side widget calls, which has countryCode=GB set
-//   directly on its own TM fetch — so this can only ever show what's
-//   already proven correct, never a second, independently-derived
-//   approximation of it. Tested side-by-side against the live homepage at
-//   a disposable /homepage-test path before this file existed — confirmed
-//   identical.
+//   Round 3 (10 Aug 2026) — the Round 2 fix still failed: fetching
+//   "/index.html" from inside this Function looked like a genuinely
+//   different path from "/", but Cloudflare auto-redirects /index.html
+//   requests BACK to "/" as a URL-canonicalization default (confirmed
+//   live: visiting /index.html directly in a browser, the address bar
+//   changes to "/"). That redirect sends the request straight back into
+//   this same Function — the same underlying category of problem as
+//   Round 1, just reached indirectly through a redirect instead of a
+//   direct self-fetch. The built-in fallback caught it cleanly this time
+//   (a plain-text message, not a full outage), which is exactly what it
+//   was built for.
+//   Fixed properly this time using env.ASSETS.fetch() — Cloudflare Pages'
+//   own documented mechanism for a Function to reach the underlying
+//   static asset directly, bypassing the normal HTTP routing/redirect
+//   layer entirely rather than going back through it via any URL.
 //
 // The client-side trending.js fetch still runs afterward exactly as
 // before and overwrites this with its own live-fetched cards — this only
@@ -39,18 +86,16 @@
 // =============================================================================
 
 export async function onRequestGet({ request, env }) {
-  const origin = new URL(request.url).origin;
   try {
-    const templateResp = await fetch(`${origin}/index.html`);
-    // No recursive fetch(request) anywhere in this file — that was the
-    // actual cause of the first outage (see homepage-index.js's own
-    // history for the full account). Every fallback here is either a
-    // fetch to a genuinely different, explicit URL, or a fetch-free
-    // static string.
-    if (!templateResp.ok) return staticFallbackResponse();
+    const templateResp = await fetchStaticIndexHtml(request, env);
+    // No fetch(request) and no fetch of "/index.html" as a normal network
+    // request anywhere in this file — both were tried, both looped back
+    // into this same Function (see history above). env.ASSETS.fetch()
+    // reaches the static file directly, bypassing routing entirely.
+    if (!templateResp || !templateResp.ok) return staticFallbackResponse();
 
     let html = await templateResp.text();
-    const cardsHtml = await buildTrendingCardsHtml(origin);
+    const cardsHtml = await buildTrendingCardsHtml(new URL(request.url).origin);
 
     if (cardsHtml) {
       html = html.replace(
@@ -69,6 +114,27 @@ export async function onRequestGet({ request, env }) {
   } catch (e) {
     console.error('[homepage SSR] onRequestGet failed:', String(e));
     return staticFallbackResponse();
+  }
+}
+
+// Reaches the static index.html file directly via Cloudflare Pages' own
+// env.ASSETS binding — the documented mechanism for a Function to access
+// the underlying static asset WITHOUT going back through normal HTTP
+// routing. Requests "/" specifically, NOT "/index.html" — confirmed live
+// via a two-step diagnostic that /index.html returns an UNFOLLOWED 308
+// from env.ASSETS (it canonicalizes to "/" but env.ASSETS doesn't follow
+// redirects the way a normal fetch() does), while "/" itself returns the
+// real content directly with a clean 200. Falls back to null if the
+// binding isn't available for any reason, which the caller treats the
+// same as any other failure — the safe static response, never a loop.
+async function fetchStaticIndexHtml(request, env) {
+  if (!env.ASSETS || typeof env.ASSETS.fetch !== 'function') return null;
+  try {
+    const assetUrl = new URL('/', request.url);
+    return await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
+  } catch (e) {
+    console.error('[homepage SSR] env.ASSETS.fetch failed:', String(e));
+    return null;
   }
 }
 
