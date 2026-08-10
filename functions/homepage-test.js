@@ -1,28 +1,35 @@
 // functions/homepage-test.js — DISPOSABLE TEST COPY, maps to /homepage-test
 // =============================================================================
-// This is the ROUND 3 candidate for functions/index.js, tested at the
-// disposable path again rather than deployed directly — env.ASSETS
-// binding availability specifically has not been confirmed live yet, only
-// reasoned to be the documented Cloudflare mechanism for this situation.
-// Two earlier attempts were each reasoned to be safe and were each wrong
-// in a way only a live test caught — env.ASSETS is the best fix reasoned
-// through so far, not a fix confirmed working. See the header below for
-// the full two-round history of what broke and why.
+// ROUND 4 candidate for functions/index.js. Fixed using two live
+// diagnostics rather than reasoning alone:
+//   - homepage-diag confirmed env.ASSETS exists, and that requesting
+//     "/index.html" through it returns an UNFOLLOWED 308 (not an error,
+//     not content) — it canonicalizes to "/" but env.ASSETS doesn't
+//     auto-follow the way a normal fetch() does.
+//   - homepage-diag2 confirmed requesting "/" directly through env.ASSETS
+//     returns the real static content with a clean 200.
+// This file now requests "/" instead of "/index.html".
+//
+// ONE THING THIS TEST STILL CAN'T FULLY PROVE: both diagnostics above ran
+// with no Function currently bound to "/" (functions/index.js doesn't
+// exist yet). Once it does, env.ASSETS.fetch('/') is expected — based on
+// it being Cloudflare's documented mechanism for exactly this situation, a
+// Function needing the static asset it's itself overriding — to still
+// correctly reach the static file rather than loop back into the Function.
+// That's a considerably more confident basis than the Round 1–3 guesses,
+// but it's still an inference this specific test doesn't fully exercise.
+// Hence: still testing at /homepage-test first, not going straight to the
+// real route, exactly as before.
 //
 // TEST PLAN:
-//   1. Deploy ONLY this file. functions/index.js and index.html are
-//      untouched — nothing on the site links to /homepage-test, so the
-//      real homepage cannot be affected by anything in this file.
+//   1. Deploy ONLY this file. functions/index.js and index.html untouched.
 //   2. Visit https://ticketscout.co.uk/homepage-test
-//   3. Confirm: loads without error, real UK event cards (compare against
-//      the live homepage — should match), correct /event/{slug} links.
-//   4. IF THIS ALSO FAILS: check the browser console / response body for
-//      what actually came back — specifically whether env.ASSETS was
-//      unavailable (falls through to the safe static fallback message,
-//      same as today) versus some other new error. Report back exactly
-//      what's shown before another attempt gets built blind.
-//   5. Only once confirmed working: copy this file's logic into
-//      functions/index.js, delete this test file afterward.
+//   3. Confirm: loads without error or fallback message, real UK event
+//      cards matching the live homepage, correct /event/{slug} links.
+//   4. If this also fails, report the exact behaviour before another
+//      attempt gets built.
+//   5. Only once confirmed: move this logic into functions/index.js,
+//      delete all four test/diag files afterward.
 // =============================================================================
 
 // WHY THIS EXISTS (9 Aug 2026, technical SEO audit's #1 finding)
@@ -97,15 +104,17 @@ export async function onRequestGet({ request, env }) {
 // Reaches the static index.html file directly via Cloudflare Pages' own
 // env.ASSETS binding — the documented mechanism for a Function to access
 // the underlying static asset WITHOUT going back through normal HTTP
-// routing (and therefore immune to whatever redirect/rewrite rules apply
-// to "/" or "/index.html" as ordinary URLs, which is exactly what broke
-// both earlier attempts). Falls back to null if the binding isn't
-// available for any reason, which the caller treats the same as any other
-// failure — the safe static response, never a loop.
+// routing. Requests "/" specifically, NOT "/index.html" — confirmed live
+// via a two-step diagnostic that /index.html returns an UNFOLLOWED 308
+// from env.ASSETS (it canonicalizes to "/" but env.ASSETS doesn't follow
+// redirects the way a normal fetch() does), while "/" itself returns the
+// real content directly with a clean 200. Falls back to null if the
+// binding isn't available for any reason, which the caller treats the
+// same as any other failure — the safe static response, never a loop.
 async function fetchStaticIndexHtml(request, env) {
   if (!env.ASSETS || typeof env.ASSETS.fetch !== 'function') return null;
   try {
-    const assetUrl = new URL('/index.html', request.url);
+    const assetUrl = new URL('/', request.url);
     return await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
   } catch (e) {
     console.error('[homepage SSR] env.ASSETS.fetch failed:', String(e));
