@@ -246,9 +246,53 @@ function renderPage(d) {
   // venue/city formatting logic, so this can never drift out of sync with
   // what's already displayed elsewhere on the page.
   const isConcertOrTheatre = d.category === 'concert' || d.category === 'theatre';
-  const title = isConcertOrTheatre
-    ? `${d.name}${where ? ' at ' + where : ''} — ${dateStr} Tickets | TicketScout`
-    : `${d.name} Tickets — ${dateStr} | Compare Prices | TicketScout`;
+
+  // S19-C fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): every crawled
+  // /event/ page had a too-long <title> tag (11/11 in the Semrush trial
+  // audit's sample — a systemic template bug, not isolated pages). The old
+  // line above concatenated the full event name + venue + city + a
+  // long-form date + a brand suffix with NO length budget at all — e.g. a
+  // real live page rendered as "All Points East Presents Outbreak -
+  // Deftones at Victoria Park London, London — 23 August 2026 Tickets |
+  // TicketScout" (118 characters, against Google's practical ~60-char
+  // budget). Scoped to <title>/og:title ONLY — h1Text, the meta
+  // description, and the JSON-LD `name` field below all keep the full,
+  // untruncated real name; nothing indexable loses information, only the
+  // title tag gets shorter.
+  //
+  // Three changes, applied in this order:
+  //   1. shortDate() — abbreviated month ("23 Aug 2026" vs "23 August
+  //      2026") saves ~4 chars on every single title, free.
+  //   2. The " | TicketScout" brand suffix is dropped from <title> —
+  //      matches h1Text's own existing precedent just below, which
+  //      already drops the identical suffix for the identical reason
+  //      (redundant next to the page's own header). Kept in og:title,
+  //      where a social-share preview benefits from branding since it's
+  //      seen outside the site's own context.
+  //   3. The event NAME itself is truncated at a word boundary with a
+  //      real ellipsis (truncateWords()) when it's still too long after
+  //      (1) and (2). This is the actual fix for genuinely long names
+  //      (multi-act festival lineups, "X presents Y" billing) — no amount
+  //      of trimming the date or brand fixes those, only shortening the
+  //      name does. `where` (venue+city) is deliberately left untouched
+  //      here rather than also budgeted/truncated — M3 (6 Aug 2026) added
+  //      it specifically to target "{artist} {city} tickets"-style
+  //      long-tail queries with previously zero coverage, so cutting it
+  //      would undo that fix rather than complement this one. This means
+  //      an event with both a very long name AND a long venue/city string
+  //      can still end up somewhat over 60 chars — a real, accepted
+  //      trade-off, not an oversight — but every title is now dramatically
+  //      shorter than before and the common case comfortably fits.
+  const TITLE_BUDGET = 60;
+  const shortDateStr = shortDate(d.eventDate);
+  const titleSuffix = isConcertOrTheatre
+    ? ` — ${shortDateStr} Tickets`
+    : ` Tickets — ${shortDateStr}`;
+  const titleWhere = isConcertOrTheatre && where ? ` at ${where}` : '';
+  const titleNameBudget = Math.max(20, TITLE_BUDGET - titleSuffix.length - titleWhere.length);
+  const titleName = truncateWords(d.name, titleNameBudget);
+  const title = `${titleName}${titleWhere}${titleSuffix}`;
+  const ogTitle = `${title} | TicketScout`;
   // H1 intentionally drops the " | TicketScout" brand suffix the roadmap's
   // title-tag spec included — that's standard practice for a title TAG
   // (browser tab / SERP), but redundant inside a page's own visible
@@ -375,7 +419,7 @@ function renderPage(d) {
   ${d.indexable ? '' : '<meta name="robots" content="noindex" />'}
   <meta property="og:site_name" content="TicketScout" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="${esc(title)}" />
+  <meta property="og:title" content="${esc(ogTitle)}" />
   <meta property="og:description" content="${esc(description)}" />
   <meta property="og:url" content="${esc(canonical)}" />
   <meta property="og:image" content="${esc(d.image || HOST + '/ogdefault.png')}" />
@@ -894,6 +938,29 @@ function prettyDate(iso) {
       day: 'numeric', month: 'long', year: 'numeric'
     });
   } catch { return iso; }
+}
+
+// S19-C fix — abbreviated-month date used ONLY in the <title>/og:title
+// budget calculation above. h1Text, the meta description, and prettyDate()
+// itself (used everywhere else on this page) are untouched — this is a
+// second, separate formatter, not a change to the existing one.
+function shortDate(iso) {
+  try {
+    return new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric'
+    });
+  } catch { return iso; }
+}
+
+// S19-C fix — word-safe truncation with a real ellipsis. Never fabricates
+// or paraphrases content: this only shortens a genuinely-too-long real
+// string at the nearest word boundary at or before maxLen, so what remains
+// is always a true, unmodified prefix of the actual name.
+function truncateWords(s, maxLen) {
+  const str = String(s == null ? '' : s);
+  if (str.length <= maxLen) return str;
+  const cut = str.slice(0, maxLen).replace(/\s+\S*$/, '');
+  return (cut || str.slice(0, maxLen)).trim() + '…';
 }
 
 // "arsenal-vs-borussia-dortmund" → "Arsenal vs Borussia Dortmund"
