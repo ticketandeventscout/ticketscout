@@ -5,12 +5,12 @@
   <title>Compare FC Winterthour Ticket Prices — Cheapest FC Winterthour Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare FC Winterthour ticket prices across verified sellers and find the cheapest FC Winterthour tickets. Updated daily." />
+  <meta name="description" content="Compare FC Winterthour ticket prices across verified sellers and find the cheapest FC Winterthour tickets. Updated daily. Home matches at Stadion…" />
   <meta property="og:title" content="FC Winterthour Tickets | TicketScout" />
-  <meta property="og:description" content="Compare FC Winterthour ticket prices across verified sellers and find the cheapest FC Winterthour tickets. Updated daily." />
+  <meta property="og:description" content="Compare FC Winterthour ticket prices across verified sellers and find the cheapest FC Winterthour tickets. Updated daily. Home matches at Stadion…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/fc-winterthour" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/fc-winterthour#team","name":"FC Winterthour","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"FC Winterthour Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/fc-winterthour#venue","name":"Stadion Schützenwiese","maximumAttendeeCapacity":8700,"address":{"@type":"PostalAddress","addressLocality":"Winterthur","addressCountry":"Switzerland"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/fc-winterthour#team","name":"FC Winterthour","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Challenge League"},"foundingDate":"1896","location":{"@id":"https://ticketscout.co.uk/football/fc-winterthour#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"FC Winterthour Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'fc-winterthour';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>FC Winterthour Tickets</h1>
+  <p>FC Winterthour play their home matches at Stadion Schützenwiese, Winterthur.</p>
+  <p>Compare FC Winterthour ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

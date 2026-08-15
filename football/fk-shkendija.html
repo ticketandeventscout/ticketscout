@@ -5,12 +5,12 @@
   <title>Compare FK Shkendija Ticket Prices — Cheapest FK Shkendija Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare FK Shkendija ticket prices across verified sellers and find the cheapest FK Shkendija tickets. Updated daily." />
+  <meta name="description" content="Compare FK Shkendija ticket prices across verified sellers and find the cheapest FK Shkendija tickets. Updated daily. Home matches at Gradski stadion…" />
   <meta property="og:title" content="FK Shkendija Tickets | TicketScout" />
-  <meta property="og:description" content="Compare FK Shkendija ticket prices across verified sellers and find the cheapest FK Shkendija tickets. Updated daily." />
+  <meta property="og:description" content="Compare FK Shkendija ticket prices across verified sellers and find the cheapest FK Shkendija tickets. Updated daily. Home matches at Gradski stadion…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/fk-shkendija" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/fk-shkendija#team","name":"FK Shkendija","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"FK Shkendija Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/fk-shkendija#venue","name":"Gradski stadion Tetovo","maximumAttendeeCapacity":15000,"address":{"@type":"PostalAddress","addressLocality":"Tetovo","addressCountry":"North Macedonia"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/fk-shkendija#team","name":"FK Shkendija","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"First Macedonian Football League"},"foundingDate":"1979","location":{"@id":"https://ticketscout.co.uk/football/fk-shkendija#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"FK Shkendija Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'fk-shkendija';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>FK Shkendija Tickets</h1>
+  <p>FK Shkendija play their home matches at Gradski stadion Tetovo, Tetovo.</p>
+  <p>Compare FK Shkendija ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

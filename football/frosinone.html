@@ -5,12 +5,12 @@
   <title>Compare Frosinone Ticket Prices — Cheapest Frosinone Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Frosinone ticket prices across verified sellers and find the cheapest Frosinone tickets. Updated daily." />
+  <meta name="description" content="Compare Frosinone ticket prices across verified sellers and find the cheapest Frosinone tickets. Updated daily. Home matches at Benito Stirpe Stadium,…" />
   <meta property="og:title" content="Frosinone Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Frosinone ticket prices across verified sellers and find the cheapest Frosinone tickets. Updated daily." />
+  <meta property="og:description" content="Compare Frosinone ticket prices across verified sellers and find the cheapest Frosinone tickets. Updated daily. Home matches at Benito Stirpe Stadium,…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/frosinone" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/frosinone#team","name":"Frosinone","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Frosinone Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/frosinone#venue","name":"Benito Stirpe Stadium","maximumAttendeeCapacity":16227,"address":{"@type":"PostalAddress","addressLocality":"Frosinone","addressCountry":"Italy"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/frosinone#team","name":"Frosinone","sport":"Football","foundingDate":"1928","location":{"@id":"https://ticketscout.co.uk/football/frosinone#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Frosinone Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'frosinone';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Frosinone Tickets</h1>
+  <p>Frosinone play their home matches at Benito Stirpe Stadium, Frosinone.</p>
+  <p>Compare Frosinone ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');
