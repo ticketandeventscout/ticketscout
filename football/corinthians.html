@@ -5,12 +5,12 @@
   <title>Compare Corinthians Ticket Prices — Cheapest Corinthians Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Corinthians ticket prices across verified sellers and find the cheapest Corinthians tickets. Updated daily." />
+  <meta name="description" content="Compare Corinthians ticket prices across verified sellers and find the cheapest Corinthians tickets. Updated daily. Home matches at Neo Química Arena,…" />
   <meta property="og:title" content="Corinthians Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Corinthians ticket prices across verified sellers and find the cheapest Corinthians tickets. Updated daily." />
+  <meta property="og:description" content="Compare Corinthians ticket prices across verified sellers and find the cheapest Corinthians tickets. Updated daily. Home matches at Neo Química Arena,…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/corinthians" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/corinthians#team","name":"Corinthians","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Corinthians Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/corinthians#venue","name":"Neo Química Arena","maximumAttendeeCapacity":47252,"address":{"@type":"PostalAddress","addressLocality":"Itaquera District","addressCountry":"Brazil"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/corinthians#team","name":"Corinthians","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Campeonato Paulista de Futebol"},"foundingDate":"1910","location":{"@id":"https://ticketscout.co.uk/football/corinthians#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Corinthians Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'corinthians';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Corinthians Tickets</h1>
+  <p>Corinthians play their home matches at Neo Química Arena, Itaquera District.</p>
+  <p>Compare Corinthians ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

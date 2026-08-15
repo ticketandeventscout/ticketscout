@@ -5,12 +5,12 @@
   <title>Compare CE Europa Ticket Prices — Cheapest CE Europa Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare CE Europa ticket prices across verified sellers and find the cheapest CE Europa tickets. Updated daily." />
+  <meta name="description" content="Compare CE Europa ticket prices across verified sellers and find the cheapest CE Europa tickets. Updated daily. Home matches at Nou Sardenya, Barcelona." />
   <meta property="og:title" content="CE Europa Tickets | TicketScout" />
-  <meta property="og:description" content="Compare CE Europa ticket prices across verified sellers and find the cheapest CE Europa tickets. Updated daily." />
+  <meta property="og:description" content="Compare CE Europa ticket prices across verified sellers and find the cheapest CE Europa tickets. Updated daily. Home matches at Nou Sardenya, Barcelona." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/ce-europa" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/ce-europa#team","name":"CE Europa","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"CE Europa Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/ce-europa#venue","name":"Nou Sardenya","maximumAttendeeCapacity":4000,"address":{"@type":"PostalAddress","addressLocality":"Barcelona","addressCountry":"Spain"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/ce-europa#team","name":"CE Europa","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Primera Federación"},"foundingDate":"1907","location":{"@id":"https://ticketscout.co.uk/football/ce-europa#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"CE Europa Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'ce-europa';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>CE Europa Tickets</h1>
+  <p>CE Europa play their home matches at Nou Sardenya, Barcelona.</p>
+  <p>Compare CE Europa ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

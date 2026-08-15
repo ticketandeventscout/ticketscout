@@ -5,12 +5,12 @@
   <title>Compare DC United Ticket Prices — Cheapest DC United Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare DC United ticket prices across verified sellers and find the cheapest DC United tickets. Updated daily." />
+  <meta name="description" content="Compare DC United ticket prices across verified sellers and find the cheapest DC United tickets. Updated daily. Home matches at Audi Field, Washington, D.C.." />
   <meta property="og:title" content="DC United Tickets | TicketScout" />
-  <meta property="og:description" content="Compare DC United ticket prices across verified sellers and find the cheapest DC United tickets. Updated daily." />
+  <meta property="og:description" content="Compare DC United ticket prices across verified sellers and find the cheapest DC United tickets. Updated daily. Home matches at Audi Field, Washington, D.C.." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/dc-united" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/dc-united#team","name":"DC United","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"DC United Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/dc-united#venue","name":"Audi Field","maximumAttendeeCapacity":24000,"address":{"@type":"PostalAddress","addressLocality":"Washington, D.C.","addressCountry":"United States"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/dc-united#team","name":"DC United","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Major League Soccer"},"foundingDate":"1994","location":{"@id":"https://ticketscout.co.uk/football/dc-united#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"DC United Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'dc-united';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>DC United Tickets</h1>
+  <p>DC United play their home matches at Audi Field, Washington, D.C..</p>
+  <p>Compare DC United ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');
