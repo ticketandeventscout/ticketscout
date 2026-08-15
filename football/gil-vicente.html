@@ -5,12 +5,12 @@
   <title>Compare Gil Vicente Ticket Prices — Cheapest Gil Vicente Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Gil Vicente ticket prices across verified sellers and find the cheapest Gil Vicente tickets. Updated daily." />
+  <meta name="description" content="Compare Gil Vicente ticket prices across verified sellers and find the cheapest Gil Vicente tickets. Updated daily. Home matches at Estádio Cidade de…" />
   <meta property="og:title" content="Gil Vicente Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Gil Vicente ticket prices across verified sellers and find the cheapest Gil Vicente tickets. Updated daily." />
+  <meta property="og:description" content="Compare Gil Vicente ticket prices across verified sellers and find the cheapest Gil Vicente tickets. Updated daily. Home matches at Estádio Cidade de…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/gil-vicente" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/gil-vicente#team","name":"Gil Vicente","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Gil Vicente Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/gil-vicente#venue","name":"Estádio Cidade de Barcelos","maximumAttendeeCapacity":12046,"address":{"@type":"PostalAddress","addressLocality":"Freguesia de Vila Boa","addressCountry":"Portugal"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/gil-vicente#team","name":"Gil Vicente","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Liga Portugal"},"foundingDate":"1924","location":{"@id":"https://ticketscout.co.uk/football/gil-vicente#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Gil Vicente Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'gil-vicente';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Gil Vicente Tickets</h1>
+  <p>Gil Vicente play their home matches at Estádio Cidade de Barcelos, Freguesia de Vila Boa.</p>
+  <p>Compare Gil Vicente ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

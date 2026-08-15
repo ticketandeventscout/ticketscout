@@ -5,12 +5,12 @@
   <title>Compare Harrogate Town Ticket Prices — Cheapest Harrogate Town Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Harrogate Town ticket prices across verified sellers and find the cheapest Harrogate Town tickets. Updated daily." />
+  <meta name="description" content="Compare Harrogate Town ticket prices across verified sellers and find the cheapest Harrogate Town tickets. Updated daily. Home matches at Wetherby Road,…" />
   <meta property="og:title" content="Harrogate Town Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Harrogate Town ticket prices across verified sellers and find the cheapest Harrogate Town tickets. Updated daily." />
+  <meta property="og:description" content="Compare Harrogate Town ticket prices across verified sellers and find the cheapest Harrogate Town tickets. Updated daily. Home matches at Wetherby Road,…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/harrogate-town" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/harrogate-town#team","name":"Harrogate Town","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Harrogate Town Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/harrogate-town#venue","name":"Wetherby Road","maximumAttendeeCapacity":3800,"address":{"@type":"PostalAddress","addressLocality":"Harrogate"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/harrogate-town#team","name":"Harrogate Town","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"National League"},"foundingDate":"1914","location":{"@id":"https://ticketscout.co.uk/football/harrogate-town#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Harrogate Town Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'harrogate-town';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Harrogate Town Tickets</h1>
+  <p>Harrogate Town play their home matches at Wetherby Road, Harrogate.</p>
+  <p>Compare Harrogate Town ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');
