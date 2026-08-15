@@ -4150,6 +4150,47 @@ function stubHeadEnrichment(category, slug, enrich) {
 
 function generateFootballPageHtml(slug, enrich) {
   const { name: displayName, title, description, jsonLd } = stubHeadEnrichment('football', slug, enrich);
+  const facts = (enrich && enrich.facts) || {};
+
+  // S19-A/S19-B fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): real,
+  // visible body content — an <h1> and real sentences — now bakes into
+  // EVERY generated stub, unconditionally. Confirmed via two live pages
+  // (Arsenal, Burnley — same v20260711c/v=20260714a stub generation) that
+  // this was previously gated on whether enrichment facts existed for a
+  // given club at generation time: Arsenal (facts present) got a real
+  // <h1> + bio, wrapped in a <noscript> block; Burnley (no facts at that
+  // point) got NOTHING at all — a completely empty <body> until client JS
+  // runs. That's both S19-B (missing H1) and S19-A (thin/no content) at
+  // once, for any club enrichment hadn't reached yet — not 9 isolated
+  // bugs, one shared gate.
+  //
+  // Two changes from that previous behaviour:
+  //   1. No longer conditional on `facts` existing. `bio` below always
+  //      resolves to something real: a genuine fact-derived sentence when
+  //      enrichment has run for this club, a generic-but-true fallback
+  //      sentence when it hasn't. A club can never again ship with zero
+  //      body content just because /api/enrich-entities hasn't reached it
+  //      yet — enrichment coverage becomes a content-QUALITY question,
+  //      not a content-EXISTENCE one.
+  //   2. Moved OUT of <noscript> into plain visible body markup.
+  //      <noscript> is only honoured by crawlers that skip JS entirely —
+  //      the same reasoning that motivated SSR-ing the concert/theatre/
+  //      sports hub pages this session applies identically here: real
+  //      markup in the initial response is seen by every crawler on the
+  //      cheap first pass, not just ones that never execute JS.
+  //
+  // The fetch('/football.html?v=...') + full-body-swap script below is
+  // UNCHANGED and still runs for real visitors and JS-executing crawlers,
+  // replacing this with the live template + live fixture data (this is
+  // the same SSR-then-hydrate shape as every other entity page in this
+  // codebase) — this real fallback content is specifically what a
+  // non-JS-executing crawler sees, and it's never meant to persist past
+  // that swap for anyone else.
+  const bio = facts.bio || facts.description ||
+    (facts.stadium
+      ? `${displayName} play their home matches at ${facts.stadium}${facts.city ? `, ${facts.city}` : ''}.`
+      : `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4171,7 +4212,15 @@ function generateFootballPageHtml(slug, enrich) {
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>${escAttr(displayName)} Tickets</h1>
+  <p>${escAttr(bio)}</p>
+  <p>Compare ${escAttr(displayName)} ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=${TEMPLATE_VERSION}');
