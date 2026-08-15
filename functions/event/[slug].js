@@ -313,6 +313,47 @@ function renderPage(d) {
   const fixtureSides = !isConcertOrTheatre ? splitFixture(d.name) : [];
   const displayName = fixtureSides.length === 2 ? fixtureSides.join(' vs ') : d.name;
 
+  // S19-J fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): every football
+  // club page in the crawl sample scored ILR 11 (internal link rate) vs
+  // hub pages' 33-78. Traced to: entityUrl/entitySlug already existed in
+  // this file (built in onRequestGet, reused by the price-history chart
+  // and the past-event redirect) but were never actually rendered as a
+  // visible link on the main LIVE event page — only on the secondary
+  // "recently finished" fallback page (recentlyFinishedResponse(), a much
+  // smaller slice of traffic). This adds real, visible links here too —
+  // genuinely useful navigation for a reader, not link-stuffing: "see this
+  // team's/artist's other upcoming dates," not a bare keyword-matching
+  // anchor.
+  //
+  // For a genuine two-sided fixture (reusing `fixtureSides` above, not
+  // re-deriving it), links to BOTH sides — deliberately going further than
+  // deriveEntitySlug()'s existing home-side-only behaviour, since that
+  // function serves a different purpose (H5's price-history probe only
+  // ever needed one best-effort guess) and changing its scope wasn't
+  // necessary or appropriate here; this builds its own two-sided list
+  // instead of touching that shared function.
+  //
+  // Known, accepted limitation, shared with the existing entityUrl
+  // mechanism this reuses toEntitySlug() from: this is a best-effort slug
+  // guess, not a verified-to-exist check — a mismatch between how a
+  // fixture name derives here and the actual registered entity slug would
+  // produce a link that 404s. No worse than the risk entityUrl's redirect
+  // path already accepts elsewhere in this file; not a new risk class.
+  const relatedLinks = fixtureSides.length === 2
+    ? fixtureSides.map(side => {
+        const slug = toEntitySlug(side);
+        return slug ? { slug, label: `${side} tickets` } : null;
+      }).filter(Boolean)
+    : (() => {
+        const slug = deriveEntitySlug(d.category, d.name);
+        return slug ? [{ slug, label: `${displayName} tickets` }] : [];
+      })();
+  const relatedLinksHtml = relatedLinks.length
+    ? `<p style="margin-top:12px;">See also: ${relatedLinks
+        .map(l => `<a href="/${esc(d.category)}/${esc(l.slug)}">${esc(l.label)}</a>`)
+        .join(' &middot; ')}</p>`
+    : '';
+
   const titleSuffix = isConcertOrTheatre
     ? ` — ${shortDateStr} Tickets`
     : ` Tickets — ${shortDateStr}`;
@@ -549,6 +590,7 @@ function renderPage(d) {
     <section style="margin-top:28px; font-size:14px; line-height:1.6; color:#444;">
       <h2 style="font-size:17px; color:#0c2d5a;">Compare ${esc(displayName)} ticket prices</h2>
       <p>TicketScout compares ${esc(displayName)} ticket prices${where ? ' for the ' + esc(dateStr) + ' ' + d.cat.noun + ' at ' + esc(where) : ''} from up to 13 verified ticket sites side by side, so you can see who has the cheapest tickets before you buy. Prices are refreshed through the day. TicketScout does not sell tickets — always confirm price and availability on the seller's site.</p>
+      ${relatedLinksHtml}
     </section>
   </main>
 
