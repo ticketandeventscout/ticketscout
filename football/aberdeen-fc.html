@@ -5,12 +5,12 @@
   <title>Compare Aberdeen FC Ticket Prices — Cheapest Aberdeen FC Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Aberdeen FC ticket prices across verified sellers and find the cheapest Aberdeen FC tickets. Updated daily." />
+  <meta name="description" content="Compare Aberdeen FC ticket prices across verified sellers and find the cheapest Aberdeen FC tickets. Updated daily. Home matches at Pittodrie Stadium,…" />
   <meta property="og:title" content="Aberdeen FC Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Aberdeen FC ticket prices across verified sellers and find the cheapest Aberdeen FC tickets. Updated daily." />
+  <meta property="og:description" content="Compare Aberdeen FC ticket prices across verified sellers and find the cheapest Aberdeen FC tickets. Updated daily. Home matches at Pittodrie Stadium,…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/aberdeen-fc" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/aberdeen-fc#team","name":"Aberdeen FC","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Aberdeen FC Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/aberdeen-fc#venue","name":"Pittodrie Stadium","maximumAttendeeCapacity":21421,"address":{"@type":"PostalAddress","addressLocality":"Aberdeen City"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/aberdeen-fc#team","name":"Aberdeen FC","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Scottish Premiership"},"foundingDate":"1903","location":{"@id":"https://ticketscout.co.uk/football/aberdeen-fc#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Aberdeen FC Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'aberdeen-fc';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Aberdeen FC Tickets</h1>
+  <p>Aberdeen FC play their home matches at Pittodrie Stadium, Aberdeen City.</p>
+  <p>Compare Aberdeen FC ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

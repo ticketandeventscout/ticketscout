@@ -1,16 +1,18 @@
-<!DOCTYPE html><!-- TicketScout football v20260711c -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ajax Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare Ajax ticket prices across verified sellers. Find the cheapest Ajax tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="Ajax Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Ajax ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare Ajax Ticket Prices — Cheapest Ajax Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Ajax ticket prices across verified sellers and find the cheapest Ajax tickets. Updated daily. Home matches at Johan Cruyff Arena, Amsterdam." />
+  <meta property="og:title" content="Ajax Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Ajax ticket prices across verified sellers and find the cheapest Ajax tickets. Updated daily. Home matches at Johan Cruyff Arena, Amsterdam." />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/ajax" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/ajax#venue","name":"Johan Cruyff Arena","maximumAttendeeCapacity":54990,"address":{"@type":"PostalAddress","addressLocality":"Amsterdam","addressCountry":"Netherlands"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/ajax#team","name":"Ajax","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Eredivisie"},"foundingDate":"1900","location":{"@id":"https://ticketscout.co.uk/football/ajax#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Ajax Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'ajax';</script>
-    <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
@@ -18,16 +20,17 @@
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body>
-  <!-- Static SEO content — visible to Google before JS loads -->
-  <noscript>
-    <h1>Ajax Tickets</h1>
-    <p>AFC Ajax are the Netherlands most successful club and one of the most storied in European football, having won 4 Champions League titles and pioneered the Total Football philosophy. Ajax play at the Johan Cruyff Arena in Amsterdam.</p>
-    <p>Compare Ajax ticket prices across Gigsberg, SportsEvents365, Vivid Seats, TicketNetwork and Ticombo. Find the best deal and buy direct.</p>
-  </noscript>
-  <script>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Ajax Tickets</h1>
+  <p>Ajax play their home matches at Johan Cruyff Arena, Amsterdam.</p>
+  <p>Compare Ajax ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/football.html?v=20260714a');
+      const r = await fetch('/football.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
@@ -45,6 +48,4 @@
       });
     } catch(e) { console.error('Failed to load football template:', e); }
   })();
-  </script>
-</body>
-</html>
+</script></body></html>
