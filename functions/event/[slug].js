@@ -285,12 +285,40 @@ function renderPage(d) {
   //      shorter than before and the common case comfortably fits.
   const TITLE_BUDGET = 60;
   const shortDateStr = shortDate(d.eventDate);
+
+  // S19-G fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): 345 "Team vs
+  // Team" fixture keywords, 180,030/mo combined volume (Keyword Strategy
+  // export) — but raw fixture names from the data feeds use inconsistent
+  // separators ("V", "v", "vs", " - ", " at ", confirmed by splitFixture()
+  // a few hundred lines below, which already has to handle all of them for
+  // JSON-LD competitor parsing). This normalizes to the single "vs"
+  // phrasing that actually matches search behaviour, reusing that SAME
+  // splitFixture() parser — already proven correct elsewhere in this file —
+  // rather than a second, possibly-inconsistent regex.
+  //
+  // Football/sports ONLY (!isConcertOrTheatre). Concert/theatre names are
+  // free text (artist names, show titles) that can legitimately contain
+  // " - " or " at " without being a two-sided fixture — touching those
+  // would risk mangling a real name, so displayName === d.name unchanged
+  // for that branch.
+  //
+  // displayName is used for every user-VISIBLE/SEO-facing instance of the
+  // event name on this page (title, H1, meta description, breadcrumb, hero
+  // alt text, body copy) — matching the same "title/H1 alignment" principle
+  // already established for h1Text below. It is NOT used for: the JSON-LD
+  // `name` field (stays exactly as the source data reported it — structured
+  // data should match upstream literally, not a cosmetic rewrite), the
+  // client hydration blob, or entity-slug derivation — all of those need
+  // the raw d.name for correct downstream matching.
+  const fixtureSides = !isConcertOrTheatre ? splitFixture(d.name) : [];
+  const displayName = fixtureSides.length === 2 ? fixtureSides.join(' vs ') : d.name;
+
   const titleSuffix = isConcertOrTheatre
     ? ` — ${shortDateStr} Tickets`
     : ` Tickets — ${shortDateStr}`;
   const titleWhere = isConcertOrTheatre && where ? ` at ${where}` : '';
   const titleNameBudget = Math.max(20, TITLE_BUDGET - titleSuffix.length - titleWhere.length);
-  const titleName = truncateWords(d.name, titleNameBudget);
+  const titleName = truncateWords(displayName, titleNameBudget);
   const title = `${titleName}${titleWhere}${titleSuffix}`;
   const ogTitle = `${title} | TicketScout`;
   // H1 intentionally drops the " | TicketScout" brand suffix the roadmap's
@@ -301,11 +329,11 @@ function renderPage(d) {
   // exactly, which is the actual SEO intent (title/H1 alignment); only the
   // branding repetition is dropped.
   const h1Text = isConcertOrTheatre
-    ? `${d.name}${where ? ' at ' + where : ''} — ${dateStr} Tickets`
-    : d.name;
+    ? `${displayName}${where ? ' at ' + where : ''} — ${dateStr} Tickets`
+    : displayName;
   const description = d.isPast
-    ? `${d.name} took place on ${dateStr}${where ? ' at ' + where : ''}. Browse upcoming ${d.cat.label.toLowerCase()} events and compare ticket prices on TicketScout.`
-    : `Compare ${d.name} ticket prices${where ? ' at ' + where : ''} on ${dateStr}. See prices from up to 13 verified ticket sites side by side — find the cheapest ${d.cat.noun} tickets on TicketScout.`;
+    ? `${displayName} took place on ${dateStr}${where ? ' at ' + where : ''}. Browse upcoming ${d.cat.label.toLowerCase()} events and compare ticket prices on TicketScout.`
+    : `Compare ${displayName} ticket prices${where ? ' at ' + where : ''} on ${dateStr}. See prices from up to 13 verified ticket sites side by side — find the cheapest ${d.cat.noun} tickets on TicketScout.`;
 
   const canonical = `${HOST}/event/${d.slug}`;
 
@@ -472,12 +500,12 @@ function renderPage(d) {
            than changing the global rule, which would alter every link on
            the site (navbar, buttons, etc.) — a much bigger, unverified
            change this session isn't positioned to visually check. -->
-      <a href="/" style="text-decoration:underline;">Home</a> › <a href="${esc(d.cat.hub)}" style="text-decoration:underline;">${esc(d.cat.label)}</a> › ${esc(d.name)}
+      <a href="/" style="text-decoration:underline;">Home</a> › <a href="${esc(d.cat.hub)}" style="text-decoration:underline;">${esc(d.cat.label)}</a> › ${esc(displayName)}
     </div>
 
     <div class="detail-grid">
       <div class="detail-card">
-        ${d.image ? `<img class="detail-img" src="${esc(cfImageUrl(d.image, 700))}" alt="${esc(d.name)}" fetchpriority="high" />` : ''}
+        ${d.image ? `<img class="detail-img" src="${esc(cfImageUrl(d.image, 700))}" alt="${esc(displayName)}" fetchpriority="high" />` : ''}
         <div class="detail-body">
           <h1 class="detail-name" style="font-size:24px; margin:0 0 6px;">${esc(h1Text)}</h1>
           <div class="detail-meta">${esc(metaBits) || 'Details to be confirmed'}</div>
@@ -519,8 +547,8 @@ function renderPage(d) {
     </div>
 
     <section style="margin-top:28px; font-size:14px; line-height:1.6; color:#444;">
-      <h2 style="font-size:17px; color:#0c2d5a;">Compare ${esc(d.name)} ticket prices</h2>
-      <p>TicketScout compares ${esc(d.name)} ticket prices${where ? ' for the ' + esc(dateStr) + ' ' + d.cat.noun + ' at ' + esc(where) : ''} from up to 13 verified ticket sites side by side, so you can see who has the cheapest tickets before you buy. Prices are refreshed through the day. TicketScout does not sell tickets — always confirm price and availability on the seller's site.</p>
+      <h2 style="font-size:17px; color:#0c2d5a;">Compare ${esc(displayName)} ticket prices</h2>
+      <p>TicketScout compares ${esc(displayName)} ticket prices${where ? ' for the ' + esc(dateStr) + ' ' + d.cat.noun + ' at ' + esc(where) : ''} from up to 13 verified ticket sites side by side, so you can see who has the cheapest tickets before you buy. Prices are refreshed through the day. TicketScout does not sell tickets — always confirm price and availability on the seller's site.</p>
     </section>
   </main>
 
