@@ -1,16 +1,18 @@
-<!DOCTYPE html><!-- TicketScout football v20260711c -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Arsenal Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare Arsenal ticket prices across verified sellers. Find the cheapest Arsenal tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="Arsenal Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Arsenal ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare Arsenal Ticket Prices — Cheapest Arsenal Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Arsenal ticket prices across verified sellers and find the cheapest Arsenal tickets. Updated daily. Home matches at Emirates Stadium, London." />
+  <meta property="og:title" content="Arsenal Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Arsenal ticket prices across verified sellers and find the cheapest Arsenal tickets. Updated daily. Home matches at Emirates Stadium, London." />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/arsenal" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/arsenal#venue","name":"Emirates Stadium","maximumAttendeeCapacity":60338,"address":{"@type":"PostalAddress","addressLocality":"London"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/arsenal#team","name":"Arsenal","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Premier League"},"foundingDate":"1886","location":{"@id":"https://ticketscout.co.uk/football/arsenal#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Arsenal Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'arsenal';</script>
-    <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
@@ -18,16 +20,17 @@
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body>
-  <!-- Static SEO content — visible to Google before JS loads -->
-  <noscript>
-    <h1>Arsenal Tickets</h1>
-    <p>Arsenal Football Club are one of England's most successful clubs, based at the Emirates Stadium in north London. With 13 First Division/Premier League titles and a record 14 FA Cups, the Gunners are one of the most widely supported clubs in the world. Under Mikel Arteta, Arsenal have returned to genuine Premier League title contention.</p>
-    <p>Compare Arsenal ticket prices across Gigsberg, SportsEvents365, Vivid Seats, TicketNetwork and Ticombo. Find the best deal and buy direct.</p>
-  </noscript>
-  <script>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Arsenal Tickets</h1>
+  <p>Arsenal play their home matches at Emirates Stadium, London.</p>
+  <p>Compare Arsenal ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/football.html?v=20260714a');
+      const r = await fetch('/football.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
@@ -45,6 +48,4 @@
       });
     } catch(e) { console.error('Failed to load football template:', e); }
   })();
-  </script>
-</body>
-</html>
+</script></body></html>

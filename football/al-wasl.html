@@ -5,12 +5,12 @@
   <title>Compare Al Wasl Ticket Prices — Cheapest Al Wasl Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Al Wasl ticket prices across verified sellers and find the cheapest Al Wasl tickets. Updated daily." />
+  <meta name="description" content="Compare Al Wasl ticket prices across verified sellers and find the cheapest Al Wasl tickets. Updated daily. Home matches at Za'abeel Stadium, Dubai." />
   <meta property="og:title" content="Al Wasl Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Al Wasl ticket prices across verified sellers and find the cheapest Al Wasl tickets. Updated daily." />
+  <meta property="og:description" content="Compare Al Wasl ticket prices across verified sellers and find the cheapest Al Wasl tickets. Updated daily. Home matches at Za'abeel Stadium, Dubai." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/al-wasl" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/al-wasl#team","name":"Al Wasl","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Al Wasl Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/al-wasl#venue","name":"Za'abeel Stadium","maximumAttendeeCapacity":18000,"address":{"@type":"PostalAddress","addressLocality":"Dubai","addressCountry":"United Arab Emirates"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/al-wasl#team","name":"Al Wasl","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"UAE Pro League"},"foundingDate":"1974","location":{"@id":"https://ticketscout.co.uk/football/al-wasl#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Al Wasl Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'al-wasl';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Al Wasl Tickets</h1>
+  <p>Al Wasl play their home matches at Za'abeel Stadium, Dubai.</p>
+  <p>Compare Al Wasl ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');
