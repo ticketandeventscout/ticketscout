@@ -5,12 +5,12 @@
   <title>Compare Brescia Ticket Prices — Cheapest Brescia Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Brescia ticket prices across verified sellers and find the cheapest Brescia tickets. Updated daily." />
+  <meta name="description" content="Compare Brescia ticket prices across verified sellers and find the cheapest Brescia tickets. Updated daily. Home matches at Stadio Mario Rigamonti, Brescia." />
   <meta property="og:title" content="Brescia Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Brescia ticket prices across verified sellers and find the cheapest Brescia tickets. Updated daily." />
+  <meta property="og:description" content="Compare Brescia ticket prices across verified sellers and find the cheapest Brescia tickets. Updated daily. Home matches at Stadio Mario Rigamonti, Brescia." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/brescia" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/brescia#team","name":"Brescia","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Brescia Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/brescia#venue","name":"Stadio Mario Rigamonti","maximumAttendeeCapacity":16308,"address":{"@type":"PostalAddress","addressLocality":"Brescia","addressCountry":"Italy"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/brescia#team","name":"Brescia","sport":"Football","foundingDate":"1911","location":{"@id":"https://ticketscout.co.uk/football/brescia#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Brescia Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'brescia';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Brescia Tickets</h1>
+  <p>Brescia play their home matches at Stadio Mario Rigamonti, Brescia.</p>
+  <p>Compare Brescia ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

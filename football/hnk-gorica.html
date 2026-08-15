@@ -5,12 +5,12 @@
   <title>Compare HNK Gorica Ticket Prices — Cheapest HNK Gorica Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare HNK Gorica ticket prices across verified sellers and find the cheapest HNK Gorica tickets. Updated daily." />
+  <meta name="description" content="Compare HNK Gorica ticket prices across verified sellers and find the cheapest HNK Gorica tickets. Updated daily. Home matches at Stadion Maksimir, Maksimir." />
   <meta property="og:title" content="HNK Gorica Tickets | TicketScout" />
-  <meta property="og:description" content="Compare HNK Gorica ticket prices across verified sellers and find the cheapest HNK Gorica tickets. Updated daily." />
+  <meta property="og:description" content="Compare HNK Gorica ticket prices across verified sellers and find the cheapest HNK Gorica tickets. Updated daily. Home matches at Stadion Maksimir, Maksimir." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/hnk-gorica" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/hnk-gorica#team","name":"HNK Gorica","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"HNK Gorica Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/hnk-gorica#venue","name":"Stadion Maksimir","maximumAttendeeCapacity":60000,"address":{"@type":"PostalAddress","addressLocality":"Maksimir","addressCountry":"Croatia"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/hnk-gorica#team","name":"HNK Gorica","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Croatian Football League"},"foundingDate":"2009","location":{"@id":"https://ticketscout.co.uk/football/hnk-gorica#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"HNK Gorica Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'hnk-gorica';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>HNK Gorica Tickets</h1>
+  <p>HNK Gorica play their home matches at Stadion Maksimir, Maksimir.</p>
+  <p>Compare HNK Gorica ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

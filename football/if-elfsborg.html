@@ -5,12 +5,12 @@
   <title>Compare IF Elfsborg Ticket Prices — Cheapest IF Elfsborg Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare IF Elfsborg ticket prices across verified sellers and find the cheapest IF Elfsborg tickets. Updated daily." />
+  <meta name="description" content="Compare IF Elfsborg ticket prices across verified sellers and find the cheapest IF Elfsborg tickets. Updated daily. Home matches at Borås Arena, Borås…" />
   <meta property="og:title" content="IF Elfsborg Tickets | TicketScout" />
-  <meta property="og:description" content="Compare IF Elfsborg ticket prices across verified sellers and find the cheapest IF Elfsborg tickets. Updated daily." />
+  <meta property="og:description" content="Compare IF Elfsborg ticket prices across verified sellers and find the cheapest IF Elfsborg tickets. Updated daily. Home matches at Borås Arena, Borås…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/if-elfsborg" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/if-elfsborg#team","name":"IF Elfsborg","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"IF Elfsborg Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/if-elfsborg#venue","name":"Borås Arena","maximumAttendeeCapacity":16200,"address":{"@type":"PostalAddress","addressLocality":"Borås Municipality","addressCountry":"Sweden"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/if-elfsborg#team","name":"IF Elfsborg","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Allsvenskan"},"foundingDate":"1904","location":{"@id":"https://ticketscout.co.uk/football/if-elfsborg#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"IF Elfsborg Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'if-elfsborg';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>IF Elfsborg Tickets</h1>
+  <p>IF Elfsborg play their home matches at Borås Arena, Borås Municipality.</p>
+  <p>Compare IF Elfsborg ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

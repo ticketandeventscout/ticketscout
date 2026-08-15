@@ -5,12 +5,12 @@
   <title>Compare ACF Fiorentina Ticket Prices — Cheapest ACF Fiorentina Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare ACF Fiorentina ticket prices across verified sellers and find the cheapest ACF Fiorentina tickets. Updated daily." />
+  <meta name="description" content="Compare ACF Fiorentina ticket prices across verified sellers and find the cheapest ACF Fiorentina tickets. Updated daily. Home matches at Stadio Artemio…" />
   <meta property="og:title" content="ACF Fiorentina Tickets | TicketScout" />
-  <meta property="og:description" content="Compare ACF Fiorentina ticket prices across verified sellers and find the cheapest ACF Fiorentina tickets. Updated daily." />
+  <meta property="og:description" content="Compare ACF Fiorentina ticket prices across verified sellers and find the cheapest ACF Fiorentina tickets. Updated daily. Home matches at Stadio Artemio…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/acf-fiorentina" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/acf-fiorentina#team","name":"ACF Fiorentina","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"ACF Fiorentina Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/acf-fiorentina#venue","name":"Stadio Artemio Franchi","maximumAttendeeCapacity":43325,"address":{"@type":"PostalAddress","addressLocality":"Florence","addressCountry":"Italy"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/acf-fiorentina#team","name":"ACF Fiorentina","sport":"Football","foundingDate":"2002","location":{"@id":"https://ticketscout.co.uk/football/acf-fiorentina#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"ACF Fiorentina Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'acf-fiorentina';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>ACF Fiorentina Tickets</h1>
+  <p>ACF Fiorentina play their home matches at Stadio Artemio Franchi, Florence.</p>
+  <p>Compare ACF Fiorentina ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

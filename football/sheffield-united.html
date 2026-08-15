@@ -1,16 +1,18 @@
-<!DOCTYPE html><!-- TicketScout football v20260711c -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sheffield United Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare Sheffield United ticket prices across verified sellers. Find the cheapest Sheffield United tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="Sheffield United Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Sheffield United ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare Sheffield United Ticket Prices — Cheapest Sheffield United Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Sheffield United ticket prices across verified sellers and find the cheapest Sheffield United tickets. Updated daily. Home matches at Bramall…" />
+  <meta property="og:title" content="Sheffield United Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Sheffield United ticket prices across verified sellers and find the cheapest Sheffield United tickets. Updated daily. Home matches at Bramall…" />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/sheffield-united" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/sheffield-united#venue","name":"Bramall Lane","maximumAttendeeCapacity":32702,"address":{"@type":"PostalAddress","addressLocality":"Sheffield"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/sheffield-united#team","name":"Sheffield United","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"EFL Championship"},"foundingDate":"1889","location":{"@id":"https://ticketscout.co.uk/football/sheffield-united#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Sheffield United Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'sheffield-united';</script>
-    <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
@@ -18,16 +20,17 @@
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body>
-  <!-- Static SEO content — visible to Google before JS loads -->
-  <noscript>
-    <h1>Sheffield United Tickets</h1>
-    <p>Sheffield United are a Yorkshire club competing in the Championship with ambitions to return to the Premier League. The Blades play at the historic Bramall Lane, one of the world's oldest major football stadiums still in use.</p>
-    <p>Compare Sheffield United ticket prices across Gigsberg, SportsEvents365, Vivid Seats, TicketNetwork and Ticombo. Find the best deal and buy direct.</p>
-  </noscript>
-  <script>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Sheffield United Tickets</h1>
+  <p>Sheffield United play their home matches at Bramall Lane, Sheffield.</p>
+  <p>Compare Sheffield United ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/football.html?v=20260714a');
+      const r = await fetch('/football.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
@@ -45,6 +48,4 @@
       });
     } catch(e) { console.error('Failed to load football template:', e); }
   })();
-  </script>
-</body>
-</html>
+</script></body></html>

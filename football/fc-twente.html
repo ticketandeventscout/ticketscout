@@ -5,12 +5,12 @@
   <title>Compare FC Twente Ticket Prices — Cheapest FC Twente Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare FC Twente ticket prices across verified sellers and find the cheapest FC Twente tickets. Updated daily." />
+  <meta name="description" content="Compare FC Twente ticket prices across verified sellers and find the cheapest FC Twente tickets. Updated daily. Home matches at De Grolsch Veste, Enschede." />
   <meta property="og:title" content="FC Twente Tickets | TicketScout" />
-  <meta property="og:description" content="Compare FC Twente ticket prices across verified sellers and find the cheapest FC Twente tickets. Updated daily." />
+  <meta property="og:description" content="Compare FC Twente ticket prices across verified sellers and find the cheapest FC Twente tickets. Updated daily. Home matches at De Grolsch Veste, Enschede." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/fc-twente" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/fc-twente#team","name":"FC Twente","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"FC Twente Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/fc-twente#venue","name":"De Grolsch Veste","maximumAttendeeCapacity":30000,"address":{"@type":"PostalAddress","addressLocality":"Enschede","addressCountry":"Netherlands"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/fc-twente#team","name":"FC Twente","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Eredivisie"},"foundingDate":"1965","location":{"@id":"https://ticketscout.co.uk/football/fc-twente#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"FC Twente Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'fc-twente';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>FC Twente Tickets</h1>
+  <p>FC Twente play their home matches at De Grolsch Veste, Enschede.</p>
+  <p>Compare FC Twente ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

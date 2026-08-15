@@ -1,16 +1,18 @@
-<!DOCTYPE html><!-- TicketScout football v20260711c -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aston Villa Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare Aston Villa ticket prices across verified sellers. Find the cheapest Aston Villa tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="Aston Villa Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Aston Villa ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare Aston Villa Ticket Prices — Cheapest Aston Villa Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Aston Villa ticket prices across verified sellers and find the cheapest Aston Villa tickets. Updated daily. Home matches at Villa Park, Birmingham." />
+  <meta property="og:title" content="Aston Villa Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Aston Villa ticket prices across verified sellers and find the cheapest Aston Villa tickets. Updated daily. Home matches at Villa Park, Birmingham." />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/aston-villa" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/aston-villa#venue","name":"Villa Park","maximumAttendeeCapacity":42640,"address":{"@type":"PostalAddress","addressLocality":"Birmingham"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/aston-villa#team","name":"Aston Villa","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Premier League"},"foundingDate":"1874","location":{"@id":"https://ticketscout.co.uk/football/aston-villa#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Aston Villa Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'aston-villa';</script>
-    <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
@@ -18,16 +20,17 @@
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body>
-  <!-- Static SEO content — visible to Google before JS loads -->
-  <noscript>
-    <h1>Aston Villa Tickets</h1>
-    <p>Aston Villa are one of English football's founding clubs and European Cup winners in 1982. Based at Villa Park in Birmingham, the club have returned to contending for European qualification under Unai Emery.</p>
-    <p>Compare Aston Villa ticket prices across Gigsberg, SportsEvents365, Vivid Seats, TicketNetwork and Ticombo. Find the best deal and buy direct.</p>
-  </noscript>
-  <script>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Aston Villa Tickets</h1>
+  <p>Aston Villa play their home matches at Villa Park, Birmingham.</p>
+  <p>Compare Aston Villa ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/football.html?v=20260714a');
+      const r = await fetch('/football.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
@@ -45,6 +48,4 @@
       });
     } catch(e) { console.error('Failed to load football template:', e); }
   })();
-  </script>
-</body>
-</html>
+</script></body></html>

@@ -5,12 +5,12 @@
   <title>Compare Almere City Ticket Prices — Cheapest Almere City Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Almere City ticket prices across verified sellers and find the cheapest Almere City tickets. Updated daily." />
+  <meta name="description" content="Compare Almere City ticket prices across verified sellers and find the cheapest Almere City tickets. Updated daily. Home matches at Yanmar Stadion, Almere." />
   <meta property="og:title" content="Almere City Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Almere City ticket prices across verified sellers and find the cheapest Almere City tickets. Updated daily." />
+  <meta property="og:description" content="Compare Almere City ticket prices across verified sellers and find the cheapest Almere City tickets. Updated daily. Home matches at Yanmar Stadion, Almere." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/almere-city" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/almere-city#team","name":"Almere City","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Almere City Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/almere-city#venue","name":"Yanmar Stadion","maximumAttendeeCapacity":4501,"address":{"@type":"PostalAddress","addressLocality":"Almere","addressCountry":"Netherlands"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/almere-city#team","name":"Almere City","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Eerste Divisie"},"foundingDate":"2001","location":{"@id":"https://ticketscout.co.uk/football/almere-city#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Almere City Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'almere-city';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Almere City Tickets</h1>
+  <p>Almere City play their home matches at Yanmar Stadion, Almere.</p>
+  <p>Compare Almere City ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

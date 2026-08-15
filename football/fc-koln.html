@@ -5,12 +5,12 @@
   <title>Compare FC Koln Ticket Prices — Cheapest FC Koln Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare FC Koln ticket prices across verified sellers and find the cheapest FC Koln tickets. Updated daily." />
+  <meta name="description" content="Compare FC Koln ticket prices across verified sellers and find the cheapest FC Koln tickets. Updated daily. Home matches at RheinEnergie Stadion, Müngersdorf." />
   <meta property="og:title" content="FC Koln Tickets | TicketScout" />
-  <meta property="og:description" content="Compare FC Koln ticket prices across verified sellers and find the cheapest FC Koln tickets. Updated daily." />
+  <meta property="og:description" content="Compare FC Koln ticket prices across verified sellers and find the cheapest FC Koln tickets. Updated daily. Home matches at RheinEnergie Stadion, Müngersdorf." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/fc-koln" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/fc-koln#team","name":"FC Koln","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"FC Koln Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/fc-koln#venue","name":"RheinEnergie Stadion","maximumAttendeeCapacity":46195,"address":{"@type":"PostalAddress","addressLocality":"Müngersdorf","addressCountry":"Germany"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/fc-koln#team","name":"FC Koln","sport":"Football","foundingDate":"1948","location":{"@id":"https://ticketscout.co.uk/football/fc-koln#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"FC Koln Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'fc-koln';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>FC Koln Tickets</h1>
+  <p>FC Koln play their home matches at RheinEnergie Stadion, Müngersdorf.</p>
+  <p>Compare FC Koln ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

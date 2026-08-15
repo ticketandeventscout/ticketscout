@@ -5,12 +5,12 @@
   <title>Compare Botafogo Ticket Prices — Cheapest Botafogo Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Botafogo ticket prices across verified sellers and find the cheapest Botafogo tickets. Updated daily." />
+  <meta name="description" content="Compare Botafogo ticket prices across verified sellers and find the cheapest Botafogo tickets. Updated daily. Home matches at Estádio Nilton Santos, Rio…" />
   <meta property="og:title" content="Botafogo Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Botafogo ticket prices across verified sellers and find the cheapest Botafogo tickets. Updated daily." />
+  <meta property="og:description" content="Compare Botafogo ticket prices across verified sellers and find the cheapest Botafogo tickets. Updated daily. Home matches at Estádio Nilton Santos, Rio…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/botafogo" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/botafogo#team","name":"Botafogo","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Botafogo Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/botafogo#venue","name":"Estádio Nilton Santos","maximumAttendeeCapacity":46931,"address":{"@type":"PostalAddress","addressLocality":"Rio de Janeiro","addressCountry":"Brazil"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/botafogo#team","name":"Botafogo","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Campeonato Brasileiro Série A"},"foundingDate":"1904","location":{"@id":"https://ticketscout.co.uk/football/botafogo#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Botafogo Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'botafogo';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Botafogo Tickets</h1>
+  <p>Botafogo play their home matches at Estádio Nilton Santos, Rio de Janeiro.</p>
+  <p>Compare Botafogo ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

@@ -1,16 +1,18 @@
-<!DOCTYPE html><!-- TicketScout football v20260711c -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RCD Mallorca Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare RCD Mallorca ticket prices across verified sellers. Find the cheapest RCD Mallorca tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="RCD Mallorca Tickets | TicketScout" />
-  <meta property="og:description" content="Compare RCD Mallorca ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare Mallorca Ticket Prices — Cheapest Mallorca Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Mallorca ticket prices across verified sellers and find the cheapest Mallorca tickets. Updated daily. Home matches at Estadi Mallorca Son Moix, Palma." />
+  <meta property="og:title" content="Mallorca Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Mallorca ticket prices across verified sellers and find the cheapest Mallorca tickets. Updated daily. Home matches at Estadi Mallorca Son Moix, Palma." />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/mallorca" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/mallorca#venue","name":"Estadi Mallorca Son Moix","maximumAttendeeCapacity":25736,"address":{"@type":"PostalAddress","addressLocality":"Palma","addressCountry":"Spain"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/mallorca#team","name":"Mallorca","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"LaLiga 2"},"foundingDate":"1916","location":{"@id":"https://ticketscout.co.uk/football/mallorca#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Mallorca Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'mallorca';</script>
-    <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
@@ -18,16 +20,17 @@
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body>
-  <!-- Static SEO content — visible to Google before JS loads -->
-  <noscript>
-    <h1>RCD Mallorca Tickets</h1>
-    <p>RCD Mallorca are the main club of the Balearic Islands, playing at the Estadio de Son Moix in Palma. Mallorca have a long history in La Liga and attract significant support from the island and its many visitors.</p>
-    <p>Compare RCD Mallorca ticket prices across Gigsberg, SportsEvents365, Vivid Seats, TicketNetwork and Ticombo. Find the best deal and buy direct.</p>
-  </noscript>
-  <script>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Mallorca Tickets</h1>
+  <p>Mallorca play their home matches at Estadi Mallorca Son Moix, Palma.</p>
+  <p>Compare Mallorca ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/football.html?v=20260714a');
+      const r = await fetch('/football.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
@@ -45,6 +48,4 @@
       });
     } catch(e) { console.error('Failed to load football template:', e); }
   })();
-  </script>
-</body>
-</html>
+</script></body></html>

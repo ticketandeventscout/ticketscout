@@ -1,16 +1,18 @@
-<!DOCTYPE html><!-- TicketScout football v20260711c -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Brentford Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare Brentford ticket prices across verified sellers. Find the cheapest Brentford tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="Brentford Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Brentford ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare Brentford Ticket Prices — Cheapest Brentford Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Brentford ticket prices across verified sellers and find the cheapest Brentford tickets. Updated daily. Home matches at Griffin Park, Brentford." />
+  <meta property="og:title" content="Brentford Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Brentford ticket prices across verified sellers and find the cheapest Brentford tickets. Updated daily. Home matches at Griffin Park, Brentford." />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/brentford" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/brentford#venue","name":"Griffin Park","maximumAttendeeCapacity":14863,"address":{"@type":"PostalAddress","addressLocality":"Brentford"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/brentford#team","name":"Brentford","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Premier League"},"foundingDate":"1889","location":{"@id":"https://ticketscout.co.uk/football/brentford#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Brentford Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'brentford';</script>
-    <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
@@ -18,16 +20,17 @@
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
 <body>
-  <!-- Static SEO content — visible to Google before JS loads -->
-  <noscript>
-    <h1>Brentford Tickets</h1>
-    <p>Brentford FC are a west London club who have established themselves in the Premier League following their 2021 promotion. Playing at the modern Gtech Community Stadium, Brentford are known for their innovative data-driven approach under Thomas Frank.</p>
-    <p>Compare Brentford ticket prices across Gigsberg, SportsEvents365, Vivid Seats, TicketNetwork and Ticombo. Find the best deal and buy direct.</p>
-  </noscript>
-  <script>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Brentford Tickets</h1>
+  <p>Brentford play their home matches at Griffin Park, Brentford.</p>
+  <p>Compare Brentford ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/football.html?v=20260714a');
+      const r = await fetch('/football.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
@@ -45,6 +48,4 @@
       });
     } catch(e) { console.error('Failed to load football template:', e); }
   })();
-  </script>
-</body>
-</html>
+</script></body></html>
