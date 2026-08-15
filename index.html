@@ -5,6 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="TicketScout — Compare ticket prices across all major ticket sites instantly. Find the best deal for concerts, sports, theatre and comedy." />
   <title>TicketScout — Compare UK Ticket Prices</title>
+  <!-- S19-D fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): homepage had
+       ZERO Open Graph or Twitter Card tags — confirmed directly against
+       this file, not just the Semrush crawl (every other page template,
+       e.g. concert.html, already had the full set; it just was never
+       copied here). Values match the M6 Organization/WebSite JSON-LD
+       below: same image asset (/ogdefault.png — the one real, already-
+       deployed image asset; see M6's own comment for why no separate
+       logo/social profile fields are fabricated here either), same
+       canonical URL. Canonical link tag was also entirely absent — added
+       here too since og:url and canonical should agree and there's no
+       reason to fix one without the other. -->
+  <link rel="canonical" href="https://ticketscout.co.uk/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="TicketScout" />
+  <meta property="og:title" content="TicketScout — Compare UK Ticket Prices" />
+  <meta property="og:description" content="Compare ticket prices across all major ticket sites instantly. Find the best deal for concerts, sports, theatre and comedy." />
+  <meta property="og:url" content="https://ticketscout.co.uk/" />
+  <meta property="og:image" content="https://ticketscout.co.uk/ogdefault.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="TicketScout — Compare UK Ticket Prices" />
+  <meta name="twitter:description" content="Compare ticket prices across all major ticket sites instantly. Find the best deal for concerts, sports, theatre and comedy." />
+  <meta name="twitter:image" content="https://ticketscout.co.uk/ogdefault.png" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
