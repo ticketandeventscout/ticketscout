@@ -4008,6 +4008,25 @@ class GitHubAPI {
 
 function generateArtistPageHtml(slug, enrich) {
   const { name: displayName, title, description, jsonLd } = stubHeadEnrichment('concert', slug, enrich);
+  const facts = (enrich && enrich.facts) || {};
+
+  // S19-F fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): same fix as
+  // S19-A/S19-B applied to football — this generator had the identical
+  // empty-body, no-H1-until-JS-runs vulnerability, confirmed by direct
+  // code comparison, not yet confirmed against a live concert page the
+  // way football was (no noscript/no-noscript live sample pulled for this
+  // category this session). Real, visible body content now bakes in
+  // unconditionally, same reasoning as football's fix. Deliberately
+  // CONSERVATIVE here versus football's version: football's fact-based
+  // sentence used facts.stadium/facts.city because that was confirmed
+  // correct against live AC Milan/FC Slovacko output; no equivalent live
+  // confirmation exists for concert's facts schema, so this only uses
+  // facts.bio/facts.description (field names shared with football's own
+  // fallback tier) rather than guessing at an artist-specific field that
+  // might not exist or might hold something unexpected.
+  const bio = facts.bio || facts.description ||
+    `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4029,7 +4048,15 @@ function generateArtistPageHtml(slug, enrich) {
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>${escAttr(displayName)} Tickets</h1>
+  <p>${escAttr(bio)}</p>
+  <p>Compare ${escAttr(displayName)} ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/concert.html?v=${TEMPLATE_VERSION}');
@@ -4251,6 +4278,18 @@ function generateFootballPageHtml(slug, enrich) {
 // routes.
 function generateSportsPageHtml(slug, enrich) {
   const { name: displayName, title, description, jsonLd } = stubHeadEnrichment('sports', slug, enrich);
+  const facts = (enrich && enrich.facts) || {};
+
+  // S19-F fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): same fix as
+  // S19-A/S19-B/concert above. See generateArtistPageHtml's comment for
+  // the full reasoning — same conservative choice here: bio/description
+  // only, no guessed sports-specific field (sports entities can be teams
+  // OR individual competitors, e.g. tennis/boxing/MMA, so a football-style
+  // "stadium" assumption would be wrong for a large share of this
+  // category even if the field existed).
+  const bio = facts.bio || facts.description ||
+    `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4271,7 +4310,15 @@ function generateSportsPageHtml(slug, enrich) {
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>${escAttr(displayName)} Tickets</h1>
+  <p>${escAttr(bio)}</p>
+  <p>Compare ${escAttr(displayName)} ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/sports.html?v=${TEMPLATE_VERSION}');
@@ -4297,6 +4344,14 @@ function generateSportsPageHtml(slug, enrich) {
 
 function generateTheatrePageHtml(slug, enrich) {
   const { name: displayName, title, description, jsonLd } = stubHeadEnrichment('theatre', slug, enrich);
+  const facts = (enrich && enrich.facts) || {};
+
+  // S19-F fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): same fix as
+  // S19-A/S19-B/concert/sports above. See generateArtistPageHtml's comment
+  // for the full reasoning — same conservative bio/description-only tier.
+  const bio = facts.bio || facts.description ||
+    `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4318,7 +4373,15 @@ function generateTheatrePageHtml(slug, enrich) {
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>${escAttr(displayName)} Tickets</h1>
+  <p>${escAttr(bio)}</p>
+  <p>Compare ${escAttr(displayName)} ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/theatre.html?v=${TEMPLATE_VERSION}');
