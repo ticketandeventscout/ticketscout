@@ -5,12 +5,12 @@
   <title>Compare Bursaspor Ticket Prices — Cheapest Bursaspor Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Bursaspor ticket prices across verified sellers and find the cheapest Bursaspor tickets. Updated daily." />
+  <meta name="description" content="Compare Bursaspor ticket prices across verified sellers and find the cheapest Bursaspor tickets. Updated daily. Home matches at Bursa Atatürk Stadium, Bursa." />
   <meta property="og:title" content="Bursaspor Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Bursaspor ticket prices across verified sellers and find the cheapest Bursaspor tickets. Updated daily." />
+  <meta property="og:description" content="Compare Bursaspor ticket prices across verified sellers and find the cheapest Bursaspor tickets. Updated daily. Home matches at Bursa Atatürk Stadium, Bursa." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/bursaspor" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/bursaspor#team","name":"Bursaspor","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Bursaspor Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/bursaspor#venue","name":"Bursa Atatürk Stadium","maximumAttendeeCapacity":25213,"address":{"@type":"PostalAddress","addressLocality":"Bursa","addressCountry":"Turkey"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/bursaspor#team","name":"Bursaspor","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"TFF Second League"},"foundingDate":"1963","location":{"@id":"https://ticketscout.co.uk/football/bursaspor#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Bursaspor Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'bursaspor';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Bursaspor Tickets</h1>
+  <p>Bursaspor play their home matches at Bursa Atatürk Stadium, Bursa.</p>
+  <p>Compare Bursaspor ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');

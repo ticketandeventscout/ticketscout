@@ -5,12 +5,12 @@
   <title>Compare Carabobo Ticket Prices — Cheapest Carabobo Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Carabobo ticket prices across verified sellers and find the cheapest Carabobo tickets. Updated daily." />
+  <meta name="description" content="Compare Carabobo ticket prices across verified sellers and find the cheapest Carabobo tickets. Updated daily. Home matches at Estadio Misael Delgado,…" />
   <meta property="og:title" content="Carabobo Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Carabobo ticket prices across verified sellers and find the cheapest Carabobo tickets. Updated daily." />
+  <meta property="og:description" content="Compare Carabobo ticket prices across verified sellers and find the cheapest Carabobo tickets. Updated daily. Home matches at Estadio Misael Delgado,…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/football/carabobo" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/carabobo#team","name":"Carabobo","sport":"Football"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Carabobo Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/football/carabobo#venue","name":"Estadio Misael Delgado","maximumAttendeeCapacity":10000,"address":{"@type":"PostalAddress","addressLocality":"Valencia","addressCountry":"Venezuela"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/football/carabobo#team","name":"Carabobo","sport":"Football","memberOf":{"@type":"SportsOrganization","name":"Venezuelan Primera División"},"foundingDate":"1997","location":{"@id":"https://ticketscout.co.uk/football/carabobo#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Football","item":"https://ticketscout.co.uk/football"},{"@type":"ListItem","position":2,"name":"Carabobo Tickets"}]}]}</script>
   <script>window.__FOOTBALL_SLUG__ = 'carabobo';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-A/S19-B fix: real, visible fallback content — always present,
+       never conditional on enrichment data. Replaced by the fetch+swap
+       script below once JS runs; this is what any non-JS-executing
+       crawler actually sees. -->
+  <h1>Carabobo Tickets</h1>
+  <p>Carabobo play their home matches at Estadio Misael Delgado, Valencia.</p>
+  <p>Compare Carabobo ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/football.html?v=20260717a');
