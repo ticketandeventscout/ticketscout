@@ -563,13 +563,24 @@ export async function onRequestGet({ request, env }) {
     const files = [];
     let enrichedCount = 0;
     for (const slug of batch) {
-      let name = null, facts = null;
+      let name = null, facts = null, aboutText = null;
       try { const rec = await kv.get(kvPrefix + slug); if (rec) name = JSON.parse(rec).name; } catch {}
       try {
         const m = await kv.get(`entity:meta:${category}:${slug}`);
-        if (m) { facts = JSON.parse(m).facts; enrichedCount++; }
+        // FIX (16 Aug 2026, S19-A content-writing follow-up): this used to
+        // read the full meta record then keep ONLY `.facts`, silently
+        // dropping `.aboutText` — a real, genuine, per-entity 2-3 sentence
+        // bio enrich-entities.js already writes as a SIBLING of `facts`,
+        // not nested inside it. Confirmed live this session (fc-slovacko's
+        // own ?inspect=1 output): the field exists and reads as real,
+        // Wikidata-sourced prose, not a placeholder. The generators
+        // (below) were never even given the chance to use it — this was a
+        // pure plumbing loss, not a missing-content problem. Every
+        // category shares this same discard, so the fix is here once
+        // rather than duplicated per category.
+        if (m) { const parsed = JSON.parse(m); facts = parsed.facts; aboutText = parsed.aboutText || null; enrichedCount++; }
       } catch {}
-      files.push({ path: `${category}/${slug}.html`, content: htmlGenerator(slug, { name, facts }) });
+      files.push({ path: `${category}/${slug}.html`, content: htmlGenerator(slug, { name, facts, aboutText }) });
     }
 
     if (dryRun) {
@@ -4024,7 +4035,17 @@ function generateArtistPageHtml(slug, enrich) {
   // facts.bio/facts.description (field names shared with football's own
   // fallback tier) rather than guessing at an artist-specific field that
   // might not exist or might hold something unexpected.
-  const bio = facts.bio || facts.description ||
+  //
+  // aboutText tier added 16 Aug 2026 (S19-A content-writing follow-up,
+  // applied to all four categories): confirmed LIVE for football only
+  // (fc-slovacko's ?inspect=1 output) — not yet confirmed for concert
+  // specifically, same "no live confirmation for this category's schema"
+  // caveat as the rest of this comment. Added anyway because it is purely
+  // additive: `enrich.aboutText` undefined for this category falls
+  // straight through to the exact same behaviour as before, zero
+  // regression risk, same reasoning that made facts.bio/description safe
+  // to add here without per-category confirmation.
+  const bio = (enrich && enrich.aboutText) || facts.bio || facts.description ||
     `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
 
   return `<!DOCTYPE html>
@@ -4213,7 +4234,15 @@ function generateFootballPageHtml(slug, enrich) {
   // codebase) — this real fallback content is specifically what a
   // non-JS-executing crawler sees, and it's never meant to persist past
   // that swap for anyone else.
-  const bio = facts.bio || facts.description ||
+  // aboutText tier added 16 Aug 2026 (S19-A content-writing follow-up):
+  // enrich-entities.js already writes a real, genuine, per-club 2-3
+  // sentence bio to entity:meta:{cat}:{slug}.aboutText — confirmed live
+  // via fc-slovacko's own ?inspect=1 output, not assumed. It was being
+  // read then discarded before reaching this function (see the batch-loop
+  // fix above); this is the other half, actually using it. Falls back
+  // through the pre-existing tiers unchanged for any club aboutText
+  // hasn't reached yet — this is purely additive, no existing tier removed.
+  const bio = (enrich && enrich.aboutText) || facts.bio || facts.description ||
     (facts.stadium
       ? `${displayName} play their home matches at ${facts.stadium}${facts.city ? `, ${facts.city}` : ''}.`
       : `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`);
@@ -4287,7 +4316,11 @@ function generateSportsPageHtml(slug, enrich) {
   // OR individual competitors, e.g. tennis/boxing/MMA, so a football-style
   // "stadium" assumption would be wrong for a large share of this
   // category even if the field existed).
-  const bio = facts.bio || facts.description ||
+  //
+  // aboutText tier added 16 Aug 2026 — see generateArtistPageHtml's
+  // comment for the full reasoning (confirmed live for football only,
+  // purely additive elsewhere, zero regression risk).
+  const bio = (enrich && enrich.aboutText) || facts.bio || facts.description ||
     `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
 
   return `<!DOCTYPE html>
@@ -4349,7 +4382,11 @@ function generateTheatrePageHtml(slug, enrich) {
   // S19-F fix (14 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): same fix as
   // S19-A/S19-B/concert/sports above. See generateArtistPageHtml's comment
   // for the full reasoning — same conservative bio/description-only tier.
-  const bio = facts.bio || facts.description ||
+  //
+  // aboutText tier added 16 Aug 2026 — see generateArtistPageHtml's
+  // comment for the full reasoning (confirmed live for football only,
+  // purely additive elsewhere, zero regression risk).
+  const bio = (enrich && enrich.aboutText) || facts.bio || facts.description ||
     `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
 
   return `<!DOCTYPE html>
