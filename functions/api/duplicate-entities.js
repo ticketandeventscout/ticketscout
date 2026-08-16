@@ -6,10 +6,13 @@
 // WHY THIS EXISTS
 // ----------------
 // The registry contains the same real-world club/artist under more than one
-// slug. Confirmed examples: nottingham-forest + nottingham-forest-fc, and
-// wolves + wolverhampton-wanderers. Each pair is two hub pages competing for
-// the same queries, splitting internal links and inbound signals, and each
-// listing the same fixtures.
+// slug. Confirmed examples: nottingham-forest + nottingham-forest-fc, wolves
+// + wolverhampton-wanderers, and fc-slovacko + 1-fc-slovacko (found live,
+// 15 Aug 2026 — see stripTypeSuffix()'s "leading ordinal marker" handling,
+// added 16 Aug 2026, for why this specific pair was previously invisible to
+// this scanner). Each pair is two hub pages competing for the same queries,
+// splitting internal links and inbound signals, and each listing the same
+// fixtures.
 //
 // This is NOT what ?phase=mergefragments handles. That targets ticket-type
 // FRAGMENTS (day passes, multi-day packs, session numbers) — entities that
@@ -83,6 +86,19 @@ const TYPE_SUFFIXES = ['fc', 'afc', 'cf', 'sc', 'ac', 'sk', 'bk', 'bc', 'if', 't
 function stripTypeSuffix(slug) {
   const parts = String(slug || '').split('-').filter(Boolean);
   while (parts.length > 1 && TYPE_SUFFIXES.includes(parts[parts.length - 1])) parts.pop();
+  // Leading ORDINAL marker — added 16 Aug 2026, confirmed live:
+  // fc-slovacko + 1-fc-slovacko are the same real club ("1. FC Slovácko" —
+  // "first FC of the city", a real German/Czech/Austrian club-naming
+  // convention: 1. FC Köln, 1. FC Nürnberg, 1. FC Union Berlin, etc.)
+  // registered under two slugs, and were previously INVISIBLE to this
+  // scanner entirely — a bare leading "1" plus a type marker is two tokens
+  // stacked in front of the name, and the old logic only ever stripped one
+  // leading token. Deliberately narrow: only strips when "1" directly
+  // precedes a recognised type marker (fc/sc/etc.), so it can never fire on
+  // a founding-year name where the number IS part of the identity — e.g.
+  // "tsv-1860-munchen" (TSV 1860 München) is unaffected, confirmed by test,
+  // since "tsv" isn't a type marker and "1860" isn't bare "1".
+  if (parts.length > 2 && parts[0] === '1' && TYPE_SUFFIXES.includes(parts[1])) parts.shift();
   // A leading type marker is just as common: fc-barcelona, ac-milan.
   while (parts.length > 1 && TYPE_SUFFIXES.includes(parts[0])) parts.shift();
   return parts.join('-');
