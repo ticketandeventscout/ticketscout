@@ -470,9 +470,38 @@ export async function onRequestGet({ request, env }) {
 // unused KV storage, and avoids a second irreversible delete on top of the
 // registry change in the same pass.
 //
+// NAMED-PAIR OVERRIDE for tierB_riskyLeadingPrefix — added 16 Aug 2026.
+// The risky tier is otherwise NEVER touched by this function (see comment
+// above) — confirmed live that fc-barcelona/barcelona-sc and afc-toronto/
+// toronto-fc are genuinely different clubs sharing a marker, so a blanket
+// override was never going to be safe. But once a human has individually
+// reviewed the risky-tier list and confirmed specific pairs ARE the same
+// real club, there was no way to action just those without either bulk-
+// acting the whole tier or hand-writing KV keys outside this tool entirely
+// (skipping the winner-safety/ambiguous-name check below). This closes that
+// gap with the narrowest possible mechanism: an explicit, flat list of
+// slugs. A pair is only added to the candidate set if BOTH its slugs are
+// named — naming one side of a pair does nothing, so there is no way to
+// accidentally sweep in a pair that wasn't individually intended.
+// tierA_variantSuspect_doNotMerge and tierC are deliberately given no
+// equivalent override — reserve-side collisions and tierC's prefix-only
+// matches are a different, higher false-positive risk shape than a leading
+// fc-/sc-/afc- marker, and don't belong in the same escape hatch.
+// Usage: &includeRiskyPairs=braga,sc-braga,alverca,fc-alverca
+async function resolveRiskyOverridePairs(url, tierBRisky) {
+  const raw = (url.searchParams.get('includeRiskyPairs') || '').trim();
+  if (!raw) return [];
+  const named = new Set(raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+  return tierBRisky.filter(g => g.slugs.length === 2 && g.slugs.every(s => named.has(s)));
+}
+
 // Usage: ?merge=1&trigger=1                    — dry run, all categories
 //        ?merge=1&trigger=1&category=football  — dry run, one category
 //        ?merge=1&trigger=1&confirm=yes         — writes
+//        ?merge=1&trigger=1&category=football&includeRiskyPairs=braga,sc-braga
+//          — ALSO merges named tierB_riskyLeadingPrefix pairs (see above);
+//          every other risky pair, and every group in tierA_variantSuspect/
+//          tierC, remains untouched regardless
 async function runMerge(url, env) {
   const kv = env.GIGSBERG_KV;
   if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
@@ -496,8 +525,10 @@ async function runMerge(url, env) {
     const slugs = Object.keys(registry.sections[cat] || {});
     if (!slugs.length) continue;
 
-    const { tierA, tierB } = await classifyCategory(kv, cat, slugs);
+    const { tierA, tierB, tierBRisky } = await classifyCategory(kv, cat, slugs);
+    const riskyOverride = await resolveRiskyOverridePairs(url, tierBRisky);
     const candidateGroups = [...tierA.map(g => ({ ...g, evidence: 'tierA_sameExternalId' })),
+                              ...riskyOverride.map(g => ({ ...g, evidence: 'tierB_riskyLeadingPrefix_manualOverride' })),
                               ...tierB.map(g => ({ ...g, evidence: 'tierB_suffixEquivalent' }))];
 
     for (const g of candidateGroups) {
@@ -548,10 +579,32 @@ async function runMerge(url, env) {
       }
 
       if (!dryRun) {
-        if (plan.winnerSearchTextLooksAmbiguous && url.searchParams.get('includeAmbiguous') !== 'yes') {
+        // Two ways to override the ambiguous-name block, added 16 Aug 2026
+        // after a live run showed the real shape of this problem: for
+        // tierA/tierB football pairs specifically, the winner-selection
+        // rule (shorter slug wins) and this ambiguity heuristic (bare,
+        // single-word, <10-char text) both key off the SAME thing — a
+        // stripped suffix leaves exactly the bare nickname shape the
+        // heuristic looks for. Confirmed live: 30/30 eligible football
+        // pairs in one run were ALL flagged, including unambiguous
+        // globally-unique names (Liverpool, Celtic, Chelsea) alongside
+        // genuinely riskier ones (Aberdeen, Hearts). Blanket
+        // &includeAmbiguous=yes forces every flagged pair in the call
+        // through at once — fine for a fully-reviewed batch, but offers no
+        // way to force through only the ones actually checked. Named-pair
+        // override closes that gap, same pattern as includeRiskyPairs
+        // above: both slugs must be listed, naming one side does nothing.
+        const namedAmbiguous = new Set(
+          (url.searchParams.get('includeAmbiguousPairs') || '')
+            .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        );
+        const ambiguousOverridden = url.searchParams.get('includeAmbiguous') === 'yes'
+          || (namedAmbiguous.has(winner) && namedAmbiguous.has(loser));
+
+        if (plan.winnerSearchTextLooksAmbiguous && !ambiguousOverridden) {
           plan.applied = false;
           plan.skippedDueToAmbiguousName = true;
-          plan.reason = `Winner's stored search text ("${plan.winnerSearchText}") looks like a bare nickname that could match an unrelated entity in a live keyword search — exactly the failure mode found in the wolves/wolverhampton pair. Not written. Re-run with &includeAmbiguous=yes to force it through if you have manually verified this specific pair is fine, or fix the winner's OWN stored search text at the source first (safer) so the flag naturally clears.`;
+          plan.reason = `Winner's stored search text ("${plan.winnerSearchText}") looks like a bare nickname that could match an unrelated entity in a live keyword search — exactly the failure mode found in the wolves/wolverhampton pair. Not written. Re-run with &includeAmbiguous=yes to force ALL flagged pairs in this call through, or &includeAmbiguousPairs=${winner},${loser} (comma list, both sides of every pair you want) to force through only specific verified pairs, or fix the winner's OWN stored search text at the source first (safer) so the flag naturally clears.`;
           merges.push(plan);
           continue;
         }
@@ -591,17 +644,38 @@ async function runMerge(url, env) {
     catch (e) { return jsonResponse({ error: 'registry write failed after redirects were already written: ' + String(e), merges }, 500); }
   }
 
+  // Message now reflects what actually happened — added 16 Aug 2026. The
+  // previous fixed "Merge complete" string was shown even when EVERY
+  // eligible pair was blocked by the ambiguous-name guard (confirmed live:
+  // a 30-eligible, 0-applied run still said "Merge complete"), which reads
+  // as success when nothing was written at all.
+  const appliedCount = merges.filter(m => m.applied === true).length;
+  const blockedCount = merges.filter(m => m.skippedDueToAmbiguousName === true).length;
+  const erroredCount = merges.filter(m => m.applied === false && !m.skippedDueToAmbiguousName).length;
+  let resultMessage;
+  if (dryRun) {
+    resultMessage = 'Dry run — nothing written. Review the merges list, then add &confirm=yes to write redirects and update the registry.';
+  } else if (appliedCount === 0 && blockedCount > 0) {
+    resultMessage = `Nothing written. All ${blockedCount} eligible pair(s) were blocked by the ambiguous-name guard — see each entry's own "reason" field. Re-run with &includeAmbiguous=yes (all) or &includeAmbiguousPairs=slugA,slugB,... (specific, reviewed pairs only) to proceed.`;
+  } else if (blockedCount > 0) {
+    resultMessage = `Applied ${appliedCount} of ${merges.length}. ${blockedCount} pair(s) were blocked by the ambiguous-name guard and NOT written — see each entry's own "reason" field.`;
+  } else {
+    resultMessage = `Applied ${appliedCount} of ${merges.length}. Existing URLs for every written loser slug now 301 to the winner automatically via the redirect check already live in each category router.`;
+  }
+  if (erroredCount > 0) resultMessage += ` ${erroredCount} pair(s) hit a write error — see each entry's own "error" field.`;
+
   return jsonResponse({
     merge: true,
     dryRun,
     categories,
     eligiblePairs: merges.length,
+    appliedCount,
+    blockedByAmbiguousNameCount: blockedCount,
+    erroredCount,
     skippedGroups: skippedGroups.length,
     skippedGroupsDetail: skippedGroups,
     merges,
-    message: dryRun
-      ? 'Dry run — nothing written. Review the merges list, then add &confirm=yes to write redirects and update the registry.'
-      : 'Merge complete. Existing URLs for every loser slug now 301 to the winner automatically via the redirect check already live in each category router.'
+    message: resultMessage
   }, 200);
 }
 
