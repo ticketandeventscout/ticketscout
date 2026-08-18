@@ -302,8 +302,9 @@ async function runSearch(keyword) {
   grid.innerHTML = '<div class="loading">Searching…</div>';
 
   // Check if a dedicated SEO page exists — football first, then theatre, then concert.
-  // Only redirect to football/theatre if API returns RICH data (description > 80 chars),
-  // meaning it's a hardcoded entry — not a synthesised fallback from the slug.
+  // Only redirect to football/theatre/concert if API returns RICH data
+  // (description > 150 chars), meaning it's a hardcoded entry or a genuine
+  // KV/Awin match — not a synthesised fallback from the slug.
   const slug = toArtistSlug(keyword);
   if (slug) {
     try {
@@ -321,7 +322,27 @@ async function runSearch(keyword) {
       const isRichTheatre  = (theatreResp?.show?.description?.length || 0) > 150 && !isRichConcert;
       if (isRichFootball) { window.location.href = `/football/${slug}`; return; }
       if (isRichTheatre)  { window.location.href = `/theatre/${slug}`; return; }
-      if (concertResp)    { window.location.href = `/concert/${slug}`; return; }
+      // FIX (16 Aug 2026, live incident via GSC coverage export — 40k+
+      // pages stuck "discovered, not indexed"): this used to be
+      // `if (concertResp)`, which fires unconditionally — /api/concert's
+      // own header comment says "A 404 here is never correct", so
+      // concertResp can NEVER be null/falsy for ANY slug, real artist or
+      // not. That meant this branch redirected to /concert/{slug} for
+      // literally any search that didn't land a rich football/theatre
+      // match — confirmed live: "Ball State Cardinals" (a college sports
+      // team, zero matching rows anywhere in the 33k-row Awin feed) was
+      // reaching a fully rendered, indexable /concert/ball-state-cardinals
+      // page purely through this branch, with no real signal behind it at
+      // all. isRichConcert was ALREADY being computed two lines above
+      // (needed for isRichTheatre's own collision guard) — it just wasn't
+      // being applied to concert's own branch. Same 150-char bar already
+      // proven correct for football/theatre: the synthesised fallback
+      // description ("Compare {name} ticket prices across verified
+      // sellers on TicketScout.") is a fixed ~64 characters plus the name,
+      // so it clears 150 only for a name over ~86 characters — realistically
+      // never — while every genuine hardcoded/KV/Awin-backed description
+      // comfortably does.
+      if (isRichConcert)  { window.location.href = `/concert/${slug}`; return; }
     } catch {}
   }
 
