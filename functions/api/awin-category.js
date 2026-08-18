@@ -163,10 +163,26 @@ function isDateMatch(rowDate, targetDate, windowDays = 3) {
 
 // Extracts a date string from Gigsberg's description field
 // Format: "Event Type: Concert, Venue: London Stadium, Date: 2026-07-03, Time: 19:00:00"
+//
+// FIX (16 Aug 2026): previously only recognised yyyy-mm-dd. awin-category-
+// cache.js's own extractSyncDate() (a different function, used for the
+// event_pages D1 sync) documents BOTH "Date: yyyy-mm-dd AND Date: dd/mm/
+// yyyy" as real formats this feed uses — this function never handled the
+// second one. This wasn't a latent edge case: parseFeedRow() in that same
+// file hardcodes event_date: '' for every row reaching THIS adapter's KV
+// chunks (comment: "Date/venue extracted from description field by awin-
+// category.js"), so getRowDate() below falls through to this function for
+// every single row, no exceptions. A dd/mm/yyyy row silently returned '',
+// which made isDateMatch() reject it outright regardless of whether the
+// actual date was correct — live, not hypothetical, for any row in that
+// format.
 function extractDateFromDescription(description) {
   if (!description) return '';
-  const match = description.match(/Date:\s*(\d{4}-\d{2}-\d{2})/i);
-  return match ? match[1] : '';
+  const iso = description.match(/Date:\s*(\d{4}-\d{2}-\d{2})/i);
+  if (iso) return iso[1];
+  const dmy = description.match(/Date:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  return '';
 }
 
 // Returns the best date available for a row — prefers event_date, falls back to description
@@ -193,8 +209,31 @@ function findBestMatches(rows, query, targetDate, venueName) {
   if (targetDate && dateMatched.length === 0) return [];
   const pool = dateMatched.length > 0 ? dateMatched : scored;
 
+  // FIX (16 Aug 2026): venueName was accepted as a parameter and passed in
+  // from onRequestGet, but never referenced anywhere in this function —
+  // dead code. Checked every current caller (concert.js, discover-pages.js,
+  // entity-lifecycle.js): none currently send &venue=, so this wasn't
+  // causing an observed live symptom the way the date-format gap above
+  // was — but it's the exact same class of risk this session already
+  // confirmed real elsewhere (price-history.js's Les Miserables incident:
+  // name+date alone isn't always enough to identify one specific real
+  // event when productions/fixtures can share both). Same normalise-and-
+  // substring-match approach as that fix, for consistency. Deliberately a
+  // SORT-priority boost, not a filter: when venueName is falsy (every
+  // caller today), this block never runs and sort output is byte-for-byte
+  // identical to before. When a caller does supply one, venue-matching
+  // rows are preferred but a non-match still falls through to the
+  // pre-existing score/price ordering rather than being excluded outright —
+  // same degrade-gracefully philosophy as that earlier fix.
+  const wantVenueNorm = venueName ? normaliseVenue(venueName) : '';
+
   // Sort by score desc, then price asc
   pool.sort((a, b) => {
+    if (wantVenueNorm) {
+      const aMatch = venueRowMatches(a.row.venue_name, wantVenueNorm);
+      const bMatch = venueRowMatches(b.row.venue_name, wantVenueNorm);
+      if (aMatch !== bMatch) return aMatch ? -1 : 1;
+    }
     if (b.score !== a.score) return b.score - a.score;
     return a.row.price - b.row.price;
   });
@@ -208,6 +247,16 @@ function findBestMatches(rows, query, targetDate, venueName) {
     if (!byMerchant.has(m)) byMerchant.set(m, r.row);
   }
   return [...byMerchant.values()].slice(0, 4);
+}
+
+function normaliseVenue(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function venueRowMatches(rowVenue, wantVenueNorm) {
+  const rowNorm = normaliseVenue(rowVenue);
+  if (!rowNorm) return false; // row has no venue data — can't confirm a match either way
+  return rowNorm === wantVenueNorm || rowNorm.includes(wantVenueNorm) || wantVenueNorm.includes(rowNorm);
 }
 
 function toResult(row) {

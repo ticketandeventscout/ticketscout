@@ -438,7 +438,27 @@ export async function onRequestGet({ request, env }) {
       const awinResp = await fetch(awinUrl);
       if (awinResp.ok) {
         const awinData = await awinResp.json();
-        const matches  = awinData.matches || [];
+        const allMatches = awinData.matches || [];
+        // FIX (16 Aug 2026, live incident via GSC coverage export): awin-
+        // category.js is a pure name/price matcher shared across every
+        // category (football/theatre/sports/concert each query it with
+        // their own text) — it deliberately does NOT filter by category
+        // itself, since doing so there would break the other callers'
+        // legitimate use of the same adapter. But this caller never checked
+        // the category it DOES return (toResult()'s `category` field, read
+        // right below into `genre`) before accepting a match. Confirmed
+        // live: minor-league baseball (Chattanooga Lookouts, Kansas City
+        // Monarchs, Sussex County Miners, Tulsa Drillers, Visalia Rawhide),
+        // an AHL hockey team (Abbotsford Canucks), an NCAA team (Ball State
+        // Cardinals), and a Polish handball cup final all got matched and
+        // rendered as fabricated "concert" pages, with the real "Sports"/
+        // "Baseball" category flowing straight into `genre` below —
+        // self-documenting the miscategorisation without anything ever
+        // reading it. Conservative on purpose: only rejects a match whose
+        // category POSITIVELY names a sport; a missing/unclear category is
+        // never treated as disqualifying, so this can't suppress a real
+        // concert match just for lacking clean Awin metadata.
+        const matches = allMatches.filter(m => !looksLikeSportsCategory(m.category));
         if (matches.length > 0) {
           const ev          = matches[0];
           const displayName = toTitleCase(name);
@@ -554,6 +574,31 @@ export async function onRequestGet({ request, env }) {
 
 function toTitleCase(str) {
   return (str || '').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Added 16 Aug 2026 alongside the Awin-fallback fix above. Deliberately a
+// broad EXCLUSION list, not a narrow allowlist of "music" terms — Awin's
+// real category taxonomy across its merchants isn't something we have full
+// visibility into, so requiring a positive music match would risk rejecting
+// genuine concerts whose category text just doesn't say anything recognised
+// as "music". Rejecting only on a clear sports signal is the safer
+// direction: worst case a stray sports row slips through unnoticed (same
+// as before this fix), never a real concert wrongly discarded.
+// CAVEAT: built from what this incident's examples needed (minor-league
+// baseball, AHL hockey, NCAA, a Polish handball final) — not verified
+// against Awin's full live category taxonomy. Run
+// /api/awin-category?q=<a known sports match>&debug=1 to see the real
+// category string for a specific row if this list needs extending.
+const SPORTS_CATEGORY_KEYWORDS = [
+  'sport', 'football', 'soccer', 'baseball', 'basketball', 'hockey',
+  'rugby', 'cricket', 'tennis', 'golf', 'boxing', 'mma', 'wrestling',
+  'motorsport', 'motor racing', 'nascar', 'formula 1', 'athletics',
+  'darts', 'snooker', 'handball', 'volleyball', 'lacrosse', 'ncaa'
+];
+function looksLikeSportsCategory(category) {
+  if (!category) return false; // unknown/missing — never disqualifying on its own
+  const c = String(category).toLowerCase();
+  return SPORTS_CATEGORY_KEYWORDS.some(kw => c.includes(kw));
 }
 
 function jsonResponse(body, status) {
