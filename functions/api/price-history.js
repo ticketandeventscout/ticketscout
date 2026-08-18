@@ -44,6 +44,67 @@ export async function onRequestGet(ctx) {
 
   const days = Math.min(parseInt(url.searchParams.get('days') || '30', 10) || 30, 365);
 
+  // Venue disambiguation — added 16 Aug 2026, live incident (Les Miserables,
+  // 25 Aug 2026). Event scope was previously keyed on slug+date ONLY. Two
+  // real failure modes confirmed live via ?debug=1 on that exact date:
+  //   * KEY SPLIT — the SAME real London show stored under two venue
+  //     spellings ("Sondheim Theatre - London" vs "Sondheim Theatre"),
+  //     each with its own event row and its own price samples.
+  //   * a GENUINELY DIFFERENT production (a Tuacahn Amphitheatre, Utah
+  //     outdoor run) sharing this entity's slug and coincidentally landing
+  //     on the same date, with its own real, unrelated price samples.
+  // Both rows contributed to one blended chart: the metadata SELECT's only
+  // tiebreaker (ORDER BY LENGTH(ev.name) DESC) couldn't discriminate three
+  // rows with an identical name, and the series query had no per-row filter
+  // at all — so the caption showed the wrong venue AND the "30-day low"
+  // was a real price, just from an unrelated show on another continent.
+  // Normalised, substring-tolerant matching (rather than exact equality)
+  // is deliberate: it's what correctly unifies the two Sondheim spellings
+  // into one merged result while still excluding Tuacahn, confirmed
+  // against the real event_key values from that incident (see test suite).
+  const venueParam = (url.searchParams.get('venue') || '').trim();
+  function normVenue(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  // Event scope is opt-in via a strict YYYY-MM-DD date. Anything malformed
+  // falls back to entity scope rather than erroring — a bad date on a page
+  // should degrade to the old behaviour, never blank the chart.
+  const eventDate = eventDateOf(url);
+  const scope     = eventDate ? 'event' : 'entity';
+
+  // Resolve which specific event row(s) — plural, for a merged spelling
+  // split — the venue param actually refers to. null = no restriction,
+  // meaning either no venue was supplied (old callers: theatre.html etc.
+  // never send one) or nothing matched — degrading to the pre-fix
+  // unfiltered behaviour rather than risking an empty chart on a spelling
+  // this heuristic doesn't recognise.
+  let matchedEventIds = null;
+  let venueMatchNote = venueParam ? 'no_match_degraded_to_unfiltered' : 'no_venue_param';
+  if (eventDate && venueParam) {
+    try {
+      const { results: candidates } = await db.prepare(
+        `SELECT ev.id, ev.venue FROM events ev JOIN entities en ON en.id = ev.entity_id
+          WHERE en.slug = ? AND ev.event_date = ?`
+      ).bind(slug, eventDate).all();
+      const wantNorm = normVenue(venueParam);
+      if (wantNorm && candidates && candidates.length) {
+        const matches = candidates.filter(c => {
+          const cNorm = normVenue(c.venue);
+          return cNorm && (cNorm === wantNorm || cNorm.includes(wantNorm) || wantNorm.includes(cNorm));
+        });
+        if (matches.length) {
+          matchedEventIds = matches.map(c => c.id);
+          venueMatchNote = matches.length > 1 ? 'merged_spelling_variants' : 'single_match';
+        }
+      }
+    } catch { /* venue matching is a refinement — never fail the whole response for it */ }
+  }
+  const idClause = (matchedEventIds && matchedEventIds.length)
+    ? ` AND ev.id IN (${matchedEventIds.map(() => '?').join(',')})`
+    : '';
+  const idBinds = matchedEventIds || [];
+
   // ── DIAGNOSTIC: ?debug=1 ───────────────────────────────────────────────
   // Answers "why doesn't the chart agree with the compare table?" by showing
   // every event row we hold for this entity and which sources have actually
@@ -112,12 +173,9 @@ export async function onRequestGet(ctx) {
     }
   }
 
-  // Event scope is opt-in via a strict YYYY-MM-DD date. Anything malformed
-  // falls back to entity scope rather than erroring — a bad date on a page
-  // should degrade to the old behaviour, never blank the chart.
-  const eventDate = eventDateOf(url);
-  const scope     = eventDate ? 'event' : 'entity';
-
+  // Event scope/eventDate already resolved above (needed earlier for venue
+  // matching). sinceUnix/sinceISO still computed here — unaffected by the
+  // venue-matching addition.
   const sinceUnix = Math.floor(Date.now() / 1000) - days * 24 * 3600;
   const sinceISO  = new Date(sinceUnix * 1000).toISOString().split('T')[0];
 
@@ -133,21 +191,25 @@ export async function onRequestGet(ctx) {
          FROM price_samples ps
          JOIN events ev   ON ev.id = ps.event_id
          JOIN entities en ON en.id = ev.entity_id
-         WHERE en.slug = ? AND ps.sampled_at >= ? ${dateClause}
+         WHERE en.slug = ? AND ps.sampled_at >= ? ${dateClause}${idClause}
          GROUP BY day
          UNION ALL
          SELECT pd.day AS day, MIN(pd.min_gbp) AS min
          FROM price_daily pd
          JOIN events ev   ON ev.id = pd.event_id
          JOIN entities en ON en.id = ev.entity_id
-         WHERE en.slug = ? AND pd.day >= ? ${dateClause}
+         WHERE en.slug = ? AND pd.day >= ? ${dateClause}${idClause}
          GROUP BY pd.day
        )
        GROUP BY day ORDER BY day ASC`;
 
-    const binds = eventDate
-      ? [slug, sinceUnix, eventDate, slug, sinceISO, eventDate]
-      : [slug, sinceUnix, slug, sinceISO];
+    // Built programmatically (not hand-listed) so idBinds — empty when no
+    // venue match, one id for a single match, several for a merged
+    // spelling-variant group — lines up correctly with idClause regardless
+    // of which case applies, in both UNION halves.
+    const firstBinds  = [slug, sinceUnix, ...(eventDate ? [eventDate] : []), ...idBinds];
+    const secondBinds = [slug, sinceISO,  ...(eventDate ? [eventDate] : []), ...idBinds];
+    const binds = [...firstBinds, ...secondBinds];
 
     const { results } = await db.prepare(sql).bind(...binds).all();
     series = (results || []).map(r => ({ day: r.day, min: r.min }));
@@ -158,6 +220,13 @@ export async function onRequestGet(ctx) {
   // ── Event metadata (event scope only) ──────────────────────────────────
   // Lets the page label the chart with the actual fixture, so the cited
   // price is visibly anchored to a specific date and venue.
+  //
+  // idClause here (when set) is what actually fixes the caption bug: with
+  // three same-named rows sharing a date, ORDER BY LENGTH(ev.name) DESC
+  // alone can't break the tie (confirmed live: it landed on an unrelated
+  // production purely because of row order). Restricting to the venue-
+  // matched id(s) removes the ambiguity outright rather than relying on a
+  // better tiebreaker guess.
   let event = null;
   if (eventDate) {
     try {
@@ -165,10 +234,10 @@ export async function onRequestGet(ctx) {
         `SELECT ev.name, ev.venue, ev.city, ev.event_date
            FROM events ev
            JOIN entities en ON en.id = ev.entity_id
-          WHERE en.slug = ? AND ev.event_date = ?
+          WHERE en.slug = ? AND ev.event_date = ?${idClause}
           ORDER BY LENGTH(ev.name) DESC
           LIMIT 1`
-      ).bind(slug, eventDate).first();
+      ).bind(slug, eventDate, ...idBinds).first();
       if (row) event = { name: row.name, venue: row.venue, city: row.city, date: row.event_date };
     } catch { /* metadata is a nicety — never fail the response for it */ }
   }
@@ -189,6 +258,15 @@ export async function onRequestGet(ctx) {
 
   const resp = json({
     slug, days, scope, eventDate, event,
+    // venueMatch: added 16 Aug 2026 alongside the venue-matching fix above.
+    // Lets a caller (or a manual check) confirm what actually happened
+    // without a separate ?debug=1 round trip: 'no_venue_param' means the
+    // caller didn't send one (old behaviour, unaffected); 'single_match' /
+    // 'merged_spelling_variants' mean it worked; 'no_match_degraded_to_
+    // unfiltered' means a venue WAS sent but nothing matched, so this
+    // response silently fell back to the pre-fix blended behaviour —
+    // worth investigating if seen live, not necessarily a new bug.
+    venueMatch: venueMatchNote,
     summary, points: series.length, series
   }, 200, 'public, max-age=300, s-maxage=21600, stale-while-revalidate=86400');
 

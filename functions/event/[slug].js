@@ -619,11 +619,23 @@ function renderPage(d) {
       // cited price is unambiguously about the event on screen. Fails silent:
       // no entity slug, no data, or a fetch error → the card simply doesn't
       // appear. Never blocks the compare table above.
+      //
+      // &venue= added 16 Aug 2026 — EV.venue was already sitting right here
+      // (used two blocks below for the hotels card) but was never sent to
+      // price-history. Confirmed live on Les Miserables, 25 Aug 2026: slug+
+      // date alone matched THREE event rows sharing this entity/date — the
+      // real London show under two venue spellings, plus a genuinely
+      // different Tuacahn Amphitheatre (Utah) production that coincidentally
+      // shares a date — and the chart blended all three into one line, with
+      // the caption landing on the wrong one entirely. price-history.js now
+      // uses this to resolve the correct row(s); a venue it doesn't
+      // recognise degrades to the old unfiltered behaviour rather than
+      // blanking the chart.
       if (EV.entitySlug && EV.eventDate) {
         (function () {
           var box = document.getElementById('detail-pricehist');
           if (!box) return;
-          var qs = '?slug=' + encodeURIComponent(EV.entitySlug) + '&date=' + encodeURIComponent(EV.eventDate);
+          var qs = '?slug=' + encodeURIComponent(EV.entitySlug) + '&date=' + encodeURIComponent(EV.eventDate) + (EV.venue ? '&venue=' + encodeURIComponent(EV.venue) : '');
           fetch('/api/price-history' + qs)
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (data) {
