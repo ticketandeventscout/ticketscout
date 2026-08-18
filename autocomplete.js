@@ -85,7 +85,7 @@
           suggestions.querySelectorAll('.suggestion-item').forEach(i => i.classList.remove('active'));
           this.classList.add('active');
         });
-        item.addEventListener('click', function() {
+        item.addEventListener('click', async function() {
           const name    = this.dataset.name;
           const segment = (this.dataset.segment || '').toLowerCase();
           const genre   = this.dataset.genre || '';
@@ -104,12 +104,40 @@
           // those entities are registered under /sports/.
           if (segment === 'sports') {
             const isFootball = genre === 'Soccer';
-            if (isFootball) {
-              const footballSlug = FOOTBALL_SLUG_ALIASES[slug] || slug;
-              window.location.href = '/football/' + footballSlug;
-            } else {
-              window.location.href = '/sports/' + slug;
-            }
+            // FIX (16 Aug 2026, live incident: "Ball State Cardinals
+            // Softball" and "Chattanooga Lookouts" both 404'd through this
+            // exact handler). This used to redirect the instant TM's OWN
+            // classification said "Sports" — with no check that
+            // TicketScout actually has a registered page for the resulting
+            // slug. TM's classification was already reliable for CATEGORY
+            // (Soccer vs not); the missing piece was EXISTENCE. Same class
+            // of gap as concert.js's Awin fallback and runSearch()'s old
+            // concert branch, fixed the same session — an external
+            // classification was being trusted as if it guaranteed a real
+            // local page. Verifies against each category's own API before
+            // committing to a direct redirect: sports.js already exposes a
+            // clean `found` boolean for exactly this; football.js has no
+            // such field (same always-synthesise shape as concert.js), so
+            // this reuses the same description-length richness bar
+            // events.js's runSearch() already trusts in production rather
+            // than inventing a second heuristic. On a miss, falls through
+            // to the exact same safe search path every other suggestion
+            // click already uses, instead of a dead link.
+            try {
+              if (isFootball) {
+                const footballSlug = FOOTBALL_SLUG_ALIASES[slug] || slug;
+                const r = await fetch(`/api/football?slug=${encodeURIComponent(footballSlug)}`);
+                const d = r.ok ? await r.json() : null;
+                const isRich = (d?.team?.description?.length || 0) > 150;
+                if (isRich) { window.location.href = '/football/' + footballSlug; return; }
+              } else {
+                const r = await fetch(`/api/sports?slug=${encodeURIComponent(slug)}`);
+                const d = r.ok ? await r.json() : null;
+                if (d?.found === true) { window.location.href = '/sports/' + slug; return; }
+              }
+            } catch { /* verification failed — fall through to safe search below */ }
+            input.value = name;
+            setTimeout(() => { if (typeof handleSearch === 'function') handleSearch(); }, 0);
             return;
           }
 
