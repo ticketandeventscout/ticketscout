@@ -4040,12 +4040,17 @@ function generateArtistPageHtml(slug, enrich) {
   // applied to all four categories): confirmed LIVE for football only
   // (fc-slovacko's ?inspect=1 output) — not yet confirmed for concert
   // specifically, same "no live confirmation for this category's schema"
-  // caveat as the rest of this comment. Added anyway because it is purely
-  // additive: `enrich.aboutText` undefined for this category falls
-  // straight through to the exact same behaviour as before, zero
-  // regression risk, same reasoning that made facts.bio/description safe
-  // to add here without per-category confirmation.
-  const bio = (enrich && enrich.aboutText) || facts.bio || facts.description ||
+  // caveat as the rest of this comment.
+  //
+  // GATED on facts.wikidataId/facts.mbid — added same day. Confirmed live
+  // (football) that entities with no verified match get a name-swapped
+  // boilerplate aboutText, not real content — see generateFootballPageHtml
+  // for the full incident. Not independently confirmed for concert, but
+  // gating here rather than waiting for a category-specific incident: the
+  // gate can only ever fall back to the pre-existing safe tiers, never
+  // remove real content, so there's no cost to applying it pre-emptively.
+  const hasVerifiedMatch = !!(facts.wikidataId || facts.mbid);
+  const bio = (hasVerifiedMatch && enrich && enrich.aboutText) || facts.bio || facts.description ||
     `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
 
   return `<!DOCTYPE html>
@@ -4242,7 +4247,29 @@ function generateFootballPageHtml(slug, enrich) {
   // fix above); this is the other half, actually using it. Falls back
   // through the pre-existing tiers unchanged for any club aboutText
   // hasn't reached yet — this is purely additive, no existing tier removed.
-  const bio = (enrich && enrich.aboutText) || facts.bio || facts.description ||
+  //
+  // GATED on facts.wikidataId (or facts.mbid) — added same day, live
+  // incident caught mid-sweep. First real batch (5 files, 24erzincanspor +
+  // 4 others) showed aboutText is NOT always genuine content: entities
+  // with NO Wikidata match still get an aboutText, but it's a name-swapped
+  // boilerplate template, not real prose. Confirmed with TWO independent
+  // live examples: 24erzincanspor (facts = {name, slug} only, no
+  // wikidataId) got a generic "fixture demand" filler sentence; a garbage
+  // registry entry ("3A/B/C", almost certainly bad data, not a real club)
+  // got the EXACT SAME opening sentence — word for word, name substituted
+  // — as the first sentence of fc-slovacko's genuinely fact-backed
+  // aboutText ("Because {name} fixtures are priced differently on every
+  // marketplace..."). That's the same shared template string appearing
+  // with zero real content behind it, not independently similar phrasing.
+  // facts.wikidataId is the same authoritative "this is a confirmed real
+  // match" signal duplicate-entities.js's Tier A already relies on — reused
+  // here for consistency rather than inventing a second signal. Every
+  // ungated example seen live so far (fc-slovacko, 1-fc-slovacko) HAD a
+  // wikidataId and DID have genuine fact-derived sentences beyond the
+  // shared opener, so this gate should only ever narrow which entities get
+  // the upgrade, never remove real content from one that has it.
+  const hasVerifiedMatch = !!(facts.wikidataId || facts.mbid);
+  const bio = (hasVerifiedMatch && enrich && enrich.aboutText) || facts.bio || facts.description ||
     (facts.stadium
       ? `${displayName} play their home matches at ${facts.stadium}${facts.city ? `, ${facts.city}` : ''}.`
       : `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`);
@@ -4318,9 +4345,11 @@ function generateSportsPageHtml(slug, enrich) {
   // category even if the field existed).
   //
   // aboutText tier added 16 Aug 2026 — see generateArtistPageHtml's
-  // comment for the full reasoning (confirmed live for football only,
-  // purely additive elsewhere, zero regression risk).
-  const bio = (enrich && enrich.aboutText) || facts.bio || facts.description ||
+  // comment for the full reasoning, and generateFootballPageHtml's comment
+  // for the confirmed-live boilerplate incident that motivated the gate
+  // below (name-swapped filler text for entities with no verified match).
+  const hasVerifiedMatch = !!(facts.wikidataId || facts.mbid);
+  const bio = (hasVerifiedMatch && enrich && enrich.aboutText) || facts.bio || facts.description ||
     `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
 
   return `<!DOCTYPE html>
@@ -4384,9 +4413,11 @@ function generateTheatrePageHtml(slug, enrich) {
   // for the full reasoning — same conservative bio/description-only tier.
   //
   // aboutText tier added 16 Aug 2026 — see generateArtistPageHtml's
-  // comment for the full reasoning (confirmed live for football only,
-  // purely additive elsewhere, zero regression risk).
-  const bio = (enrich && enrich.aboutText) || facts.bio || facts.description ||
+  // comment for the full reasoning, and generateFootballPageHtml's comment
+  // for the confirmed-live boilerplate incident that motivated the gate
+  // below (name-swapped filler text for entities with no verified match).
+  const hasVerifiedMatch = !!(facts.wikidataId || facts.mbid);
+  const bio = (hasVerifiedMatch && enrich && enrich.aboutText) || facts.bio || facts.description ||
     `Compare ${displayName} ticket prices across verified sellers, including primary and secondary market platforms.`;
 
   return `<!DOCTYPE html>
