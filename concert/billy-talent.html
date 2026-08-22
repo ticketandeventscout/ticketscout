@@ -5,12 +5,12 @@
   <title>Compare Billy Talent Ticket Prices — Cheapest Billy Talent Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Billy Talent ticket prices across verified sellers and find the cheapest Billy Talent tickets. Updated daily." />
+  <meta name="description" content="Compare Billy Talent ticket prices across verified sellers and find the cheapest Billy Talent tickets. Updated daily. Punk Rock from Canada." />
   <meta property="og:title" content="Billy Talent Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Billy Talent ticket prices across verified sellers and find the cheapest Billy Talent tickets. Updated daily." />
+  <meta property="og:description" content="Compare Billy Talent ticket prices across verified sellers and find the cheapest Billy Talent tickets. Updated daily. Punk Rock from Canada." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/billy-talent" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/billy-talent#artist","name":"Billy Talent"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Billy Talent Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/billy-talent#artist","name":"Billy Talent","genre":["punk rock","canadian","alternative rock"],"foundingLocation":{"@type":"Place","name":"Canada"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Billy Talent Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'billy-talent';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Billy Talent Tickets</h1>
+  <p>Hailing from Mississauga and active since 1993, Billy Talent tour regularly across the UK and Europe. Known for punk rock with strong canadian influences, the live show is where the catalogue comes alive. Tickets for Billy Talent are often listed at very different prices across marketplaces for the same seats, so comparing verified sellers before checkout is the quickest way to find the genuine cheapest option.</p>
+  <p>Compare Billy Talent ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/concert.html?v=20260717a');
