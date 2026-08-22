@@ -5,12 +5,12 @@
   <title>Compare The River Ticket Prices — Cheapest The River Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare The River ticket prices across verified sellers and find the cheapest The River tickets. Updated daily." />
+  <meta name="description" content="Compare The River ticket prices across verified sellers and find the cheapest The River tickets. Updated daily. Alternative Country from United States." />
   <meta property="og:title" content="The River Tickets | TicketScout" />
-  <meta property="og:description" content="Compare The River ticket prices across verified sellers and find the cheapest The River tickets. Updated daily." />
+  <meta property="og:description" content="Compare The River ticket prices across verified sellers and find the cheapest The River tickets. Updated daily. Alternative Country from United States." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/the-river" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/the-river#artist","name":"The River"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"The River Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/the-river#artist","name":"The River","genre":["alternative country","southern rock"],"foundingLocation":{"@type":"Place","name":"United States"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"The River Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'the-river';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>The River Tickets</h1>
+  <p>Resale prices for The River shows can vary widely between platforms — a side-by-side comparison of verified sellers routinely surfaces cheaper tickets for identical sections. The River are an act from Fort Collins, active since 1996. Known for alternative country with strong southern rock influences, the live show is where the catalogue comes alive.</p>
+  <p>Compare The River ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/concert.html?v=20260717a');
