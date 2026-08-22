@@ -4,12 +4,12 @@
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Compare Edinburgh Rugby Ticket Prices — Cheapest Edinburgh Rugby Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
-  <meta name="description" content="Compare Edinburgh Rugby ticket prices across verified sellers and find the cheapest Edinburgh Rugby tickets. Updated daily." />
+  <meta name="description" content="Compare Edinburgh Rugby ticket prices across verified sellers and find the cheapest Edinburgh Rugby tickets. Updated daily. Home events at Edinburgh Rugby…" />
   <meta property="og:title" content="Edinburgh Rugby Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Edinburgh Rugby ticket prices across verified sellers and find the cheapest Edinburgh Rugby tickets. Updated daily." />
+  <meta property="og:description" content="Compare Edinburgh Rugby ticket prices across verified sellers and find the cheapest Edinburgh Rugby tickets. Updated daily. Home events at Edinburgh Rugby…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/sports/edinburgh-rugby" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/sports/edinburgh-rugby#team","name":"Edinburgh Rugby"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Sports","item":"https://ticketscout.co.uk/sports"},{"@type":"ListItem","position":2,"name":"Edinburgh Rugby Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"StadiumOrArena","@id":"https://ticketscout.co.uk/sports/edinburgh-rugby#venue","name":"Edinburgh Rugby Stadium","maximumAttendeeCapacity":7800,"address":{"@type":"PostalAddress","addressLocality":"City of Edinburgh"}},{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/sports/edinburgh-rugby#team","name":"Edinburgh Rugby","sport":"rugby union","memberOf":{"@type":"SportsOrganization","name":"United Rugby Championship"},"foundingDate":"1872","location":{"@id":"https://ticketscout.co.uk/sports/edinburgh-rugby#venue"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Sports","item":"https://ticketscout.co.uk/sports"},{"@type":"ListItem","position":2,"name":"Edinburgh Rugby Tickets"}]}]}</script>
   <script>window.__SPORTS_SLUG__ = 'edinburgh-rugby';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,7 +18,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Edinburgh Rugby Tickets</h1>
+  <p>Home events for Edinburgh Rugby take place at the 7,800-capacity Edinburgh Rugby Stadium, City of Edinburgh. Because each marketplace holds separate Edinburgh Rugby inventory, checking several at once gives a truer picture of the cheapest available ticket than any single site. Founded in 1872, Edinburgh Rugby compete in the United Rugby Championship.</p>
+  <p>Compare Edinburgh Rugby ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/sports.html?v=20260717a');
