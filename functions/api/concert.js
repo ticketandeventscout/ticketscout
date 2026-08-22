@@ -320,6 +320,31 @@ async function shadowCheck(env) {
     else wouldOrphan.push(row);                     // nothing anywhere -> deleting 404s a live page
   }
 
+  // Added 16 Aug 2026 — the ARTISTS array (15 genuine music artists:
+  // Coldplay, Nickelback, Ed Sheeran, Metallica...) is a completely
+  // SEPARATE list from HARDCODED_THEATRE_SLUGS above, and this diagnostic
+  // never covered it. Confirmed live this session: Coldplay and Nickelback
+  // are served via the raw CSR template with no baked-in content or meta
+  // tags at all, unlike a discovered/registered entity (e.g. Arsenal under
+  // football) which gets a fully server-rendered static stub. That strongly
+  // suggested these 15 — plausibly among the highest-traffic, most
+  // deliberately-curated pages on the whole site — were never added to
+  // sitemap:registry at all, so the regenerate sweep has no way to ever
+  // pick them up. Same three-way check, same underlying question (does a
+  // KV record exist, is it in the registry), but the framing here is about
+  // indexing quality and static-stub eligibility, not "safe to delete" —
+  // these are meant to be permanent, not phased out like the theatre list.
+  const artistsRegistered = [], artistsMissingFromRegistry = [];
+  for (const a of ARTISTS) {
+    const slug = a.slug;
+    let kvExists = false;
+    try { kvExists = !!(await kv.get('concert:artist:' + slug)); } catch {}
+    const inReg = registrySet.has(slug);
+    const row = { slug, name: a.name, kvExists, inRegistry: inReg };
+    if (inReg) artistsRegistered.push(row);
+    else artistsMissingFromRegistry.push(row);
+  }
+
   return jsonResponse({
     check: 'hardcoded-theatre-shadow',
     readOnly: true,
@@ -330,7 +355,16 @@ async function shadowCheck(env) {
     safeToDelete,
     wouldOrphan,
     inRegistryOnly,
-    guidance: 'Delete ONLY safeToDelete slugs from the ARTISTS array. wouldOrphan need a KV record created first (or keep the hardcoded entry). inRegistryOnly need the registry entry removed too, or a KV backfill.'
+    guidance: 'Delete ONLY safeToDelete slugs from the ARTISTS array. wouldOrphan need a KV record created first (or keep the hardcoded entry). inRegistryOnly need the registry entry removed too, or a KV backfill.',
+
+    musicArtistsCheck: {
+      total: ARTISTS.length,
+      inRegistryCount: artistsRegistered.length,
+      missingFromRegistryCount: artistsMissingFromRegistry.length,
+      inRegistry: artistsRegistered,
+      missingFromRegistry: artistsMissingFromRegistry,
+      guidance: 'missingFromRegistry entries are invisible to the regenerate-pages sweep — they can never get a static stub, baked meta tags, or the found/noindex protection those pages have, regardless of how much real traffic they get. Adding them to sitemap:registry (and confirming a concert:artist:{slug} KV record exists so found:true resolves correctly) is what would let them be picked up by the next sweep.'
+    }
   }, 200);
 }
 
