@@ -979,6 +979,26 @@ function awinGenre(merchantCategory, categoryName) {
   if (cat.includes('concert') || cat.includes('music'))   return 'Live Music';
   if (cat.includes('theatre') || cat.includes('musical')) return 'Theatre';
   if (cat.includes('comedy'))  return 'Comedy';
+  // FIX (16 Aug 2026): confirmed live via the GSC "Discovered — currently
+  // not indexed" export — Quebec Capitales, Tulsa Drillers, Visalia
+  // Rawhide, Chattanooga Lookouts, Kansas City Monarchs, Sussex County
+  // Miners (all minor/independent-league baseball, no "MLB" in Awin's
+  // category text), Abbotsford Canucks (AHL, not NHL), Ball State
+  // Cardinals (NCAA), and a Polish handball cup final were ALL registered
+  // under /concert/. None say the literal word "sport" and none are one of
+  // the five major-league abbreviations below, so every one of them fell
+  // straight through to 'Live Events' -> concert.
+  // Reuses SPORTS_GENRES directly — the same actively-maintained keyword
+  // set genreToCategory() already relies on (widened across three prior
+  // passes, 24/25/31 Jul 2026) — rather than hand-listing more one-off
+  // leagues here, which is the exact reactive pattern that produced this
+  // gap: the football section above and the league-abbreviation check
+  // below were both grown incrementally, live incident by live incident,
+  // instead of matching on the sport itself from the start.
+  for (const sport of SPORTS_GENRES) {
+    if (sport === 'sport' || sport === 'sports') continue; // covered by the plain substring check below
+    if (cat.includes(sport)) return 'Sports';
+  }
   if (cat.includes('sport'))   return 'Sports';
   // US pro sports league names — added alongside the football fix above,
   // same gap (league name instead of sport name in Awin's category text).
