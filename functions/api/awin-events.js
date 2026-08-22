@@ -45,9 +45,28 @@ export async function onRequestGet(ctx) {
       return m ? wantCat.test(m[1]) : false;
     };
 
+    // FIX (16 Aug 2026, hardening — one observed 500 on an obscure query,
+    // not reliably reproduced, so this is preventative rather than a
+    // confirmed-root-cause fix): chunks were read ONE AT A TIME here,
+    // sequentially awaiting each kv.get() inside the loop — unlike
+    // awin-category.js, which already reads every chunk in parallel via
+    // Promise.all(). With 17 chunks (confirmed live this session), an
+    // obscure query that doesn't match until a late chunk forces the full
+    // sequential wait chain before it can even start scanning that chunk —
+    // a plausible route to a Workers execution-time limit under any added
+    // latency, though not confirmed as what actually happened. Matches
+    // awin-category.js's already-proven-safe pattern instead. The row-
+    // scanning early-exit (`matches.length >= size * 2`) is kept via a
+    // labeled break — that part guards CPU time, not KV wall-clock time,
+    // so it's still worth preserving even though every chunk is now
+    // fetched upfront regardless of whether an early match is found.
+    const chunks = await Promise.all(
+      Array.from({ length: index.chunks }, (_, i) => kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' }))
+    );
+
     const matches = [];
-    for (let i = 0; i < index.chunks; i++) {
-      const chunk = await kv.get(`${CACHE_KEY}:chunk:${i}`, { type: 'json' });
+    matchLoop:
+    for (const chunk of chunks) {
       if (!chunk) continue;
       for (const row of chunk) {
         const productName = (row.product_name || '').toLowerCase();
@@ -78,9 +97,8 @@ export async function onRequestGet(ctx) {
           date:         extractDate(row.description),
           venue:        extractVenue(row.description),
         });
-        if (matches.length >= size * 2) break;
+        if (matches.length >= size * 2) break matchLoop;
       }
-      if (matches.length >= size * 2) break;
     }
 
     const todayStr = new Date().toISOString().slice(0, 10);
