@@ -5,12 +5,12 @@
   <title>Compare Jul Ticket Prices — Cheapest Jul Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Jul ticket prices across verified sellers and find the cheapest Jul tickets. Updated daily." />
+  <meta name="description" content="Compare Jul ticket prices across verified sellers and find the cheapest Jul tickets. Updated daily. Hip Hop from France." />
   <meta property="og:title" content="Jul Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Jul ticket prices across verified sellers and find the cheapest Jul tickets. Updated daily." />
+  <meta property="og:description" content="Compare Jul ticket prices across verified sellers and find the cheapest Jul tickets. Updated daily. Hip Hop from France." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/jul" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/jul#artist","name":"Jul"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Jul Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Person","@id":"https://ticketscout.co.uk/concert/jul#artist","name":"Jul","genre":["hip hop","pop rap"]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Jul Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'jul';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Jul Tickets</h1>
+  <p>Hailing from Marseille and active since 1990, Jul tour regularly across the UK and Europe. Fans of hip hop or pop rap will find the touring show the definitive way to hear the material. Resale prices for Jul shows can vary widely between platforms — a side-by-side comparison of verified sellers routinely surfaces cheaper tickets for identical sections.</p>
+  <p>Compare Jul ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
