@@ -18,7 +18,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>HC Vítkovice Ridera Tickets</h1>
+  <p>Prices for HC Vítkovice Ridera tickets differ between resale marketplaces for the same seats, so comparing verified sellers side by side is the most reliable way to find the real get-in price. Home events for HC Vítkovice Ridera take place at the 12,500-capacity Ostravar Aréna, Ostrava. HC Vítkovice Ridera are based in Czech Republic.</p>
+  <p>Compare HC Vítkovice Ridera ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/sports.html?v=20260717a');
