@@ -5,12 +5,12 @@
   <title>Compare Celeste Ticket Prices — Cheapest Celeste Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Celeste ticket prices across verified sellers and find the cheapest Celeste tickets. Updated daily." />
+  <meta name="description" content="Compare Celeste ticket prices across verified sellers and find the cheapest Celeste tickets. Updated daily. Touring artist from Italy." />
   <meta property="og:title" content="Celeste Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Celeste ticket prices across verified sellers and find the cheapest Celeste tickets. Updated daily." />
+  <meta property="og:description" content="Compare Celeste ticket prices across verified sellers and find the cheapest Celeste tickets. Updated daily. Touring artist from Italy." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/celeste" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/celeste#artist","name":"Celeste"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Celeste Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Person","@id":"https://ticketscout.co.uk/concert/celeste#artist","name":"Celeste"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Celeste Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'celeste';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Celeste Tickets</h1>
+  <p>Hailing from Catania and active since 1964, Celeste tour regularly across the UK and Europe. Tickets for Celeste are often listed at very different prices across marketplaces for the same seats, so comparing verified sellers before checkout is the quickest way to find the genuine cheapest option.</p>
+  <p>Compare Celeste ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
