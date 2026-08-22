@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ed Sheeran Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare Ed Sheeran ticket prices across verified sellers. Find the cheapest Ed Sheeran tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="Ed Sheeran Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Ed Sheeran ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare Ed Sheeran Ticket Prices — Cheapest Ed Sheeran Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Ed Sheeran ticket prices across verified sellers and find the cheapest Ed Sheeran tickets. Updated daily. Pop from United Kingdom." />
+  <meta property="og:title" content="Ed Sheeran Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Ed Sheeran ticket prices across verified sellers and find the cheapest Ed Sheeran tickets. Updated daily. Pop from United Kingdom." />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/ed-sheeran" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Person","@id":"https://ticketscout.co.uk/concert/ed-sheeran#artist","name":"Ed Sheeran","genre":["pop","folk pop","folk"]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Ed Sheeran Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'ed-sheeran';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -17,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Ed Sheeran Tickets</h1>
+  <p>Because each resale marketplace holds different Ed Sheeran inventory, checking several at once gives a truer picture of the real get-in price than any single site. Performing since 1991, Ed Sheeran (the United Kingdom) remain a consistent draw for live audiences. Known for pop with strong folk pop influences, the live show is where the catalogue comes alive.</p>
+  <p>Compare Ed Sheeran ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
