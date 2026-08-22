@@ -5,12 +5,12 @@
   <title>Compare Sting Ticket Prices — Cheapest Sting Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Sting ticket prices across verified sellers and find the cheapest Sting tickets. Updated daily." />
+  <meta name="description" content="Compare Sting ticket prices across verified sellers and find the cheapest Sting tickets. Updated daily. Pop from England." />
   <meta property="og:title" content="Sting Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Sting ticket prices across verified sellers and find the cheapest Sting tickets. Updated daily." />
+  <meta property="og:description" content="Compare Sting ticket prices across verified sellers and find the cheapest Sting tickets. Updated daily. Pop from England." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/sting" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/sting#artist","name":"Sting"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Sting Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Person","@id":"https://ticketscout.co.uk/concert/sting#artist","name":"Sting","genre":["pop","pop rock","jazz pop"]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Sting Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'sting';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Sting Tickets</h1>
+  <p>Fans of pop or pop rock will find the touring show the definitive way to hear the material. Performing since 1951, Sting (England) remain a consistent draw for live audiences. Because each resale marketplace holds different Sting inventory, checking several at once gives a truer picture of the real get-in price than any single site.</p>
+  <p>Compare Sting ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/concert.html?v=20260717a');
