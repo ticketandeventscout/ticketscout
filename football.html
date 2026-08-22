@@ -602,6 +602,13 @@
       if (attr) el.setAttribute(attr, val); else el.textContent = val;
     }
 
+    // Added 16 Aug 2026, mirrors sports.html's identical helper exactly.
+    function setRobots(value) {
+      var m = document.querySelector('meta[name="robots"]');
+      if (!m) { m = document.createElement('meta'); m.name = 'robots'; document.head.appendChild(m); }
+      m.setAttribute('content', value);
+    }
+
     function updateMeta(team, events, tmImage) {
       const name    = team.name;
       const slug    = team.slug;
@@ -790,7 +797,12 @@
           return;
         }
 
-        const { team, attractionId, tmImage } = await resp.json();
+        const { team, attractionId, tmImage, found } = await resp.json();
+
+        // A page whose club isn't registered is a thin page we can't vouch
+        // for — don't invite Google to index it. Added 16 Aug 2026,
+        // mirroring sports.html's already-proven pattern.
+        if (found === false) setRobots('noindex, follow');
 
         document.getElementById('genre-badge').textContent    = team.genre || 'Football';
         document.getElementById('artist-name').textContent    = `${team.name} Tickets`;
@@ -1151,6 +1163,10 @@
           <div class="no-events">
             <p>No upcoming ${team.name} fixtures found right now. Check back soon for new announcements.</p>
           </div>`;
+        // An entity with zero listed fixtures has nothing to compare — added
+        // 16 Aug 2026, mirroring sports.html's identical safety net. Flips
+        // back to indexable by itself as soon as any seller lists a fixture.
+        setRobots('noindex, follow');
         return;
       }
 

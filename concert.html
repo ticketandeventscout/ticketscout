@@ -731,6 +731,16 @@
       if (attr) el.setAttribute(attr, val); else el.textContent = val;
     }
 
+    // Added 16 Aug 2026, mirrors sports.html's identical helper exactly.
+    // Whatever robots directive a static stub baked into the head (if any),
+    // replace rather than append — two robots meta tags would leave
+    // conflicting directives for a crawler to resolve.
+    function setRobots(value) {
+      var m = document.querySelector('meta[name="robots"]');
+      if (!m) { m = document.createElement('meta'); m.name = 'robots'; document.head.appendChild(m); }
+      m.setAttribute('content', value);
+    }
+
     // L4 fix (7 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): AggregateOffer price
     // range, sourced from the SAME price:summary KV data already powering
     // the price-trend badge lower on this page (via /api/price-history) —
@@ -929,7 +939,13 @@
           return;
         }
 
-        const { artist, attractionId, tmImage } = await resp.json();
+        const { artist, attractionId, tmImage, found } = await resp.json();
+
+        // A page whose artist isn't registered is a thin page we can't
+        // vouch for — don't invite Google to index it. Added 16 Aug 2026,
+        // mirroring sports.html's already-proven pattern (see its own
+        // comment for the full reasoning).
+        if (found === false) setRobots('noindex, follow');
 
         // Update hero
         document.getElementById('genre-badge').textContent = artist.genre;
@@ -1164,6 +1180,14 @@
           <div class="no-events">
             <p>No upcoming ${artist.name} dates found right now. This may be between tour cycles — check back soon for new announcements.</p>
           </div>`;
+        // An entity with zero listed events has nothing to compare, the same
+        // thin-content problem this section exists to avoid — added 16 Aug
+        // 2026, mirroring sports.html's identical safety net. Applies even
+        // to a verified/real artist: "between tour cycles" is a legitimate
+        // reason to have no events right now, but it's still not a page
+        // worth indexing until that changes. Flips back to indexable by
+        // itself as soon as any seller lists a date.
+        setRobots('noindex, follow');
         return;
       }
 

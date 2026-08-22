@@ -232,6 +232,14 @@ export async function onRequestGet({ request, env }) {
   const normSlug = slug.toLowerCase();
   let show = SHOWS.find(s => s.slug === normSlug);
 
+  // FOUND tracking added 16 Aug 2026 — mirrors sports.js's already-proven
+  // `found` field. See concert.js's identical addition this same session
+  // for the full reasoning: hardcoded/KV = verified, Awin fallback and
+  // pure slug-synthesis are not. Doesn't affect the existing single-word-
+  // slug 404 below at all — that's a separate, harder gate this leaves
+  // untouched.
+  let verifiedMatch = !!show;
+
   // If not in hardcoded list, check KV for auto-discovered show data
   if (!show) {
     const kv = env.GIGSBERG_KV;
@@ -240,6 +248,7 @@ export async function onRequestGet({ request, env }) {
         const kvData = await kv.get(`theatre:show:${normSlug}`);
         if (kvData) {
           show = JSON.parse(kvData);
+          verifiedMatch = true;
         }
       } catch {}
     }
@@ -361,7 +370,8 @@ export async function onRequestGet({ request, env }) {
       search:      show.search
     },
     attractionId,
-    tmImage
+    tmImage,
+    found: verifiedMatch
   }, 200);
 }
 

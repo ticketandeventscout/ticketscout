@@ -406,6 +406,19 @@ export async function onRequestGet({ request, env }) {
   const normSlug = slug.toLowerCase();
   let artist = ARTISTS.find(a => a.slug === normSlug);
 
+  // FOUND tracking added 16 Aug 2026 — mirrors sports.js's already-proven
+  // `found` field exactly, so the template can noindex a fabricated page the
+  // same way sports.html already does. Hardcoded ARTISTS entries and a
+  // genuine KV registration (the discovery pipeline's own output) are
+  // treated as verified; the Awin fallback below and the final slug-
+  // synthesis tier are NOT — same reasoning as today's aboutText gate on
+  // facts.wikidataId: a bare name-similarity match isn't the same thing as
+  // a confirmed real entity, and this session already found Awin fallback
+  // matches accepting things they shouldn't (the sports-in-concert
+  // incident this exact file's own SPORTS_CATEGORY_KEYWORDS filter below
+  // was built to catch).
+  let verifiedMatch = !!artist;
+
   // If not in the hardcoded list, check KV for auto-discovered artist data
   if (!artist) {
     const kv = env.GIGSBERG_KV;
@@ -414,6 +427,7 @@ export async function onRequestGet({ request, env }) {
         const kvData = await kv.get(`concert:artist:${normSlug}`);
         if (kvData) {
           artist = JSON.parse(kvData);
+          verifiedMatch = true;
         }
       } catch {}
     }
@@ -568,7 +582,8 @@ export async function onRequestGet({ request, env }) {
       facts:       enrichFacts
     },
     attractionId,
-    tmImage
+    tmImage,
+    found: verifiedMatch
   }, 200);
 }
 

@@ -149,6 +149,13 @@ export async function onRequestGet({ request, env }) {
   let team = TEAMS.find(t => t.slug === normSlug)
            || TEAMS.find(t => t.slug === slug.toLowerCase()); // fallback to raw slug
 
+  // FOUND tracking added 16 Aug 2026 — mirrors sports.js's already-proven
+  // `found` field. See concert.js's identical addition this same session
+  // for the full reasoning: hardcoded/KV = verified, Awin fallback (a bare
+  // name-similarity match, no category or ID check here) and pure slug-
+  // synthesis are not.
+  let verifiedMatch = !!team;
+
   // If not in hardcoded list, check KV for auto-discovered team data
   if (!team) {
     const kv = env.GIGSBERG_KV;
@@ -157,6 +164,7 @@ export async function onRequestGet({ request, env }) {
         const kvData = await kv.get(`football:team:${normSlug}`);
         if (kvData) {
           team = JSON.parse(kvData);
+          verifiedMatch = true;
         }
       } catch {}
     }
@@ -282,7 +290,8 @@ export async function onRequestGet({ request, env }) {
       search:      team.search
     },
     attractionId,
-    tmImage
+    tmImage,
+    found: verifiedMatch
   }, 200);
 }
 
