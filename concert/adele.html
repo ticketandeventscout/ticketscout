@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Adele Tickets</h1>
+  <p>Performing since 1988, Adele (the United Kingdom) remain a consistent draw for live audiences. Their live shows sit across pop and soul, and setlists tend to draw from the full catalogue. Resale prices for Adele shows can vary widely between platforms — a side-by-side comparison of verified sellers routinely surfaces cheaper tickets for identical sections.</p>
+  <p>Compare Adele ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/concert.html?v=20260717a');
