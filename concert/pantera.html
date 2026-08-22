@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pantera Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare Pantera ticket prices across verified sellers. Find the cheapest Pantera tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="Pantera Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Pantera ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare Pantera Ticket Prices — Cheapest Pantera Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Pantera ticket prices across verified sellers and find the cheapest Pantera tickets. Updated daily. Groove Metal from Arlington." />
+  <meta property="og:title" content="Pantera Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Pantera ticket prices across verified sellers and find the cheapest Pantera tickets. Updated daily. Groove Metal from Arlington." />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/pantera" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/pantera#artist","name":"Pantera","genre":["groove metal","heavy metal","thrash metal"],"foundingLocation":{"@type":"Place","name":"Arlington"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Pantera Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'pantera';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -17,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Pantera Tickets</h1>
+  <p>Their live shows sit across groove metal and heavy metal, and setlists tend to draw from the full catalogue. Hailing from Arlington and active since 1982, Pantera tour regularly across the UK and Europe. Because each resale marketplace holds different Pantera inventory, checking several at once gives a truer picture of the real get-in price than any single site.</p>
+  <p>Compare Pantera ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {

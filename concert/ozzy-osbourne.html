@@ -2,22 +2,50 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Loading…</title>
+  <title>Compare Ozzy Osbourne Ticket Prices — Cheapest Ozzy Osbourne Tickets | TicketScout</title>
+  <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Ozzy Osbourne ticket prices across verified sellers and find the cheapest Ozzy Osbourne tickets. Updated daily. Heavy Metal from United Kingdom." />
+  <meta property="og:title" content="Ozzy Osbourne Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Ozzy Osbourne ticket prices across verified sellers and find the cheapest Ozzy Osbourne tickets. Updated daily. Heavy Metal from United Kingdom." />
+  <meta property="og:type" content="website" />
+  <link rel="canonical" href="https://ticketscout.co.uk/concert/ozzy-osbourne" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Person","@id":"https://ticketscout.co.uk/concert/ozzy-osbourne#artist","name":"Ozzy Osbourne","genre":["heavy metal","hard rock","british"]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Ozzy Osbourne Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'ozzy-osbourne';</script>
   <link rel="stylesheet" href="/styles.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Ozzy Osbourne Tickets</h1>
+  <p>Tickets for Ozzy Osbourne are often listed at very different prices across marketplaces for the same seats, so comparing verified sellers before checkout is the quickest way to find the genuine cheapest option. Ozzy Osbourne is an artist from Aston, active since 1948. Their live shows sit across heavy metal and hard rock, and setlists tend to draw from the full catalogue.</p>
+  <p>Compare Ozzy Osbourne ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
-    const r = await fetch('/concert.html');
-    const html = await r.text();
-    const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-    if (!m) return;
-    document.body.innerHTML = m[1];
-    document.body.querySelectorAll('script').forEach(function(o) {
-      var s = document.createElement('script');
-      if (o.src) s.src = o.src; else s.textContent = o.textContent;
-      document.body.appendChild(s); o.remove();
-    });
+    try {
+      const r = await fetch('/concert.html?v=20260717a');
+      const html = await r.text();
+      const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+      if (headStyleMatch) {
+        const st = document.createElement('style');
+        st.textContent = headStyleMatch[1];
+        document.head.appendChild(st);
+      }
+      const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      if (!m) return;
+      document.body.innerHTML = m[1];
+      document.body.querySelectorAll('script').forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) s.src = o.src; else s.textContent = o.textContent;
+        document.body.appendChild(s); o.remove();
+      });
+    } catch(e) { console.error('Failed to load concert template:', e); }
   })();
 </script></body></html>
