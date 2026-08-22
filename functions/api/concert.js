@@ -368,6 +368,105 @@ async function shadowCheck(env) {
   }, 200);
 }
 
+// ── Sizing scan: pre-awinGenre-fix sports misclassifications ────────────
+// Added 16 Aug 2026 — live incident: /api/concert?slug=ball-state-cardinals
+// returned found:true, genre:"Live Events", because a concert:artist: KV
+// record genuinely exists — committed by the discovery pipeline BEFORE
+// awinGenre() was fixed to recognise sports-team names (see that
+// function's own 16 Aug 2026 fix comment). That fix is forward-looking
+// only: it stops NEW misclassifications, it does nothing for records
+// already committed under the old, broken logic — same shape as the M4
+// junk-product cleanup and the football junk-entity findings earlier this
+// session. This is a SIZING tool only, deliberately read-only, no delete/
+// recategorise action — the actual fix was intentionally deferred to a
+// dedicated session once the scale is known.
+//
+// Can't filter on genre alone: old-broken entries default to "Live
+// Events" — the SAME generic fallback genuinely uncategorised real
+// concerts also use, so that bucket is a mix of real and bad. The
+// independent, reliable signal is Ticketmaster's OWN classification for
+// that exact name (the same classificationName=Sports check football.js/
+// concert.js's own attraction lookups already trust elsewhere) — not a
+// guess based on the name string.
+//
+// Cursor-based via offset/next: the concert registry is large (7,600+
+// entries per today's regenerate sweep), and checking every single one
+// against a live TM call in one request isn't practical or necessary just
+// to size the problem — run a few batches for a representative rate,
+// extrapolate from there.
+// Usage: ?sizejunksports=1&trigger=1&limit=100&offset=0
+async function sizeJunkSports(env, url) {
+  const kv = env.GIGSBERG_KV;
+  const apiKey = env.TM_API_KEY;
+  if (!kv) return jsonResponse({ error: 'no KV binding' }, 500);
+  if (!apiKey) return jsonResponse({ error: 'Missing TM_API_KEY' }, 500);
+
+  const limit  = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 300);
+  const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
+
+  let reg;
+  try { reg = await kv.get('sitemap:registry', 'json'); }
+  catch (e) { return jsonResponse({ error: 'registry read failed: ' + String(e) }, 500); }
+  if (!reg?.sections?.concert) return jsonResponse({ error: 'no concert section in registry' }, 200);
+
+  const allSlugs = Object.keys(reg.sections.concert);
+  const batch = allSlugs.slice(offset, offset + limit);
+
+  let checkedWithGenreLiveEvents = 0;
+  let noKvRecord = 0;
+  let tmLookupFailed = 0;
+  const suspects = [];
+
+  for (const slug of batch) {
+    let artist = null;
+    try {
+      const raw = await kv.get('concert:artist:' + slug);
+      if (raw) artist = JSON.parse(raw);
+    } catch {}
+    if (!artist) { noKvRecord++; continue; } // registry entry with no KV record — a different, already-known gap (inRegistryOnly), not this one
+    if ((artist.genre || '') !== 'Live Events') continue; // not in the suspect bucket at all
+
+    checkedWithGenreLiveEvents++;
+
+    try {
+      const tmUrl = new URL('https://app.ticketmaster.com/discovery/v2/attractions.json');
+      tmUrl.searchParams.set('apikey', apiKey);
+      tmUrl.searchParams.set('keyword', artist.search || artist.name || slug);
+      tmUrl.searchParams.set('size', '5');
+      const tmResp = await fetch(tmUrl.toString());
+      const tmData = await tmResp.json();
+      const attractions = tmData?._embedded?.attractions || [];
+      const normSearch = (artist.search || artist.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+      const bestMatch = attractions.find(a => (a.name || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim() === normSearch);
+      const segment = bestMatch?.classifications?.[0]?.segment?.name || null;
+      if (segment === 'Sports') {
+        suspects.push({ slug, name: artist.name, tmSegment: segment });
+      }
+    } catch {
+      tmLookupFailed++;
+    }
+  }
+
+  const nextOffset = offset + limit;
+  return jsonResponse({
+    sizejunksports: true,
+    readOnly: true,
+    registryTotalConcertEntries: allSlugs.length,
+    thisBatchOffset: offset,
+    thisBatchSize: batch.length,
+    noKvRecordInThisBatch: noKvRecord,
+    checkedWithGenreLiveEventsInThisBatch: checkedWithGenreLiveEvents,
+    tmLookupFailedInThisBatch: tmLookupFailed,
+    confirmedSportsMisclassifiedInThisBatch: suspects.length,
+    suspects,
+    next: nextOffset < allSlugs.length
+      ? `?sizejunksports=1&trigger=1&limit=${limit}&offset=${nextOffset}`
+      : null,
+    done: nextOffset >= allSlugs.length,
+    guidance: `Sizing only — nothing here fixes or removes anything. Run a few batches and extrapolate confirmedSportsMisclassifiedInThisBatch / thisBatchSize as a rough rate across all ${allSlugs.length} registry entries, rather than necessarily running every batch to completion.`
+  }, 200);
+}
+
 async function inspectRecords(env, section, prefix) {
   const kv = env.GIGSBERG_KV;
   if (!kv) return jsonResponse({ error: 'no KV binding' }, 500);
@@ -428,6 +527,9 @@ export async function onRequestGet({ request, env }) {
   // linked rather than a dead end Google reads as a thin page.
   if (url.searchParams.get('inspect') === '1') return inspectRecords(env, 'concert', 'concert:artist:');
   if (url.searchParams.get('shadowcheck') === '1') return shadowCheck(env);
+  if (url.searchParams.get('sizejunksports') === '1' && url.searchParams.get('trigger') === '1') {
+    return sizeJunkSports(env, url);
+  }
   if (url.searchParams.get('list') === '1') return listEntities(env, url);
   if (url.searchParams.get('rebuild_full') === '1' && url.searchParams.get('trigger') === '1') {
     return rebuildFullHub(env, url);
