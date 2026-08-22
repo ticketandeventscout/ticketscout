@@ -9,7 +9,7 @@
   <meta property="og:description" content="Compare Tunisia ticket prices across verified sellers and find the cheapest Tunisia tickets. Updated daily." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/sports/tunisia" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/sports/tunisia#team","name":"Tunisia"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Sports","item":"https://ticketscout.co.uk/sports"},{"@type":"ListItem","position":2,"name":"Tunisia Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"SportsTeam","@id":"https://ticketscout.co.uk/sports/tunisia#team","name":"Tunisia","sport":"handball"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Sports","item":"https://ticketscout.co.uk/sports"},{"@type":"ListItem","position":2,"name":"Tunisia Tickets"}]}]}</script>
   <script>window.__SPORTS_SLUG__ = 'tunisia';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,7 +18,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Tunisia Tickets</h1>
+  <p>Tunisia are based in Tunisia. Tunisia appear on the handball calendar throughout the season. Demand for Tunisia varies sharply by opponent and round, which is why a side-by-side comparison of verified sellers is worth doing before booking.</p>
+  <p>Compare Tunisia ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/sports.html?v=20260717a');
