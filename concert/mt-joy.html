@@ -5,12 +5,12 @@
   <title>Compare Mt. Joy Ticket Prices — Cheapest Mt. Joy Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Mt. Joy ticket prices across verified sellers and find the cheapest Mt. Joy tickets. Updated daily." />
+  <meta name="description" content="Compare Mt. Joy ticket prices across verified sellers and find the cheapest Mt. Joy tickets. Updated daily. Alternative Rock from United States." />
   <meta property="og:title" content="Mt. Joy Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Mt. Joy ticket prices across verified sellers and find the cheapest Mt. Joy tickets. Updated daily." />
+  <meta property="og:description" content="Compare Mt. Joy ticket prices across verified sellers and find the cheapest Mt. Joy tickets. Updated daily. Alternative Rock from United States." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/mt-joy" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/mt-joy#artist","name":"Mt. Joy"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Mt. Joy Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/mt-joy#artist","name":"Mt. Joy","genre":["alternative rock","indie rock","folk rock"],"foundingLocation":{"@type":"Place","name":"United States"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Mt. Joy Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'mt-joy';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Mt. Joy Tickets</h1>
+  <p>Resale prices for Mt. Joy shows can vary widely between platforms — a side-by-side comparison of verified sellers routinely surfaces cheaper tickets for identical sections. Mt. Joy are an act from Philadelphia, active since 2016. Their live shows sit across alternative rock and indie rock, and setlists tend to draw from the full catalogue.</p>
+  <p>Compare Mt. Joy ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {

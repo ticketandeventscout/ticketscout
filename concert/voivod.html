@@ -5,12 +5,12 @@
   <title>Compare VOIVOD Ticket Prices — Cheapest VOIVOD Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare VOIVOD ticket prices across verified sellers and find the cheapest VOIVOD tickets. Updated daily." />
+  <meta name="description" content="Compare VOIVOD ticket prices across verified sellers and find the cheapest VOIVOD tickets. Updated daily. Thrash Metal from Canada." />
   <meta property="og:title" content="VOIVOD Tickets | TicketScout" />
-  <meta property="og:description" content="Compare VOIVOD ticket prices across verified sellers and find the cheapest VOIVOD tickets. Updated daily." />
+  <meta property="og:description" content="Compare VOIVOD ticket prices across verified sellers and find the cheapest VOIVOD tickets. Updated daily. Thrash Metal from Canada." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/voivod" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/voivod#artist","name":"VOIVOD"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"VOIVOD Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/voivod#artist","name":"VOIVOD","genre":["thrash metal","progressive metal","heavy metal"],"foundingLocation":{"@type":"Place","name":"Canada"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"VOIVOD Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'voivod';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>VOIVOD Tickets</h1>
+  <p>Known for thrash metal with strong progressive metal influences, the live show is where the catalogue comes alive. Hailing from Jonquière and active since 1982, VOIVOD tour regularly across the UK and Europe. Because each resale marketplace holds different VOIVOD inventory, checking several at once gives a truer picture of the real get-in price than any single site.</p>
+  <p>Compare VOIVOD ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/concert.html?v=20260717a');

@@ -10,7 +10,7 @@
   <meta property="og:description" content="Compare The High Kings ticket prices across verified sellers and find the cheapest The High Kings tickets. Updated daily." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/the-high-kings" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/the-high-kings#artist","name":"The High Kings"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"The High Kings Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/the-high-kings#artist","name":"The High Kings","genre":["folk","folk music of ireland","celtic"]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"The High Kings Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'the-high-kings';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>The High Kings Tickets</h1>
+  <p>Their live shows sit across folk and folk music of ireland, and setlists tend to draw from the full catalogue. Tickets for The High Kings are often listed at very different prices across marketplaces for the same seats, so comparing verified sellers before checkout is the quickest way to find the genuine cheapest option.</p>
+  <p>Compare The High Kings ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/concert.html?v=20260717a');

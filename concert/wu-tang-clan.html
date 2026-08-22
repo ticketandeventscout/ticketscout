@@ -5,12 +5,12 @@
   <title>Compare Wu-Tang Clan Ticket Prices — Cheapest Wu-Tang Clan Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Wu-Tang Clan ticket prices across verified sellers and find the cheapest Wu-Tang Clan tickets. Updated daily." />
+  <meta name="description" content="Compare Wu-Tang Clan ticket prices across verified sellers and find the cheapest Wu-Tang Clan tickets. Updated daily. Hip Hop from United States." />
   <meta property="og:title" content="Wu-Tang Clan Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Wu-Tang Clan ticket prices across verified sellers and find the cheapest Wu-Tang Clan tickets. Updated daily." />
+  <meta property="og:description" content="Compare Wu-Tang Clan ticket prices across verified sellers and find the cheapest Wu-Tang Clan tickets. Updated daily. Hip Hop from United States." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/wu-tang-clan" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/wu-tang-clan#artist","name":"Wu-Tang Clan"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Wu-Tang Clan Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/wu-tang-clan#artist","name":"Wu-Tang Clan","genre":["hip hop","boom bap","east coast hip hop"],"foundingLocation":{"@type":"Place","name":"United States"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Wu-Tang Clan Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'wu-tang-clan';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Wu-Tang Clan Tickets</h1>
+  <p>Tickets for Wu-Tang Clan are often listed at very different prices across marketplaces for the same seats, so comparing verified sellers before checkout is the quickest way to find the genuine cheapest option. Performing since 1992, Wu-Tang Clan (the United States) remain a consistent draw for live audiences. Known for hip hop with strong boom bap influences, the live show is where the catalogue comes alive.</p>
+  <p>Compare Wu-Tang Clan ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
