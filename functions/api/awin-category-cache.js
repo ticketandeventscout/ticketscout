@@ -345,6 +345,135 @@ export async function onRequestGet({ request, env }) {
     }
   }
 
+  // Added 16 Aug 2026 — live incident: three real Eventim PL rows all came
+  // back date:null, venue:null from both awin-events.js and awin-
+  // category.js, every one with a description truncated mid-sentence in
+  // ordinary prose, nowhere near anything resembling a "Date:"/"Venue:"
+  // label. That truncation (.slice(0, 300), see parseFeedRow below)
+  // happens HERE, before either of those files ever sees the data — so
+  // the question this answers is: does this merchant's raw description
+  // contain those markers further into the text than 300 characters, or
+  // does it never include them at all? The right fix is completely
+  // different depending on the answer (widen the truncation + extraction
+  // regex, vs. this merchant needing an entirely different data source for
+  // date/venue). Copies currencydiag's fetch/parse harness verbatim rather
+  // than re-deriving it — that diagnostic's own history above is three
+  // documented bugs from re-deriving a "simplified" version of the same
+  // logic instead of reusing the proven one.
+  // Usage: ?descdiag=1&trigger=1&merchant=Eventim%20PL
+  //        ?descdiag=1&trigger=1&merchant=Eventim%20PL&maxlen=1000  (default 800)
+  if (url.searchParams.get('descdiag') === '1' && url.searchParams.get('trigger') === '1') {
+    const kv = env.GIGSBERG_KV;
+    const baseUrl = env.AWIN_CATEGORY_FEED_URL;
+    if (!baseUrl) return jsonResp({ error: 'Missing AWIN_CATEGORY_FEED_URL' }, 500);
+    if (!kv) return jsonResp({ error: 'Missing GIGSBERG_KV' }, 500);
+    const merchantFilter = (url.searchParams.get('merchant') || '').toLowerCase();
+    const maxlen = Math.min(parseInt(url.searchParams.get('maxlen') || '800', 10) || 800, 5000);
+    const SAMPLE_TARGET = 5; // full descriptions can be long — keep the response small
+
+    const feedIds = await getFeedIds(kv, env);
+    const feedUrl = buildFeedUrl(baseUrl, feedIds);
+
+    try {
+      const resp = await fetch(feedUrl);
+      if (!resp.ok) return jsonResp({ error: `feed fetch failed: HTTP ${resp.status}`, feedIdsUsed: feedIds }, 502);
+
+      const stream = resp.body.pipeThrough(new DecompressionStream('gzip'));
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let headerLine = null;
+      let colMap = null;
+      const samples = [];
+      let rowsScanned = 0;
+      let streamEnded = false;
+      const MAX_ROWS_SCANNED = 45000;
+
+      outer:
+      while (rowsScanned < MAX_ROWS_SCANNED) {
+        const { done, value } = await reader.read();
+        if (done) { streamEnded = true; break; }
+        buffer += decoder.decode(value, { stream: true });
+
+        let searchFrom = 0;
+        let inQuotes = false;
+        for (let ci = 0; ci < buffer.length; ci++) {
+          const ch = buffer[ci];
+          if (ch === '"') inQuotes = !inQuotes;
+          if (ch === '\n' && !inQuotes) {
+            const line = buffer.slice(searchFrom, ci).replace(/\r$/, '');
+            searchFrom = ci + 1;
+
+            if (!headerLine) {
+              headerLine = line;
+              const built = buildColMapFromHeader(headerLine);
+              colMap = built.map;
+              continue;
+            }
+            if (!line.trim()) continue;
+
+            rowsScanned++;
+            const fields = parseCsvLine(line);
+            const merchantIdx = colMap.merchant_name;
+            const merchantName = merchantIdx !== -1 && merchantIdx < fields.length ? fields[merchantIdx] : '';
+            if (!merchantFilter || merchantName.toLowerCase().includes(merchantFilter)) {
+              const descIdx = colMap.description;
+              const fullDesc = (descIdx !== -1 && descIdx < fields.length ? fields[descIdx] : '') || '';
+              const dateMatch  = fullDesc.match(/Date:\s*(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})/i);
+              const venueMatch = fullDesc.match(/Venue:\s*([^,\n]+)/i);
+              samples.push({
+                merchant:            merchantName,
+                product_name:        (colMap.product_name !== -1 ? fields[colMap.product_name] : '')?.slice(0, 80),
+                description_length:  fullDesc.length,
+                description_full:    fullDesc.slice(0, maxlen),
+                description_truncated_for_response: fullDesc.length > maxlen,
+                has_date_marker:     !!dateMatch,
+                date_marker_position: dateMatch ? fullDesc.indexOf(dateMatch[0]) : null,
+                has_venue_marker:    !!venueMatch,
+                venue_marker_position: venueMatch ? fullDesc.indexOf(venueMatch[0]) : null,
+                would_be_cut_off_by_current_300char_limit:
+                  (dateMatch && fullDesc.indexOf(dateMatch[0]) >= 300) ||
+                  (venueMatch && fullDesc.indexOf(venueMatch[0]) >= 300)
+              });
+              if (samples.length >= SAMPLE_TARGET) break outer;
+            }
+            if (rowsScanned >= MAX_ROWS_SCANNED) break outer;
+          }
+        }
+        buffer = buffer.slice(searchFrom);
+      }
+      try { await reader.cancel(); } catch {}
+
+      let interpretation;
+      if (samples.length === 0) {
+        interpretation = merchantFilter
+          ? `No rows matching merchant filter "${merchantFilter}" were found in ${rowsScanned} scanned rows` +
+            (streamEnded ? ' (stream ended before target — this merchant may sit later in the feed, or wasn\'t present in this fetch).' : '.')
+          : `No data rows were parsed at all in ${rowsScanned} scanned rows.`;
+      } else if (samples.every(s => !s.has_date_marker && !s.has_venue_marker)) {
+        interpretation = `None of the ${samples.length} sampled rows contain a "Date:" or "Venue:" marker ANYWHERE in the full, untruncated description (up to ${maxlen} chars captured). This suggests the merchant genuinely does not embed date/venue in free text at all — widening the 300-char truncation limit would NOT fix this; a different data source would be needed.`;
+      } else if (samples.some(s => s.would_be_cut_off_by_current_300char_limit)) {
+        interpretation = `At least one sampled row DOES contain a "Date:"/"Venue:" marker, but past the current 300-character truncation point — confirmed truncation is the cause for those rows. Check each sample's own marker_position to see how far past 300 it typically sits, to pick a safe new limit.`;
+      } else {
+        interpretation = `Markers ARE present and within the current 300-char limit for these samples — truncation doesn't explain the null date/venue seen live for this merchant. Worth checking the actual extraction regex against this exact text, or whether these particular samples differ from the ones that showed the problem.`;
+      }
+
+      return jsonResp({
+        descdiag: true,
+        feedIdsUsed: feedIds,
+        merchantFilter: merchantFilter || '(none — first rows of any merchant)',
+        rowsScanned,
+        streamEndedBeforeTarget: streamEnded,
+        samplesFound: samples.length,
+        currentTruncationLimitInProduction: 300,
+        samples,
+        interpretation
+      }, 200);
+    } catch (e) {
+      return jsonResp({ error: 'descdiag failed: ' + String(e) }, 500);
+    }
+  }
+
   // ── M4 cleanup: already-indexed junk product pages ──────────────────────
   // The forward-looking filter (isJunkProduct(), see tsBulkSyncAwinEvents
   // above) stops NEW junk from registering, but doesn't touch what's
@@ -979,26 +1108,6 @@ function awinGenre(merchantCategory, categoryName) {
   if (cat.includes('concert') || cat.includes('music'))   return 'Live Music';
   if (cat.includes('theatre') || cat.includes('musical')) return 'Theatre';
   if (cat.includes('comedy'))  return 'Comedy';
-  // FIX (16 Aug 2026): confirmed live via the GSC "Discovered — currently
-  // not indexed" export — Quebec Capitales, Tulsa Drillers, Visalia
-  // Rawhide, Chattanooga Lookouts, Kansas City Monarchs, Sussex County
-  // Miners (all minor/independent-league baseball, no "MLB" in Awin's
-  // category text), Abbotsford Canucks (AHL, not NHL), Ball State
-  // Cardinals (NCAA), and a Polish handball cup final were ALL registered
-  // under /concert/. None say the literal word "sport" and none are one of
-  // the five major-league abbreviations below, so every one of them fell
-  // straight through to 'Live Events' -> concert.
-  // Reuses SPORTS_GENRES directly — the same actively-maintained keyword
-  // set genreToCategory() already relies on (widened across three prior
-  // passes, 24/25/31 Jul 2026) — rather than hand-listing more one-off
-  // leagues here, which is the exact reactive pattern that produced this
-  // gap: the football section above and the league-abbreviation check
-  // below were both grown incrementally, live incident by live incident,
-  // instead of matching on the sport itself from the start.
-  for (const sport of SPORTS_GENRES) {
-    if (sport === 'sport' || sport === 'sports') continue; // covered by the plain substring check below
-    if (cat.includes(sport)) return 'Sports';
-  }
   if (cat.includes('sport'))   return 'Sports';
   // US pro sports league names — added alongside the football fix above,
   // same gap (league name instead of sport name in Awin's category text).
