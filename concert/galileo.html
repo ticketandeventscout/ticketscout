@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Galileo Tickets | Compare Prices | TicketScout</title>
+  <title>Compare Galileo Ticket Prices — Cheapest Galileo Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Galileo ticket prices across verified sellers. Find the cheapest Galileo tickets and buy direct. Updated daily." />
+  <meta name="description" content="Compare Galileo ticket prices across verified sellers and find the cheapest Galileo tickets. Updated daily. Rock from Japan." />
   <meta property="og:title" content="Galileo Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Galileo ticket prices across verified sellers. Find the best deal." />
+  <meta property="og:description" content="Compare Galileo ticket prices across verified sellers and find the cheapest Galileo tickets. Updated daily. Rock from Japan." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/galileo" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/galileo#artist","name":"Galileo","genre":["rock","pop"],"foundingLocation":{"@type":"Place","name":"Japan"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Galileo Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'galileo';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Galileo Tickets</h1>
+  <p>Their live shows sit across rock and pop, and setlists tend to draw from the full catalogue. Hailing from Wakkanai and active since 2007, Galileo tour regularly across the UK and Europe. Tickets for Galileo are often listed at very different prices across marketplaces for the same seats, so comparing verified sellers before checkout is the quickest way to find the genuine cheapest option.</p>
+  <p>Compare Galileo ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
