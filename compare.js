@@ -1065,6 +1065,11 @@ function updateEventSchemaOffers(withPrices) {
       // noise, and schema.org treats a single-value range as meaningless.
       ...(high > low ? { highPrice: Math.round(high * 100) / 100 } : {}),
       priceCurrency: 'GBP', // adapters are normalised to GBP upstream (see fx.js)
+      // R2 (22 Aug 2026): every seller in this table is a resale
+      // marketplace — declare it honestly on the one event-page Offer this
+      // file corrects. See concert/football/theatre/sports.html for the
+      // same field on entity-level Offer/AggregateOffer.
+      category: 'Secondary',
       offerCount: prices.length,
       availability: 'https://schema.org/InStock',
       url: location.origin + location.pathname

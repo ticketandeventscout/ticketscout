@@ -830,6 +830,9 @@
               '@type': 'Offer',
               'price': minPrice,
               'priceCurrency': 'GBP',
+              // R2 (22 Aug 2026): TicketScout aggregates resale marketplace
+              // inventory — declare it honestly.
+              'category': 'Secondary',
               'availability': 'https://schema.org/InStock',
               'url': pageUrl,
               'validFrom': new Date().toISOString().split('T')[0]
@@ -863,6 +866,8 @@
           'offers': {
             '@type': 'AggregateOffer',
             'priceCurrency': 'GBP',
+            // R2 (22 Aug 2026): resale marketplace declaration, see inline Offer above.
+            'category': 'Secondary',
             'lowPrice': low,
             'highPrice': high,
             ...(s.upcomingEvents ? { 'offerCount': s.upcomingEvents } : {}),
@@ -1676,6 +1681,8 @@
               '@type': 'AggregateOffer',
               'lowPrice': s.low30d,
               'priceCurrency': 'GBP',
+              // R2 (22 Aug 2026): resale marketplace declaration, see the other two Offer sites in this file.
+              'category': 'Secondary',
               'offerCount': s.upcomingEvents || schema['@graph'].length,
               'url': location.origin + location.pathname
             }

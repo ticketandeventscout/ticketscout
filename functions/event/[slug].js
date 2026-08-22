@@ -446,6 +446,12 @@ function renderPage(d) {
         '@type': 'AggregateOffer',
         lowPrice: d.price,
         priceCurrency: d.currency,
+        // R2 (22 Aug 2026): TicketScout aggregates resale marketplace
+        // inventory — declare it honestly. Present on the SSR placeholder
+        // too so a JS-less crawl sees it, not just the compare.js
+        // correction (which sets the same field — see
+        // updateEventSchemaOffers() there).
+        category: 'Secondary',
         availability: 'https://schema.org/InStock',
         url: canonical
       }
