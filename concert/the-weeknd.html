@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>The Weeknd Tickets | Compare Prices | TicketScout</title>
-  <meta name="description" content="Compare The Weeknd ticket prices across verified sellers. Find the cheapest The Weeknd tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="The Weeknd Tickets | TicketScout" />
-  <meta property="og:description" content="Compare The Weeknd ticket prices across verified sellers. Find the best deal." />
-  <meta property="og:type" content="website" />
+  <title>Compare The Weeknd Ticket Prices — Cheapest The Weeknd Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare The Weeknd ticket prices across verified sellers and find the cheapest The Weeknd tickets. Updated daily. R&amp;B from Canada." />
+  <meta property="og:title" content="The Weeknd Tickets | TicketScout" />
+  <meta property="og:description" content="Compare The Weeknd ticket prices across verified sellers and find the cheapest The Weeknd tickets. Updated daily. R&amp;B from Canada." />
+  <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/the-weeknd" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Person","@id":"https://ticketscout.co.uk/concert/the-weeknd#artist","name":"The Weeknd","genre":["r&b","contemporary r&b","alternative r&b"]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"The Weeknd Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'the-weeknd';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -17,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>The Weeknd Tickets</h1>
+  <p>Hailing from Scarborough and active since 1990, The Weeknd tour regularly across the UK and Europe. Because each resale marketplace holds different The Weeknd inventory, checking several at once gives a truer picture of the real get-in price than any single site. Their live shows sit across r&amp;b and contemporary r&amp;b, and setlists tend to draw from the full catalogue.</p>
+  <p>Compare The Weeknd ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
