@@ -5,12 +5,12 @@
   <title>Compare Rise Against Ticket Prices — Cheapest Rise Against Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Rise Against ticket prices across verified sellers and find the cheapest Rise Against tickets. Updated daily." />
+  <meta name="description" content="Compare Rise Against ticket prices across verified sellers and find the cheapest Rise Against tickets. Updated daily. Melodic Hardcore from United States." />
   <meta property="og:title" content="Rise Against Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Rise Against ticket prices across verified sellers and find the cheapest Rise Against tickets. Updated daily." />
+  <meta property="og:description" content="Compare Rise Against ticket prices across verified sellers and find the cheapest Rise Against tickets. Updated daily. Melodic Hardcore from United States." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/rise-against" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/rise-against#artist","name":"Rise Against"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Rise Against Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/rise-against#artist","name":"Rise Against","genre":["melodic hardcore","punk rock","rock"],"foundingLocation":{"@type":"Place","name":"United States"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Rise Against Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'rise-against';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,7 +19,15 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Rise Against Tickets</h1>
+  <p>Their live shows sit across melodic hardcore and punk rock, and setlists tend to draw from the full catalogue. Hailing from Chicago and active since 1999, Rise Against tour regularly across the UK and Europe. Because each resale marketplace holds different Rise Against inventory, checking several at once gives a truer picture of the real get-in price than any single site.</p>
+  <p>Compare Rise Against ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
       const r = await fetch('/concert.html?v=20260717a');
