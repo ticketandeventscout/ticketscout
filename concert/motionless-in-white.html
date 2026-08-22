@@ -5,12 +5,12 @@
   <title>Compare Motionless in White Ticket Prices — Cheapest Motionless in White Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Motionless in White ticket prices across verified sellers and find the cheapest Motionless in White tickets. Updated daily." />
+  <meta name="description" content="Compare Motionless in White ticket prices across verified sellers and find the cheapest Motionless in White tickets. Updated daily. Metalcore from United…" />
   <meta property="og:title" content="Motionless in White Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Motionless in White ticket prices across verified sellers and find the cheapest Motionless in White tickets. Updated daily." />
+  <meta property="og:description" content="Compare Motionless in White ticket prices across verified sellers and find the cheapest Motionless in White tickets. Updated daily. Metalcore from United…" />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/motionless-in-white" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/motionless-in-white#artist","name":"Motionless in White"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Motionless in White Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/motionless-in-white#artist","name":"Motionless in White","genre":["metalcore","industrial metal","gothic metal"],"foundingLocation":{"@type":"Place","name":"United States"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Motionless in White Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'motionless-in-white';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Motionless in White Tickets</h1>
+  <p>Known for metalcore with strong industrial metal influences, the live show is where the catalogue comes alive. Performing since 2005, Motionless in White (the United States) remain a consistent draw for live audiences. Because each resale marketplace holds different Motionless in White inventory, checking several at once gives a truer picture of the real get-in price than any single site.</p>
+  <p>Compare Motionless in White ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
