@@ -5,12 +5,12 @@
   <title>Compare Christopher Ticket Prices — Cheapest Christopher Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare Christopher ticket prices across verified sellers and find the cheapest Christopher tickets. Updated daily." />
+  <meta name="description" content="Compare Christopher ticket prices across verified sellers and find the cheapest Christopher tickets. Updated daily. Has German Audiobooks from United States." />
   <meta property="og:title" content="Christopher Tickets | TicketScout" />
-  <meta property="og:description" content="Compare Christopher ticket prices across verified sellers and find the cheapest Christopher tickets. Updated daily." />
+  <meta property="og:description" content="Compare Christopher ticket prices across verified sellers and find the cheapest Christopher tickets. Updated daily. Has German Audiobooks from United States." />
   <meta property="og:type" content="website" />
   <link rel="canonical" href="https://ticketscout.co.uk/concert/christopher" />
-  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"MusicGroup","@id":"https://ticketscout.co.uk/concert/christopher#artist","name":"Christopher"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Christopher Tickets"}]}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Person","@id":"https://ticketscout.co.uk/concert/christopher#artist","name":"Christopher","genre":["has german audiobooks","audiobook"]},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Concerts","item":"https://ticketscout.co.uk/concert"},{"@type":"ListItem","position":2,"name":"Christopher Tickets"}]}]}</script>
   <script>window.__CONCERT_SLUG__ = 'christopher';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,10 +19,18 @@
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
-<body><script>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Christopher Tickets</h1>
+  <p>Known for has german audiobooks with strong audiobook influences, the live show is where the catalogue comes alive. Hailing from the United States and active since 1983, Christopher tour regularly across the UK and Europe. Because each resale marketplace holds different Christopher inventory, checking several at once gives a truer picture of the real get-in price than any single site.</p>
+  <p>Compare Christopher ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
   (async function() {
     try {
-      const r = await fetch('/concert.html?v=20260714a');
+      const r = await fetch('/concert.html?v=20260717a');
       const html = await r.text();
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
