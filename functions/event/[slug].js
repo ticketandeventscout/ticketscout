@@ -149,13 +149,28 @@ export async function onRequestGet(ctx) {
     const alreadyCanonical = stableId === row.id && row.slug === rawSlug;
     if (!alreadyCanonical) {
       const canonicalEventUrl = `${HOST}/event/${row.slug}-E${row.id}`;
+      // Cached at the edge like every other response in this file — a bare
+      // Response.redirect() carries no Cache-Control, which meant every
+      // legacy-URL hit was paying for a live KV read (and, on the
+      // stale-id path, a second D1 query) instead of getting served
+      // straight from cache. Same cache lifetime as the 15–90-day
+      // past-event redirect just below: once a row has a stable id, this
+      // target doesn't change on any normal timescale.
+      const cachedRedirect = () => {
+        const resp = new Response(null, {
+          status: 301,
+          headers: { 'Location': canonicalEventUrl, 'Cache-Control': 'public, max-age=3600, s-maxage=86400' }
+        });
+        ctx.waitUntil(cache.put(cacheKey, resp.clone()));
+        return resp;
+      };
       if (stableId != null) {
-        return Response.redirect(canonicalEventUrl, 301);
+        return cachedRedirect();
       }
       let redirectToId = false;
       try { redirectToId = (await env.GIGSBERG_KV?.get('feature:event-id-redirect')) === 'on'; } catch { /* default off */ }
       if (redirectToId) {
-        return Response.redirect(canonicalEventUrl, 301);
+        return cachedRedirect();
       }
     }
   }
