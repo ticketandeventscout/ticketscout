@@ -650,6 +650,17 @@
           if (e.dates?.start?.dateTime) {
             endISO = new Date(new Date(e.dates.start.dateTime).getTime() + 3 * 3600 * 1000).toISOString();
           }
+          // R1 (23 Aug 2026): each fixture's own canonical page is the SSR
+          // /event/{slug} page, NOT this entity page — same tsEventSlug
+          // ('football', ...) used to build the visible fixture-list link,
+          // and the same H4 pattern sports.html already uses. Falls back to
+          // a hash route (never invents a slug) when the date/name won't
+          // build a real one, matching every other per-event link here.
+          const evDate = e.dates?.start?.localDate || '';
+          const evSlug = tsEventSlug('football', evDate, normaliseFixtureName(e.name));
+          const evUrl  = evSlug
+            ? `https://ticketscout.co.uk/event/${evSlug}`
+            : `https://ticketscout.co.uk/#/event/football-${encodeURIComponent(e.name)}`;
           return {
             '@type': 'SportsEvent',
             'name': e.name,
@@ -682,10 +693,10 @@
               // inventory — declare it honestly.
               'category': 'Secondary',
               'availability': 'https://schema.org/InStock',
-              'url': pageUrl,
+              'url': evUrl,
               'validFrom': new Date().toISOString().split('T')[0]
             } } : {}),
-            'url': pageUrl
+            'url': evUrl
           };
         });
         setEl('schema-org', null, JSON.stringify({
