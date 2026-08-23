@@ -2507,7 +2507,6 @@ export async function onRequestGet({ request, env }) {
     'iron-maiden',
     'ivanov',
     'jack-and-the-beanstalk',
-    'jacksonville-jaguars',
     'james-arthur',
     'jay-z',
     'jeeves-and-wooster-in-stiff-upper-lip-jeeves',

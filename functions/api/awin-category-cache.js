@@ -1088,6 +1088,20 @@ const SPORTS_GENRES = new Set([
 
 function awinGenre(merchantCategory, categoryName) {
   const cat = ((merchantCategory || '') + ' ' + (categoryName || '')).toLowerCase();
+  // American football / US pro sports league names — MUST run before the
+  // generic football/soccer check below. "american football" contains the
+  // substring "football", so the old check order let this class of NFL/NBA/
+  // MLB/NHL/WNBA event silently fall into the (soccer) 'Football' branch
+  // before ever reaching the US-league check further down. Confirmed live
+  // (22 Aug 2026): NFL London 2026 (Jacksonville Jaguars vs Houston Texans)
+  // registered as /event/football-... instead of /event/sports-... — same
+  // root cause and same fix shape as discover-pages.js's fix-sports-events
+  // phase, just for Awin-sourced rows instead of a TM/AWIN duplicate.
+  if (
+    cat.includes('american football') ||
+    cat.includes('wnba') || cat.includes('nba') || cat.includes('mlb') ||
+    cat.includes('nfl') || cat.includes('nhl')
+  ) return 'Sports';
   if (cat.includes('football') || cat.includes('soccer')) return 'Football';
   // Domestic/international football league & competition names — added
   // 6 Aug 2026 after a live unmatched batch showed EFL Championship/League
@@ -1109,12 +1123,6 @@ function awinGenre(merchantCategory, categoryName) {
   if (cat.includes('theatre') || cat.includes('musical')) return 'Theatre';
   if (cat.includes('comedy'))  return 'Comedy';
   if (cat.includes('sport'))   return 'Sports';
-  // US pro sports league names — added alongside the football fix above,
-  // same gap (league name instead of sport name in Awin's category text).
-  if (
-    cat.includes('wnba') || cat.includes('nba') || cat.includes('mlb') ||
-    cat.includes('nfl') || cat.includes('nhl')
-  ) return 'Sports';
   return 'Live Events';
 }
 
