@@ -1431,14 +1431,16 @@
       .catch(function () {});
   })();
 
-  // R1 follow-up (23 Aug 2026): TM's own priceRanges is frequently empty
-  // even for real, on-sale performances. Deliberately separate from the
-  // enrichment IIFE above (a bug here should never affect the
-  // AggregateOffer/badge logic, or vice versa). Reads back the schema
-  // updateMeta() already wrote, finds any TheaterEvent node that didn't
-  // get an Offer from TM, and asks the same event_pages data the /event/
-  // page itself trusts — never invents a price, only ever uses what's
-  // actually stored and fresh.
+  // R1 follow-up (23 Aug 2026, REVISED): TM's own priceRanges is frequently
+  // empty even for real, on-sale performances. The first version of this
+  // fix queried event_pages.price, which turned out to be the SAME TM-
+  // sourced snapshot — same gap, wrong fix. This queries the real per-
+  // event affiliate price data (price_samples, via the new
+  // /api/event-prices endpoint) instead — the same numbers the compare
+  // table and price-history chart already show. Deliberately separate from
+  // the enrichment IIFE above (a bug here should never affect the
+  // AggregateOffer/badge logic, or vice versa). Never invents a price —
+  // only ever uses what's actually stored and recent.
   (function () {
     var schemaEl = document.getElementById('schema-org');
     if (!schemaEl) return;
@@ -1446,26 +1448,30 @@
     try { schema = JSON.parse(schemaEl.textContent || '{}'); } catch (e) { return; }
     if (!schema['@graph'] || !schema['@graph'].length) return;
 
+    var entitySlug = window.__THEATRE_SLUG__ || (location.pathname.match(/\/theatre\/([a-z0-9-]+)/) || [])[1];
+    if (!entitySlug) return;
+
     var needsPrice = schema['@graph'].filter(function (n) {
       return n['@type'] === 'TheaterEvent' && !n.offers && typeof n.url === 'string' && n.url.indexOf('/event/') !== -1;
     });
     if (!needsPrice.length) return;
 
-    var slugOf = function (u) {
-      var m = u.match(/\/event\/([a-z0-9-]+)(?:$|[?#])/);
-      return m ? m[1] : null;
-    };
-    var slugs = needsPrice.map(function (n) { return slugOf(n.url); }).filter(Boolean);
-    if (!slugs.length) return;
+    var items = [];
+    needsPrice.forEach(function (n) {
+      var date  = typeof n.startDate === 'string' ? n.startDate.slice(0, 10) : null;
+      var venue = n.location && n.location.name;
+      if (!date || !venue || venue === 'Venue to be announced') return;
+      items.push({ e: entitySlug, d: date, v: venue, u: n.url });
+    });
+    if (!items.length) return;
 
-    fetch('/api/event-prices?slugs=' + encodeURIComponent(slugs.join(',')))
+    fetch('/api/event-prices?events=' + encodeURIComponent(JSON.stringify(items)))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (prices) {
         if (!prices) return;
         var changed = false;
         needsPrice.forEach(function (n) {
-          var s = slugOf(n.url);
-          var p = s && prices[s];
+          var p = prices[n.url];
           if (!p) return;
           n.offers = {
             '@type': 'Offer',
