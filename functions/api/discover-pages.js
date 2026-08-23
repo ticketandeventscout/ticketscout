@@ -1809,6 +1809,143 @@ export async function onRequestGet({ request, env }) {
       return json({ phase: 'fix-sports-events', mode: 'move', dryRun: false, moved, moveErrors, rejected }, 200);
     }
 
+    // ── SCOPE=FOOTBALL MODE (added 23 Aug 2026) — the OTHER mismatch
+    // direction the main scan below doesn't cover. The main scan only looks
+    // at category='concert' rows, using "contains vs" as the candidate
+    // filter — a strong signal there, since real concert acts essentially
+    // never have "vs" in their billed name. But "vs" is completely NORMAL
+    // for both a real football fixture and a real sports fixture, so that
+    // same filter can't tell a genuine Premier League match apart from an
+    // NFL/NBA/MLB/NHL game mis-registered as 'football'. Root cause: awin-
+    // category-cache.js's awinGenre() matched the substring "football"
+    // inside "American Football" before it ever reached the US-league
+    // check further down (fixed same day) — this cleans up rows that bug
+    // already wrote. Same US-league signature set as that fix, so the two
+    // stay in sync — if that set ever grows, mirror the change here too.
+    // Own cursor key: running this never advances, or is advanced by, the
+    // main concert-facing cursor below.
+    //
+    // Usage: &scope=football
+    //   dry run (default): lists football-category rows that look like a
+    //   US sport, split into wouldDelete (a matching sports-category row
+    //   already exists — safe, confirmed duplicate) and unmatched (no
+    //   sports counterpart found — needs a human via the move= mode above)
+    //   &confirm=yes: deletes the confirmed-duplicate football rows
+    if (url.searchParams.get('scope') === 'football') {
+      const US_SPORT_RE = /\b(nfl|american football|super bowl|nba|wnba|mlb|nhl)\b/i;
+      const SCOPE_CURSOR_KEY = 'discover:fixsportsevents:footballscopecursor';
+      if (url.searchParams.get('resetcursor') === '1') { try { await kv.delete(SCOPE_CURSOR_KEY); } catch {} }
+      let scCursorDate = '', scCursorSlug = '';
+      try {
+        const raw = await kv.get(SCOPE_CURSOR_KEY);
+        if (raw) { const c = JSON.parse(raw); scCursorDate = c.date || ''; scCursorSlug = c.slug || ''; }
+      } catch {}
+
+      let scRows = [];
+      try {
+        const { results } = await db.prepare(
+          "SELECT slug, category, name, event_date FROM event_pages " +
+          "WHERE category = 'football' AND event_date >= date('now') " +
+          "AND (event_date > ?1 OR (event_date = ?1 AND slug > ?2)) " +
+          "ORDER BY event_date, slug LIMIT ?3"
+        ).bind(scCursorDate, scCursorSlug, limit).all();
+        scRows = results || [];
+      } catch (e) {
+        return json({ error: 'candidate read failed: ' + String(e) }, 500);
+      }
+
+      const scDone = scRows.length < limit;
+      if (confirm) {
+        try {
+          if (scDone) await kv.delete(SCOPE_CURSOR_KEY);
+          else {
+            const last = scRows[scRows.length - 1];
+            await kv.put(SCOPE_CURSOR_KEY, JSON.stringify({ date: last.event_date, slug: last.slug }));
+          }
+        } catch {}
+      }
+
+      const scCandidates = scRows.filter(r => US_SPORT_RE.test(r.name || ''));
+
+      const scToDelete = [];  // confirmed duplicate — safe to remove
+      const scUnmatched = []; // no sports counterpart found — needs a human
+      const scErrors = [];
+
+      for (const row of scCandidates) {
+        const normName = normaliseFixtureName(row.name || '');
+        const tail = row.slug.startsWith('football-') ? row.slug.slice('football-'.length) : null;
+
+        let match = null;
+        try {
+          // Method 1 — exact slug-tail match with the category prefix
+          // swapped, same as the concert scan's Method 1.
+          if (tail) {
+            match = await db.prepare(
+              'SELECT slug, category, name FROM event_pages WHERE slug = ?1'
+            ).bind('sports-' + tail).first();
+          }
+          // Method 2 — same event_date + same normalised name, same
+          // fallback the concert scan uses for Method 2.
+          if (!match) {
+            const { results: sameDate } = await db.prepare(
+              "SELECT slug, category, name FROM event_pages WHERE event_date = ?1 AND category = 'sports'"
+            ).bind(row.event_date).all();
+            match = (sameDate || []).find(r => normaliseFixtureName(r.name || '') === normName) || null;
+          }
+        } catch (e) {
+          scErrors.push({ slug: row.slug, error: String(e) });
+          continue;
+        }
+
+        if (match) {
+          scToDelete.push({ wrongSlug: row.slug, name: row.name, correctSlug: match.slug, correctCategory: match.category });
+        } else {
+          scUnmatched.push({ slug: row.slug, name: row.name, date: row.event_date });
+        }
+      }
+
+      if (!confirm) {
+        return json({
+          phase: 'fix-sports-events', scope: 'football',
+          dryRun: true,
+          scanned: scRows.length,
+          candidates: scCandidates.length,
+          wouldDelete: scToDelete.length,
+          unmatchedNeedsReview: scUnmatched.length,
+          toDelete: scToDelete,
+          unmatched: scUnmatched,
+          errors: scErrors,
+          done: scDone,
+          next: scDone ? null : '?trigger=1&phase=fix-sports-events&scope=football — previews the next batch (cursor only advances on confirm=yes)'
+        }, 200);
+      }
+
+      let scDeleted = 0;
+      const scDeleteErrors = [];
+      for (const d of scToDelete) {
+        try {
+          await db.prepare('DELETE FROM event_pages WHERE slug = ?1').bind(d.wrongSlug).run();
+          try { if (kv) await kv.put('redirectSlug:event:' + d.wrongSlug, 'event/' + d.correctSlug); } catch {}
+          scDeleted++;
+        } catch (e) {
+          scDeleteErrors.push({ slug: d.wrongSlug, error: String(e) });
+        }
+      }
+
+      return json({
+        phase: 'fix-sports-events', scope: 'football',
+        dryRun: false,
+        scanned: scRows.length,
+        candidates: scCandidates.length,
+        deleted: scDeleted,
+        deleteErrors: scDeleteErrors,
+        unmatchedNeedsReview: scUnmatched.length,
+        unmatched: scUnmatched,
+        done: scDone,
+        next: scDone ? null : '?trigger=1&phase=fix-sports-events&scope=football&confirm=yes — cursor has advanced, same URL continues from here'
+      }, 200);
+    }
+
     // Keyset cursor (added 6 Aug 2026) — without this, the query always
     // restarted from the very front of the (event_date, slug) sort order.
     // Unmatched rows are never deleted or moved by this scan, so once any
