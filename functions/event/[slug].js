@@ -48,7 +48,25 @@ const CATEGORY_META = {
 
 export async function onRequestGet(ctx) {
   const { env, params, request } = ctx;
-  const rawSlug = String(params.slug || '').toLowerCase();
+  const rawParam = String(params.slug || '');
+
+  // R5 (22 Aug 2026): optional stable-ID suffix, "-E{digits}" at the very end
+  // of the URL segment — matched BEFORE lowercasing anything. Every slug
+  // this site generates is already fully lowercase (tsEventSlug() lowercases
+  // its input before building it), so an UPPERCASE "-E" marker here can
+  // never collide with real slug content, even a slug that happens to end
+  // in a chunk like "e10". Once a request is ID-addressable this way, the
+  // slug text becomes decorative: it can be regenerated (a naming-
+  // convention change, a venue getting added, etc.) without breaking the
+  // URL, because the ID is looked up first and today's canonical slug is
+  // re-derived from the row it actually points at — see the redirect logic
+  // below. This is what "unfreezes" the slug format this file's own header
+  // has warned about since Phase 1.4B: the ID, not the slug text, is now
+  // the real primary key. id itself is event_pages' own SQLite rowid — every
+  // row already has one; no schema migration needed.
+  const idMatch  = rawParam.match(/-E(\d+)$/);
+  const stableId = idMatch ? Number(idMatch[1]) : null;
+  const rawSlug  = (idMatch ? rawParam.slice(0, -idMatch[0].length) : rawParam).toLowerCase();
 
   // FIX (6 Aug 2026): mirrors the identical fix in functions/concert/[slug].js
   // (1 Aug 2026). Without this, deleting a wrong-category row from
@@ -88,15 +106,57 @@ export async function onRequestGet(ctx) {
   const cat = CATEGORY_META[category];
 
   // ── Look up the registry row ─────────────────────────────────────────────
+  // R5: an incoming stable ID is matched FIRST and is authoritative — the
+  // slug text in the URL is only used as a fallback lookup (legacy links
+  // with no ID yet) or to detect drift against the row the ID resolves to.
   let row = null;
   if (env.PRICE_DB) {
     try {
-      row = await env.PRICE_DB
-        .prepare('SELECT * FROM event_pages WHERE slug = ?1')
-        .bind(rawSlug).first();
+      if (stableId != null) {
+        row = await env.PRICE_DB
+          .prepare('SELECT rowid AS id, * FROM event_pages WHERE rowid = ?1')
+          .bind(stableId).first();
+      }
+      if (!row) {
+        row = await env.PRICE_DB
+          .prepare('SELECT rowid AS id, * FROM event_pages WHERE slug = ?1')
+          .bind(rawSlug).first();
+      }
     } catch (e) {
       // Table missing / D1 hiccup → degrade to best-effort render
       console.error('event page D1 lookup failed:', e);
+    }
+  }
+
+  // R5: canonical realignment, only possible once a row (and so a real id)
+  // exists. alreadyCanonical covers the common case (id AND slug both
+  // already match what's stored) so a healthy, already-correct request
+  // never pays for a KV read below.
+  //  - Request carried SOME id, but it doesn't fully match this row —
+  //    either the id was right and the slug has since drifted (a naming-
+  //    convention change regenerated it), OR the id itself was stale/
+  //    deleted and this row was only found via the slug fallback above.
+  //    Either way, once an id is involved at all it's authoritative and
+  //    this always corrects via a real 301 — nothing to gate, this is the
+  //    literal spec ("matched on ID, 301 any slug mismatch to canonical").
+  //  - Request carried NO id at all (every URL indexed before this shipped)
+  //    → OPTIONALLY consolidate onto the ID-suffixed canonical. Gated
+  //    behind a KV flag, since unlike the case above this is — in effect —
+  //    a 301 for every previously-indexed /event/ URL on the site, and
+  //    that rollout should be Rt's call, not automatic the moment this
+  //    deploys. Same pattern as feature:concert-slug-v2.
+  if (row && row.id != null) {
+    const alreadyCanonical = stableId === row.id && row.slug === rawSlug;
+    if (!alreadyCanonical) {
+      const canonicalEventUrl = `${HOST}/event/${row.slug}-E${row.id}`;
+      if (stableId != null) {
+        return Response.redirect(canonicalEventUrl, 301);
+      }
+      let redirectToId = false;
+      try { redirectToId = (await env.GIGSBERG_KV?.get('feature:event-id-redirect')) === 'on'; } catch { /* default off */ }
+      if (redirectToId) {
+        return Response.redirect(canonicalEventUrl, 301);
+      }
     }
   }
 
@@ -208,7 +268,7 @@ export async function onRequestGet(ctx) {
   const estimatedCompareHeight = 40 + (skeletonRowCount * 60) + 65;
 
   const html = renderPage({
-    slug: rawSlug, category, cat, name, eventDate, venue, city, image,
+    slug: row?.slug || rawSlug, id: row?.id ?? null, category, cat, name, eventDate, venue, city, image,
     price, currency, tmUrl, tmPrice, isPast, indexable, entitySlug,
     estimatedCompareHeight
   });
@@ -376,7 +436,12 @@ function renderPage(d) {
     ? `${displayName} took place on ${dateStr}${where ? ' at ' + where : ''}. Browse upcoming ${d.cat.label.toLowerCase()} events and compare ticket prices on TicketScout.`
     : `Compare ${displayName} ticket prices${where ? ' at ' + where : ''} on ${dateStr}. See prices from up to 13 verified ticket sites side by side — find the cheapest ${d.cat.noun} tickets on TicketScout.`;
 
-  const canonical = `${HOST}/event/${d.slug}`;
+  // R5: once a row (and so a real id) exists, this is the URL every
+  // outbound signal on the page (canonical, JSON-LD url/offers.url,
+  // breadcrumb, og:url) should point at — the id-suffixed form. A
+  // best-effort/unregistered render (d.id == null) has no stable identity
+  // to attach, so it stays on the bare slug, same as before R5.
+  const canonical = d.id != null ? `${HOST}/event/${d.slug}-E${d.id}` : `${HOST}/event/${d.slug}`;
 
   // ── JSON-LD — location ALWAYS populated (GSC schema fix rule), offers
   //    only when a real fresh price exists ────────────────────────────────
