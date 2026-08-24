@@ -1742,9 +1742,22 @@
 
     // Matching needs entity slug + date + venue — all already sitting on
     // the schema node itself, no extra fetch required to gather them.
+    // Matching needs entity slug + date + venue. Date is pulled from the
+    // event's own URL, NOT from startDate — startDate is often a UTC
+    // timestamp (when TM supplies dateTime), and for an evening show at a
+    // US venue that UTC date is a day AHEAD of the real local show date
+    // (confirmed live: Metallica at Sphere, Las Vegas — startDate said
+    // 2026-10-02T03:30:00Z for a show whose real date, and whose own URL,
+    // is 2026-10-01). The URL's date came from TM's localDate field at
+    // slug-generation time and is already correct — reuse it rather than
+    // re-deriving anything from startDate.
+    var urlDateOf = function (u) {
+      var m = u.match(/\/event\/[a-z]+-(\d{4}-\d{2}-\d{2})-/);
+      return m ? m[1] : null;
+    };
     var items = [];
     needsPrice.forEach(function (n) {
-      var date  = typeof n.startDate === 'string' ? n.startDate.slice(0, 10) : null;
+      var date  = urlDateOf(n.url);
       var venue = n.location && n.location.name;
       if (!date || !venue || venue === 'Venue to be announced') return;
       items.push({ e: entitySlug, d: date, v: venue, u: n.url });
