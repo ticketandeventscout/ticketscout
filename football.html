@@ -1617,22 +1617,38 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (prices) {
           if (!prices) return;
-          var changed = false;
-          needsPrice.forEach(function (n) {
-            var p = prices[n.url];
-            if (!p) return;
-            n.offers = {
-              '@type': 'Offer',
-              'price': p.price,
-              'priceCurrency': p.currency,
-              'category': 'Secondary',
-              'availability': 'https://schema.org/InStock',
-              'url': n.url,
-              'validFrom': new Date().toISOString().split('T')[0]
-            };
-            changed = true;
-          });
-          if (changed) schemaEl.textContent = JSON.stringify(schema);
+          var anyMatch = needsPrice.some(function (n) { return !!prices[n.url]; });
+          if (!anyMatch) return;
+          // Re-read schema-org FRESH here, rather than reusing the
+          // snapshot `schema` was parsed from — this fetch can take a
+          // real amount of time, and the separate SportsTeam/
+          // AggregateOffer enrichment IIFE above is an independent writer
+          // to the same element. Writing back the stale `schema` object
+          // would silently erase whatever that IIFE already appended if
+          // it finished first; merging into a fresh read never can.
+          // Matching is by URL against the `prices` API response directly
+          // (already keyed by URL) — never by object identity, since the
+          // fresh parse below produces entirely new object instances.
+          try {
+            var freshEl = document.getElementById('schema-org');
+            if (!freshEl) return;
+            var fresh = JSON.parse(freshEl.textContent || '{}');
+            if (!fresh['@graph']) return;
+            fresh['@graph'].forEach(function (n) {
+              var p = n && n.url && prices[n.url];
+              if (!p || n.offers) return; // don't clobber an offer this fresh copy already has
+              n.offers = {
+                '@type': 'Offer',
+                'price': p.price,
+                'priceCurrency': p.currency,
+                'category': 'Secondary',
+                'availability': 'https://schema.org/InStock',
+                'url': n.url,
+                'validFrom': new Date().toISOString().split('T')[0]
+              };
+            });
+            freshEl.textContent = JSON.stringify(fresh);
+          } catch (e) { /* never let schema enrichment break page rendering */ }
         })
         .catch(function () {});
     }

@@ -754,6 +754,20 @@
     // which would have silently destroyed whichever piece wrote first.
     let __lastMetaArgs = null;
     let __priceSummaryForSchema = null;
+    // R1 follow-up (23 Aug 2026, STRUCTURAL FIX): updateMeta() is called
+    // more than once over a page's life — once with real data, and again
+    // whenever the price-trend badge fetch resolves (see __lastMetaArgs
+    // re-invocation below) — and EVERY call fully rebuilds the graph from
+    // `events`. The per-event price-fallback enrichment (further down)
+    // used to patch offers onto a snapshot of the schema AFTER the fact,
+    // which the next updateMeta() rebuild silently threw away — confirmed
+    // live (Les Misérables, Ed Sheeran): offers that were briefly added
+    // disappeared again once a later rebuild ran. Same fix shape as
+    // __priceSummaryForSchema just above: a persistent cache, keyed by
+    // event URL, that updateMeta() itself consults every time it builds
+    // an event's offers — so a fallback price survives any number of
+    // rebuilds instead of being a one-off patch.
+    let __eventPriceFallback = {};
 
     function updateMeta(artist, events, tmImage) {
       __lastMetaArgs = { artist, events, tmImage };
@@ -835,12 +849,15 @@
               }
             },
             'performer': { '@type': 'MusicGroup', 'name': name },
-            // offers only when a real price exists — an Offer without a
-            // price triggers GSC "Missing field 'price'" on every event
-            ...(minPrice ? { 'offers': {
+            // offers when TM has a real price; otherwise fall back to
+            // whatever the price-fallback enrichment already found and
+            // cached for this exact event URL, if anything — this cache
+            // check is what lets a fallback price survive a later
+            // updateMeta() rebuild instead of being wiped by it.
+            ...((minPrice || __eventPriceFallback[evUrl]) ? { 'offers': {
               '@type': 'Offer',
-              'price': minPrice,
-              'priceCurrency': 'GBP',
+              'price': minPrice || __eventPriceFallback[evUrl].price,
+              'priceCurrency': minPrice ? 'GBP' : __eventPriceFallback[evUrl].currency,
               // R2 (22 Aug 2026): TicketScout aggregates resale marketplace
               // inventory — declare it honestly.
               'category': 'Secondary',
@@ -1735,7 +1752,7 @@
   (function () {
     var attempts = 0;
 
-    function runEnrichment(schemaEl, schema) {
+    function runEnrichment(schema) {
       var entitySlug = window.__CONCERT_SLUG__ || (location.pathname.match(/\/concert\/([a-z0-9-]+)/) || [])[1];
       if (!entitySlug) return;
 
@@ -1770,22 +1787,22 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (prices) {
           if (!prices) return;
-          var changed = false;
+          var found = false;
           needsPrice.forEach(function (n) {
             var p = prices[n.url];
             if (!p) return;
-            n.offers = {
-              '@type': 'Offer',
-              'price': p.price,
-              'priceCurrency': p.currency,
-              'category': 'Secondary',
-              'availability': 'https://schema.org/InStock',
-              'url': n.url,
-              'validFrom': new Date().toISOString().split('T')[0]
-            };
-            changed = true;
+            // Cache first, THEN rebuild through updateMeta() itself — a
+            // direct schema['@graph'] mutation here would just get thrown
+            // away the next time anything (the price-trend badge above,
+            // most notably) calls updateMeta() again, since that rebuilds
+            // the whole graph fresh from `events`. Writing to the cache
+            // updateMeta() itself now reads means this survives that.
+            __eventPriceFallback[n.url] = { price: p.price, currency: p.currency };
+            found = true;
           });
-          if (changed) schemaEl.textContent = JSON.stringify(schema);
+          if (found && __lastMetaArgs) {
+            updateMeta(__lastMetaArgs.artist, __lastMetaArgs.events, __lastMetaArgs.tmImage);
+          }
         })
         .catch(function () {});
     }
@@ -1799,7 +1816,7 @@
         if (attempts++ < 20) setTimeout(tryRun, 250); // updateMeta() hasn't run yet — retry for up to ~5s
         return;
       }
-      runEnrichment(schemaEl, schema);
+      runEnrichment(schema);
     }
     tryRun();
   })();
