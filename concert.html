@@ -1801,7 +1801,38 @@
             found = true;
           });
           if (found && __lastMetaArgs) {
+            // updateMeta() only knows how to build MusicEvent + (optionally)
+            // Product nodes — it has no idea a MusicGroup node might
+            // already exist, appended separately by the price-trend badge
+            // enrichment above (which reads schema-org fresh and writes
+            // back atomically, same as this file's other writer). If that
+            // badge's own append happens to land BEFORE this rebuild, a
+            // naive updateMeta() call here would silently erase it, since
+            // it fully replaces the graph from `events` alone. Preserve it
+            // by capturing it before the rebuild and re-appending it right
+            // after — scoped entirely to this fix, no changes needed to
+            // that established enrichment logic itself.
+            var preservedNodes = [];
+            var beforeEl = document.getElementById('schema-org');
+            if (beforeEl) {
+              try {
+                var before = JSON.parse(beforeEl.textContent || '{}');
+                preservedNodes = (before['@graph'] || []).filter(function (n) { return n['@type'] === 'MusicGroup'; });
+              } catch (e) { /* nothing to preserve if this fails */ }
+            }
+
             updateMeta(__lastMetaArgs.artist, __lastMetaArgs.events, __lastMetaArgs.tmImage);
+
+            if (preservedNodes.length) {
+              try {
+                var afterEl = document.getElementById('schema-org');
+                var after = JSON.parse(afterEl.textContent || '{}');
+                if (after['@graph']) {
+                  after['@graph'].push.apply(after['@graph'], preservedNodes);
+                  afterEl.textContent = JSON.stringify(after);
+                }
+              } catch (e) { /* never let this break page rendering */ }
+            }
           }
         })
         .catch(function () {});
