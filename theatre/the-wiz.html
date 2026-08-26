@@ -32,6 +32,44 @@
     try {
       const r = await fetch('/theatre.html?v=20260717a');
       const html = await r.text();
+
+      // R1/R2/price-fallback follow-up (23 Aug 2026): same fix, same root
+      // cause, as generateFootballPageHtml above — see that comment for
+      // the full explanation. This stub's swap only ever replaced <body>,
+      // so document.getElementById('schema-org') was always null here too.
+      var HEAD_IDS = ['page-title','meta-description','canonical','schema-org',
+                      'og-title','og-description','og-url','og-image',
+                      'tw-title','tw-description','tw-image'];
+      function extractTag(src, id) {
+        var idx = src.indexOf('id="' + id + '"');
+        if (idx === -1) return null;
+        var tagStart = src.lastIndexOf('<', idx);
+        if (tagStart === -1) return null;
+        var tagNameMatch = src.slice(tagStart + 1, tagStart + 20).match(/^([a-zA-Z]+)/);
+        var tagName = tagNameMatch ? tagNameMatch[1].toLowerCase() : '';
+        if (tagName === 'meta' || tagName === 'link') {
+          var tagEnd = src.indexOf('>', idx);
+          return tagEnd === -1 ? null : src.slice(tagStart, tagEnd + 1);
+        }
+        var afterOpen = src.indexOf('>', idx) + 1;
+        var closeTag = '</' + tagName + '>';
+        var closeIdx = src.indexOf(closeTag, afterOpen);
+        return closeIdx === -1 ? null : src.slice(tagStart, closeIdx + closeTag.length);
+      }
+      var oldTitle = document.head.querySelector('title');
+      if (oldTitle) oldTitle.remove();
+      var oldDesc = document.head.querySelector('meta[name="description"]');
+      if (oldDesc) oldDesc.remove();
+      var oldCanonical = document.head.querySelector('link[rel="canonical"]');
+      if (oldCanonical) oldCanonical.remove();
+      var oldJsonLd = document.head.querySelector('script[type="application/ld+json"]');
+      if (oldJsonLd) oldJsonLd.remove();
+      document.head.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach(function(el) { el.remove(); });
+      HEAD_IDS.forEach(function(id) {
+        var tag = extractTag(html, id);
+        if (tag) document.head.insertAdjacentHTML('beforeend', tag);
+      });
+
       const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
       if (headStyleMatch) {
         const st = document.createElement('style');
