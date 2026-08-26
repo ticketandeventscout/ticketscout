@@ -1713,79 +1713,95 @@
       .catch(function () {});
   })();
 
-  // R1 follow-up (23 Aug 2026, REVISED): TM's own priceRanges is frequently
-  // empty even for real, on-sale events — confirmed live on Metallica's
-  // Sphere Las Vegas listings, which had no TM price at all despite a real
-  // compare-table price and 30-day history on the event page itself. The
-  // first version of this fix queried event_pages.price, which turned out
-  // to be the SAME TM-sourced snapshot — same gap, wrong fix. This queries
-  // the real per-event affiliate price data (price_samples, via the new
-  // /api/event-prices endpoint) instead — the same numbers the compare
-  // table and price-history chart already show. Deliberately separate from
-  // the enrichment IIFE above (a bug here should never affect the
-  // AggregateOffer/badge logic, or vice versa). Never invents a price —
-  // only ever uses what's actually stored and recent.
+  // R1 follow-up (23 Aug 2026, REVISED, RACE-CONDITION FIX): TM's own
+  // priceRanges is frequently empty even for real, on-sale events — see
+  // the full history in the comment above. That part was always correct.
+  // The actual reason nothing ever appeared, on every artist tested:
+  // this IIFE was reading document.getElementById('schema-org') the
+  // instant it ran, but updateMeta() only writes real content to that
+  // element from INSIDE the TM API fetch's own .then() callback — which
+  // hasn't resolved yet at the point this script parses. Every run was
+  // reading the still-empty placeholder, so schema['@graph'] was always
+  // empty, the guard below always returned early, and /api/event-prices
+  // never fired — silently, no error, on every page, regardless of the
+  // date/venue matching logic below (which was never actually reached).
+  // The enrichment IIFE above never hit this because IT reads schema-org
+  // from inside its OWN fetch's .then() — a real network round-trip
+  // that happens to leave enough time for updateMeta() to finish first.
+  // This IIFE has no such fetch to piggyback on, so it polls instead:
+  // check for real content, and if updateMeta() hasn't written it yet,
+  // retry a few times rather than reading the empty placeholder once and
+  // giving up.
   (function () {
-    var schemaEl = document.getElementById('schema-org');
-    if (!schemaEl) return;
-    var schema;
-    try { schema = JSON.parse(schemaEl.textContent || '{}'); } catch (e) { return; }
-    if (!schema['@graph'] || !schema['@graph'].length) return;
+    var attempts = 0;
 
-    var entitySlug = window.__CONCERT_SLUG__ || (location.pathname.match(/\/concert\/([a-z0-9-]+)/) || [])[1];
-    if (!entitySlug) return;
+    function runEnrichment(schemaEl, schema) {
+      var entitySlug = window.__CONCERT_SLUG__ || (location.pathname.match(/\/concert\/([a-z0-9-]+)/) || [])[1];
+      if (!entitySlug) return;
 
-    var needsPrice = schema['@graph'].filter(function (n) {
-      return n['@type'] === 'MusicEvent' && !n.offers && typeof n.url === 'string' && n.url.indexOf('/event/') !== -1;
-    });
-    if (!needsPrice.length) return;
+      var needsPrice = schema['@graph'].filter(function (n) {
+        return n['@type'] === 'MusicEvent' && !n.offers && typeof n.url === 'string' && n.url.indexOf('/event/') !== -1;
+      });
+      if (!needsPrice.length) return;
 
-    // Matching needs entity slug + date + venue — all already sitting on
-    // the schema node itself, no extra fetch required to gather them.
-    // Matching needs entity slug + date + venue. Date is pulled from the
-    // event's own URL, NOT from startDate — startDate is often a UTC
-    // timestamp (when TM supplies dateTime), and for an evening show at a
-    // US venue that UTC date is a day AHEAD of the real local show date
-    // (confirmed live: Metallica at Sphere, Las Vegas — startDate said
-    // 2026-10-02T03:30:00Z for a show whose real date, and whose own URL,
-    // is 2026-10-01). The URL's date came from TM's localDate field at
-    // slug-generation time and is already correct — reuse it rather than
-    // re-deriving anything from startDate.
-    var urlDateOf = function (u) {
-      var m = u.match(/\/event\/[a-z]+-(\d{4}-\d{2}-\d{2})-/);
-      return m ? m[1] : null;
-    };
-    var items = [];
-    needsPrice.forEach(function (n) {
-      var date  = urlDateOf(n.url);
-      var venue = n.location && n.location.name;
-      if (!date || !venue || venue === 'Venue to be announced') return;
-      items.push({ e: entitySlug, d: date, v: venue, u: n.url });
-    });
-    if (!items.length) return;
+      // Matching needs entity slug + date + venue. Date is pulled from the
+      // event's own URL, NOT from startDate — startDate is often a UTC
+      // timestamp (when TM supplies dateTime), and for an evening show at a
+      // US venue that UTC date is a day AHEAD of the real local show date
+      // (confirmed live: Metallica at Sphere, Las Vegas — startDate said
+      // 2026-10-02T03:30:00Z for a show whose real date, and whose own URL,
+      // is 2026-10-01). The URL's date came from TM's localDate field at
+      // slug-generation time and is already correct — reuse it rather than
+      // re-deriving anything from startDate.
+      var urlDateOf = function (u) {
+        var m = u.match(/\/event\/[a-z]+-(\d{4}-\d{2}-\d{2})-/);
+        return m ? m[1] : null;
+      };
+      var items = [];
+      needsPrice.forEach(function (n) {
+        var date  = urlDateOf(n.url);
+        var venue = n.location && n.location.name;
+        if (!date || !venue || venue === 'Venue to be announced') return;
+        items.push({ e: entitySlug, d: date, v: venue, u: n.url });
+      });
+      if (!items.length) return;
 
-    fetch('/api/event-prices?events=' + encodeURIComponent(JSON.stringify(items)))
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (prices) {
-        if (!prices) return;
-        var changed = false;
-        needsPrice.forEach(function (n) {
-          var p = prices[n.url];
-          if (!p) return;
-          n.offers = {
-            '@type': 'Offer',
-            'price': p.price,
-            'priceCurrency': p.currency,
-            'category': 'Secondary',
-            'availability': 'https://schema.org/InStock',
-            'url': n.url,
-            'validFrom': new Date().toISOString().split('T')[0]
-          };
-          changed = true;
-        });
-        if (changed) schemaEl.textContent = JSON.stringify(schema);
-      })
-      .catch(function () {});
+      fetch('/api/event-prices?events=' + encodeURIComponent(JSON.stringify(items)))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (prices) {
+          if (!prices) return;
+          var changed = false;
+          needsPrice.forEach(function (n) {
+            var p = prices[n.url];
+            if (!p) return;
+            n.offers = {
+              '@type': 'Offer',
+              'price': p.price,
+              'priceCurrency': p.currency,
+              'category': 'Secondary',
+              'availability': 'https://schema.org/InStock',
+              'url': n.url,
+              'validFrom': new Date().toISOString().split('T')[0]
+            };
+            changed = true;
+          });
+          if (changed) schemaEl.textContent = JSON.stringify(schema);
+        })
+        .catch(function () {});
+    }
+
+    function tryRun() {
+      var schemaEl = document.getElementById('schema-org');
+      if (!schemaEl) return;
+      var schema;
+      try { schema = JSON.parse(schemaEl.textContent || '{}'); } catch (e) { return; }
+      if (!schema['@graph'] || !schema['@graph'].length) {
+        if (attempts++ < 20) setTimeout(tryRun, 250); // updateMeta() hasn't run yet — retry for up to ~5s
+        return;
+      }
+      runEnrichment(schemaEl, schema);
+    }
+    tryRun();
   })();
   </script>
 </body>
