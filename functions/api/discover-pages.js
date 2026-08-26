@@ -4444,6 +4444,67 @@ function generateFootballPageHtml(slug, enrich) {
     try {
       const r = await fetch('/football.html?v=${TEMPLATE_VERSION}');
       const html = await r.text();
+
+      // R1/R2/price-fallback follow-up (23 Aug 2026): this used to only
+      // pull <style> out of the fetched template's <head> and otherwise
+      // discard the rest of it entirely — meaning the id="schema-org" /
+      // id="page-title" / id="meta-description" / etc. placeholder
+      // elements every updateMeta() setEl() call depends on never existed
+      // on the live DOM. Confirmed live: /football/arsenal permanently
+      // kept THIS STUB's own static (un-id'd) title/meta/canonical/
+      // JSON-LD forever, because document.getElementById('schema-org')
+      // was always null and setEl()'s own guard silently no-opped on
+      // every call. Every stub built this way (football/theatre/sports —
+      // same generator shape, same fix applied to each) has been missing
+      // the live per-event schema (R1), the resale-marketplace
+      // Offer.category (R2), and the real-price fallback since the day
+      // this swap script shipped — not a regression from today's work, a
+      // pre-existing gap today's testing happened to surface.
+      //
+      // Fix: swap the SPECIFIC id'd head elements the live template
+      // defines too, replacing this stub's own un-id'd equivalents so
+      // there's never a duplicate title/meta-description/canonical/
+      // JSON-LD — same "make the live page behave exactly like a direct
+      // template load" reasoning already applied to the body swap below.
+      // Plain string extraction (indexOf/lastIndexOf/slice), not regex —
+      // deliberately, since the alternative (new RegExp() built from a
+      // dynamic id string) needs a second level of backslash-escaping to
+      // survive being embedded in this outer template literal, which is
+      // exactly the kind of thing that's easy to get wrong once and never
+      // notice until it silently fails to match in production.
+      var HEAD_IDS = ['page-title','meta-description','canonical','schema-org',
+                      'og-title','og-description','og-url','og-image',
+                      'tw-title','tw-description','tw-image'];
+      function extractTag(src, id) {
+        var idx = src.indexOf('id="' + id + '"');
+        if (idx === -1) return null;
+        var tagStart = src.lastIndexOf('<', idx);
+        if (tagStart === -1) return null;
+        var tagNameMatch = src.slice(tagStart + 1, tagStart + 20).match(/^([a-zA-Z]+)/);
+        var tagName = tagNameMatch ? tagNameMatch[1].toLowerCase() : '';
+        if (tagName === 'meta' || tagName === 'link') {
+          var tagEnd = src.indexOf('>', idx);
+          return tagEnd === -1 ? null : src.slice(tagStart, tagEnd + 1);
+        }
+        var afterOpen = src.indexOf('>', idx) + 1;
+        var closeTag = '</' + tagName + '>';
+        var closeIdx = src.indexOf(closeTag, afterOpen);
+        return closeIdx === -1 ? null : src.slice(tagStart, closeIdx + closeTag.length);
+      }
+      var oldTitle = document.head.querySelector('title');
+      if (oldTitle) oldTitle.remove();
+      var oldDesc = document.head.querySelector('meta[name="description"]');
+      if (oldDesc) oldDesc.remove();
+      var oldCanonical = document.head.querySelector('link[rel="canonical"]');
+      if (oldCanonical) oldCanonical.remove();
+      var oldJsonLd = document.head.querySelector('script[type="application/ld+json"]');
+      if (oldJsonLd) oldJsonLd.remove();
+      document.head.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach(function(el) { el.remove(); });
+      HEAD_IDS.forEach(function(id) {
+        var tag = extractTag(html, id);
+        if (tag) document.head.insertAdjacentHTML('beforeend', tag);
+      });
+
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
         const st = document.createElement('style');
@@ -4521,6 +4582,44 @@ function generateSportsPageHtml(slug, enrich) {
     try {
       const r = await fetch('/sports.html?v=${TEMPLATE_VERSION}');
       const html = await r.text();
+
+      // R1/R2/price-fallback follow-up (23 Aug 2026): same fix, same root
+      // cause, as generateFootballPageHtml above — see that comment for
+      // the full explanation. This stub's swap only ever replaced <body>,
+      // so document.getElementById('schema-org') was always null here too.
+      var HEAD_IDS = ['page-title','meta-description','canonical','schema-org',
+                      'og-title','og-description','og-url','og-image',
+                      'tw-title','tw-description','tw-image'];
+      function extractTag(src, id) {
+        var idx = src.indexOf('id="' + id + '"');
+        if (idx === -1) return null;
+        var tagStart = src.lastIndexOf('<', idx);
+        if (tagStart === -1) return null;
+        var tagNameMatch = src.slice(tagStart + 1, tagStart + 20).match(/^([a-zA-Z]+)/);
+        var tagName = tagNameMatch ? tagNameMatch[1].toLowerCase() : '';
+        if (tagName === 'meta' || tagName === 'link') {
+          var tagEnd = src.indexOf('>', idx);
+          return tagEnd === -1 ? null : src.slice(tagStart, tagEnd + 1);
+        }
+        var afterOpen = src.indexOf('>', idx) + 1;
+        var closeTag = '</' + tagName + '>';
+        var closeIdx = src.indexOf(closeTag, afterOpen);
+        return closeIdx === -1 ? null : src.slice(tagStart, closeIdx + closeTag.length);
+      }
+      var oldTitle = document.head.querySelector('title');
+      if (oldTitle) oldTitle.remove();
+      var oldDesc = document.head.querySelector('meta[name="description"]');
+      if (oldDesc) oldDesc.remove();
+      var oldCanonical = document.head.querySelector('link[rel="canonical"]');
+      if (oldCanonical) oldCanonical.remove();
+      var oldJsonLd = document.head.querySelector('script[type="application/ld+json"]');
+      if (oldJsonLd) oldJsonLd.remove();
+      document.head.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach(function(el) { el.remove(); });
+      HEAD_IDS.forEach(function(id) {
+        var tag = extractTag(html, id);
+        if (tag) document.head.insertAdjacentHTML('beforeend', tag);
+      });
+
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
         const st = document.createElement('style');
@@ -4590,6 +4689,44 @@ function generateTheatrePageHtml(slug, enrich) {
     try {
       const r = await fetch('/theatre.html?v=${TEMPLATE_VERSION}');
       const html = await r.text();
+
+      // R1/R2/price-fallback follow-up (23 Aug 2026): same fix, same root
+      // cause, as generateFootballPageHtml above — see that comment for
+      // the full explanation. This stub's swap only ever replaced <body>,
+      // so document.getElementById('schema-org') was always null here too.
+      var HEAD_IDS = ['page-title','meta-description','canonical','schema-org',
+                      'og-title','og-description','og-url','og-image',
+                      'tw-title','tw-description','tw-image'];
+      function extractTag(src, id) {
+        var idx = src.indexOf('id="' + id + '"');
+        if (idx === -1) return null;
+        var tagStart = src.lastIndexOf('<', idx);
+        if (tagStart === -1) return null;
+        var tagNameMatch = src.slice(tagStart + 1, tagStart + 20).match(/^([a-zA-Z]+)/);
+        var tagName = tagNameMatch ? tagNameMatch[1].toLowerCase() : '';
+        if (tagName === 'meta' || tagName === 'link') {
+          var tagEnd = src.indexOf('>', idx);
+          return tagEnd === -1 ? null : src.slice(tagStart, tagEnd + 1);
+        }
+        var afterOpen = src.indexOf('>', idx) + 1;
+        var closeTag = '</' + tagName + '>';
+        var closeIdx = src.indexOf(closeTag, afterOpen);
+        return closeIdx === -1 ? null : src.slice(tagStart, closeIdx + closeTag.length);
+      }
+      var oldTitle = document.head.querySelector('title');
+      if (oldTitle) oldTitle.remove();
+      var oldDesc = document.head.querySelector('meta[name="description"]');
+      if (oldDesc) oldDesc.remove();
+      var oldCanonical = document.head.querySelector('link[rel="canonical"]');
+      if (oldCanonical) oldCanonical.remove();
+      var oldJsonLd = document.head.querySelector('script[type="application/ld+json"]');
+      if (oldJsonLd) oldJsonLd.remove();
+      document.head.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach(function(el) { el.remove(); });
+      HEAD_IDS.forEach(function(id) {
+        var tag = extractTag(html, id);
+        if (tag) document.head.insertAdjacentHTML('beforeend', tag);
+      });
+
       const headStyleMatch = html.match(/<style[^>]*>([\\s\\S]*?)<\\/style>/i);
       if (headStyleMatch) {
         const st = document.createElement('style');
