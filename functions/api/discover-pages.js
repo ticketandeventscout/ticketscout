@@ -2115,6 +2115,239 @@ export async function onRequestGet({ request, env }) {
   //   that turns "manually check every small festival finding" into
   //   "skim a short list and say yes/no".
   //
+  // ── FIX-VENUE-EVENT-KEYS PHASE (23 Aug 2026) ────────────────────────────
+  // Confirmed live: the SAME real event_key format
+  // (`${entitySlug}|${date}|${toKeySlug(venue)}`) that ties price_samples to
+  // an events row can fragment when two discovery sources spell the same
+  // real venue differently ("Sondheim Theatre" vs "Sondheim Theatre -
+  // London" — the exact pair found live via /api/price-history?debug=1 for
+  // les-miserables). Whichever spelling a page's OWN client-side schema
+  // happens to use at any given moment resolves to ONE of these rows —
+  // usually the wrong one, since the price_samples history is only ever
+  // written under whichever key first got created for that entity+date+
+  // venue combination. The result: a show with weeks of real, sampled
+  // pricing shows no offer at all on the entity hub page, because the
+  // schema's venue text that day maps to the OTHER (empty) row.
+  //
+  // Detection reuses price-history.js's own normVenue() + substring-
+  // containment heuristic (already used there for live per-event chart
+  // matching) rather than inventing a new one — same reasoning: "sondheim
+  // theatre" and "sondheim theatre london" should cluster as one real
+  // venue, while "sondheim theatre london" and "tuacahn amphitheatre..."
+  // (a genuinely different touring production, same date, same show) must
+  // NOT — that's why this groups by (entity, date) FIRST and only clusters
+  // WITHIN a date group, never across different venues on the same date.
+  //
+  // Merge picks the row with the MOST price_samples as the survivor (the
+  // one real pricing history has actually accumulated under), re-points
+  // every other row's samples onto it, then deletes the now-empty
+  // duplicate row(s).
+  //
+  // This reconciles EXISTING fragmentation only — it does not stop new
+  // splits from forming if the underlying sources keep disagreeing on
+  // venue text for FUTURE dates. That would need the write-side venue
+  // normalisation in price-sampler.js/sportsevents365.js changed directly,
+  // which is a separate, more invasive piece of work.
+  //
+  // Usage: ?trigger=1&phase=fix-venue-event-keys
+  //   dry run (default): reports every detected same-venue cluster and
+  //   which row would win/lose, without changing anything
+  //   ?trigger=1&phase=fix-venue-event-keys&confirm=yes
+  //   actually re-points price_samples and deletes the loser row(s).
+  //   Cursor-batched (KV), safe to re-run the same URL until done:true.
+  if (phase === 'fix-venue-event-keys') {
+    const db      = env.PRICE_DB;
+    const confirm = url.searchParams.get('confirm') === 'yes';
+    const limit   = Math.min(parseInt(url.searchParams.get('limit') || '25', 10) || 25, 75);
+    if (!db) return json({ error: 'Missing PRICE_DB' }, 500);
+
+    const CURSOR_KEY = 'discover:fixvenuekeys:cursor';
+    if (url.searchParams.get('resetcursor') === '1') { try { await kv.delete(CURSOR_KEY); } catch {} }
+    let cursorEntityId = 0, cursorDate = '';
+    try {
+      const raw = await kv.get(CURSOR_KEY);
+      if (raw) { const c = JSON.parse(raw); cursorEntityId = c.entityId || 0; cursorDate = c.date || ''; }
+    } catch {}
+
+    function normVenue(s) {
+      return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+    // Same venue if either normalised name contains the other — identical
+    // heuristic to price-history.js's own live chart-matching logic.
+    function sameVenue(a, b) {
+      const na = normVenue(a), nb = normVenue(b);
+      if (!na || !nb) return false;
+      return na === nb || na.includes(nb) || nb.includes(na);
+    }
+
+    // ── Step 1: candidate (entity, date) groups with more than one row ────
+    let candidates = [];
+    try {
+      const { results } = await db.prepare(
+        `SELECT entity_id, event_date, COUNT(*) AS cnt
+           FROM events
+          WHERE (entity_id > ?1 OR (entity_id = ?1 AND event_date > ?2))
+          GROUP BY entity_id, event_date
+         HAVING cnt > 1
+          ORDER BY entity_id, event_date
+          LIMIT ?3`
+      ).bind(cursorEntityId, cursorDate, limit).all();
+      candidates = results || [];
+    } catch (e) {
+      return json({ error: 'candidate scan failed: ' + String(e) }, 500);
+    }
+
+    const done = candidates.length < limit;
+    if (confirm) {
+      try {
+        if (done) await kv.delete(CURSOR_KEY);
+        else {
+          const last = candidates[candidates.length - 1];
+          await kv.put(CURSOR_KEY, JSON.stringify({ entityId: last.entity_id, date: last.event_date }));
+        }
+      } catch {}
+    }
+
+    // ── Step 2: for each candidate group, fetch rows + sample counts,
+    //    cluster by venue similarity WITHIN the group ──────────────────────
+    const proposedMerges = [];
+    const scanErrors = [];
+    for (const cand of candidates) {
+      let rows = [];
+      try {
+        const { results } = await db.prepare(
+          `SELECT ev.id, ev.event_key, ev.venue, en.slug AS entity_slug,
+                  (SELECT COUNT(*) FROM price_samples ps WHERE ps.event_id = ev.id) AS sample_count
+             FROM events ev JOIN entities en ON en.id = ev.entity_id
+            WHERE ev.entity_id = ?1 AND ev.event_date = ?2`
+        ).bind(cand.entity_id, cand.event_date).all();
+        rows = results || [];
+      } catch (e) {
+        scanErrors.push({ entity_id: cand.entity_id, event_date: cand.event_date, error: String(e) });
+        continue;
+      }
+      if (rows.length < 2) continue;
+
+      // Transitive clustering: greedily grow clusters by venue similarity.
+      const clusters = [];
+      const used = new Set();
+      for (let i = 0; i < rows.length; i++) {
+        if (used.has(i)) continue;
+        const cluster = [rows[i]];
+        used.add(i);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (let j = 0; j < rows.length; j++) {
+            if (used.has(j)) continue;
+            if (cluster.some(c => sameVenue(c.venue, rows[j].venue))) {
+              cluster.push(rows[j]);
+              used.add(j);
+              grew = true;
+            }
+          }
+        }
+        if (cluster.length > 1) clusters.push(cluster);
+      }
+
+      for (const cluster of clusters) {
+        const sorted = [...cluster].sort((a, b) => (b.sample_count - a.sample_count) || (a.id - b.id));
+        const winner = sorted[0];
+        const losers = sorted.slice(1);
+        proposedMerges.push({
+          entitySlug: rows[0].entity_slug,
+          eventDate: cand.event_date,
+          winner: { eventKey: winner.event_key, venue: winner.venue, samples: winner.sample_count },
+          losers: losers.map(l => ({ eventKey: l.event_key, venue: l.venue, samples: l.sample_count }))
+        });
+      }
+    }
+
+    if (!confirm) {
+      return json({
+        phase: 'fix-venue-event-keys',
+        dryRun: true,
+        groupsScanned: candidates.length,
+        clustersFound: proposedMerges.length,
+        proposedMerges,
+        scanErrors,
+        done,
+        next: done ? null : '?trigger=1&phase=fix-venue-event-keys — previews the next batch (cursor only advances on confirm=yes)'
+      }, 200);
+    }
+
+    // ── Step 3: apply — re-point samples onto the winner, delete losers ────
+    let merged = 0;
+    const mergeErrors = [];
+    for (const cand of candidates) {
+      // Re-derive the same clusters for this group rather than trusting the
+      // dry-run pass above — confirm=yes is a separate request in
+      // production (never the same call as the preview), so state could
+      // have changed between them.
+      let rows = [];
+      try {
+        const { results } = await db.prepare(
+          `SELECT ev.id, ev.event_key, ev.venue,
+                  (SELECT COUNT(*) FROM price_samples ps WHERE ps.event_id = ev.id) AS sample_count
+             FROM events ev
+            WHERE ev.entity_id = ?1 AND ev.event_date = ?2`
+        ).bind(cand.entity_id, cand.event_date).all();
+        rows = results || [];
+      } catch (e) {
+        mergeErrors.push({ entity_id: cand.entity_id, event_date: cand.event_date, error: String(e) });
+        continue;
+      }
+      if (rows.length < 2) continue;
+
+      const clusters = [];
+      const used = new Set();
+      for (let i = 0; i < rows.length; i++) {
+        if (used.has(i)) continue;
+        const cluster = [rows[i]];
+        used.add(i);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (let j = 0; j < rows.length; j++) {
+            if (used.has(j)) continue;
+            if (cluster.some(c => sameVenue(c.venue, rows[j].venue))) {
+              cluster.push(rows[j]);
+              used.add(j);
+              grew = true;
+            }
+          }
+        }
+        if (cluster.length > 1) clusters.push(cluster);
+      }
+
+      for (const cluster of clusters) {
+        const sorted = [...cluster].sort((a, b) => (b.sample_count - a.sample_count) || (a.id - b.id));
+        const winner = sorted[0];
+        for (const loser of sorted.slice(1)) {
+          try {
+            await db.prepare('UPDATE price_samples SET event_id = ?1 WHERE event_id = ?2').bind(winner.id, loser.id).run();
+            await db.prepare('DELETE FROM events WHERE id = ?1').bind(loser.id).run();
+            merged++;
+          } catch (e) {
+            mergeErrors.push({ loserEventKey: loser.event_key, winnerEventKey: winner.event_key, error: String(e) });
+          }
+        }
+      }
+    }
+
+    return json({
+      phase: 'fix-venue-event-keys',
+      dryRun: false,
+      groupsScanned: candidates.length,
+      merged,
+      mergeErrors,
+      done,
+      next: done ? null : '?trigger=1&phase=fix-venue-event-keys&confirm=yes — cursor has advanced, same URL continues from here'
+    }, 200);
+  }
+
+
+  // ── MERGEFRAGMENTS PHASE ─────────────────────────────────────────────────
   // Redirect target uses the SAME safe static-HTML-stub approach as the H2
   // scope doc (meta refresh + canonical) — NOT a Cloudflare _redirects rule.
   // This project has a documented real 522 outage from exactly that shape of
