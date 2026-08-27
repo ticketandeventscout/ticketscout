@@ -777,20 +777,34 @@
       const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} tickets and buy direct from the seller. Prices refreshed through the day.`;
       const image = tmImage || 'https://ticketscout.co.uk/ogdefault.png';
 
+      // R6 (23 Aug 2026): "{Entity} {Year} Tickets" captures "…tickets
+      // 2026" search queries at zero extra content cost — the year of
+      // whichever upcoming date is soonest, not just the current calendar
+      // year (an artist whose next show isn't until next year should say
+      // next year, not this one). Deliberately just the year, not a fuller
+      // keyword-stuffed pattern — keeps the existing title length sane.
+      let nextYear = null;
+      for (const e of events) {
+        const d = e.dates?.start?.localDate ||
+          (e.dates?.start?.dateTime && /^\d{4}-\d{2}-\d{2}/.test(e.dates.start.dateTime) ? e.dates.start.dateTime.slice(0, 10) : null);
+        if (d && (!nextYear || d < nextYear)) nextYear = d;
+      }
+      const yearSuffix = nextYear ? ` ${nextYear.slice(0, 4)}` : '';
+
       // Standard meta
-      document.title = `${name} Tickets — Compare Prices | TicketScout`;
-      setEl('page-title', null, `${name} Tickets — Compare Prices | TicketScout`);
+      document.title = `${name}${yearSuffix} Tickets — Compare Prices | TicketScout`;
+      setEl('page-title', null, `${name}${yearSuffix} Tickets — Compare Prices | TicketScout`);
       document.getElementById('meta-description') && document.getElementById('meta-description').setAttribute('content', description);
       document.getElementById('canonical') && document.getElementById('canonical').setAttribute('href', pageUrl);
 
       // Open Graph
-      document.getElementById('og-title') && document.getElementById('og-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
+      document.getElementById('og-title') && document.getElementById('og-title').setAttribute('content', `${name}${yearSuffix} Tickets — Compare Prices | TicketScout`);
       document.getElementById('og-description') && document.getElementById('og-description').setAttribute('content', description);
       document.getElementById('og-url') && document.getElementById('og-url').setAttribute('content', pageUrl);
       document.getElementById('og-image') && document.getElementById('og-image').setAttribute('content', image);
 
       // Twitter
-      document.getElementById('tw-title') && document.getElementById('tw-title').setAttribute('content', `${name} Tickets — Compare Prices | TicketScout`);
+      document.getElementById('tw-title') && document.getElementById('tw-title').setAttribute('content', `${name}${yearSuffix} Tickets — Compare Prices | TicketScout`);
       document.getElementById('tw-description') && document.getElementById('tw-description').setAttribute('content', description);
       document.getElementById('tw-image') && document.getElementById('tw-image').setAttribute('content', image);
 

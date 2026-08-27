@@ -616,17 +616,30 @@
       const description = `Compare ${name} ticket prices across verified sellers. Find the cheapest ${name} match tickets and buy direct from the seller.`;
       const image   = tmImage || 'https://ticketscout.co.uk/ogdefault.png';
 
-      // Always update document.title directly — works even without head elements
-      document.title = `${name} Tickets — Compare Prices | TicketScout`;
+      // R6 (23 Aug 2026): "{Entity} {Year} Tickets" captures "…tickets
+      // 2026" search queries at zero extra content cost — the year of
+      // whichever upcoming fixture is soonest, not just the current
+      // calendar year. Deliberately just the year, not a fuller
+      // keyword-stuffed pattern — keeps the existing title length sane.
+      let nextYear = null;
+      for (const e of events) {
+        const d = e.dates?.start?.localDate ||
+          (e.dates?.start?.dateTime && /^\d{4}-\d{2}-\d{2}/.test(e.dates.start.dateTime) ? e.dates.start.dateTime.slice(0, 10) : null);
+        if (d && (!nextYear || d < nextYear)) nextYear = d;
+      }
+      const yearSuffix = nextYear ? ` ${nextYear.slice(0, 4)}` : '';
 
-      setEl('page-title',       null,      `${name} Tickets — Compare Prices | TicketScout`);
+      // Always update document.title directly — works even without head elements
+      document.title = `${name}${yearSuffix} Tickets — Compare Prices | TicketScout`;
+
+      setEl('page-title',       null,      `${name}${yearSuffix} Tickets — Compare Prices | TicketScout`);
       setEl('meta-description', 'content', description);
       setEl('canonical',        'href',    pageUrl);
-      setEl('og-title',         'content', `${name} Tickets — Compare Prices | TicketScout`);
+      setEl('og-title',         'content', `${name}${yearSuffix} Tickets — Compare Prices | TicketScout`);
       setEl('og-description',   'content', description);
       setEl('og-url',           'content', pageUrl);
       setEl('og-image',         'content', image);
-      setEl('tw-title',         'content', `${name} Tickets — Compare Prices | TicketScout`);
+      setEl('tw-title',         'content', `${name}${yearSuffix} Tickets — Compare Prices | TicketScout`);
       setEl('tw-description',   'content', description);
       setEl('tw-image',         'content', image);
 

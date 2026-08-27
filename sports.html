@@ -444,6 +444,22 @@
 
     function renderEvents(events, entity) {
       var box = document.getElementById('events-container');
+
+      // R6 (23 Aug 2026): "{Entity} {Year} Tickets" captures "…tickets
+      // 2026" search queries at zero extra content cost. Set here, not
+      // where the title is first assigned above, because dedupe() has
+      // already run by the time this function is called — events[] is
+      // sorted ascending by date, so events[0].date is genuinely the
+      // soonest upcoming date, not just today's calendar year.
+      var firstDated = events.filter(function (e) { return /^\d{4}-\d{2}-\d{2}$/.test(e.date || ''); })[0];
+      if (firstDated) {
+        var yearSuffix = ' ' + firstDated.date.slice(0, 4);
+        var titleWithYear = entity.name + yearSuffix + ' Tickets | TicketScout';
+        document.title = titleWithYear;
+        var _ptYear = document.getElementById('page-title');
+        if (_ptYear) _ptYear.textContent = titleWithYear;
+      }
+
       if (!events.length) {
         // No "updated daily" claim here. For an entity with nothing listed we
         // aren't refreshing anything, and promising a cadence we don't meet
