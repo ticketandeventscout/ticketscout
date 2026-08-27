@@ -104,7 +104,19 @@ export async function onRequestGet({ request, params, env }) {
     .replace(/<meta name="twitter:title" id="tw-title"[^>]*>/, `<meta name="twitter:title" id="tw-title" content="${escAttr(name)} Tickets — Compare Prices | TicketScout" />`)
     .replace(/<meta name="twitter:description" id="tw-description"[^>]*>/, `<meta name="twitter:description" id="tw-description" content="${escAttr(desc)}" />`)
     // Inject slug variable before </head>
-    .replace('</head>', `<script>window.__CONCERT_SLUG__ = ${JSON.stringify(slug.toLowerCase())};</script>\n</head>`);
+    // R9 (23 Aug 2026): also preload the entity data fetch concert.html's
+    // own client-side code makes right after — /api/concert?slug=X, the
+    // same URL, same encoding (encodeURIComponent), as the real fetch()
+    // call in concert.html so the browser actually reuses this preload
+    // rather than treating it as a wasted, separate request. The slug is
+    // already known here at request time (it's the URL path param), so
+    // this can start the moment the browser has this response, instead of
+    // waiting for the client JS to parse and run first. Same reasoning,
+    // same fix shape, as the equivalent preload already added to the
+    // football/sports/theatre stub generators in discover-pages.js —
+    // this was the one category that couldn't get it then, since this
+    // file wasn't available in the project at the time.
+    .replace('</head>', `<link rel="preload" as="fetch" crossorigin href="/api/concert?slug=${encodeURIComponent(slug.toLowerCase())}" />\n<script>window.__CONCERT_SLUG__ = ${JSON.stringify(slug.toLowerCase())};</script>\n</head>`);
 
   return new Response(html, {
     status: 200,
