@@ -4661,6 +4661,18 @@ function generateFootballPageHtml(slug, enrich) {
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <!-- R9 (23 Aug 2026): the swap script below fetches the football.html
+       TEMPLATE first, and only THEN runs its own code that fetches this
+       SAME entity's real data (name, hero image, fixtures) — meaning that
+       second fetch currently waits for the first to finish rather than
+       running alongside it. The slug is already known here at generation
+       time, so this lets the browser start that data fetch immediately,
+       in parallel with the template fetch, shortening the wait before the
+       hero image (the page's LCP element) is even discoverable. crossorigin
+       is required for as="fetch" preloads to be used at all, even for a
+       same-origin request like this one — a well-known browser quirk, not
+       an accident. -->
+  <link rel="preload" as="fetch" crossorigin href="/api/football?slug=${slug}" />
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
@@ -4799,6 +4811,10 @@ function generateSportsPageHtml(slug, enrich) {
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <!-- R9 (23 Aug 2026): same reasoning as football.html's own copy of this
+       comment — starts this entity's real data fetch in parallel with the
+       template fetch instead of waiting for it to finish first. -->
+  <link rel="preload" as="fetch" crossorigin href="/api/sports?slug=${slug}" />
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
@@ -4906,6 +4922,10 @@ function generateTheatrePageHtml(slug, enrich) {
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <!-- R9 (23 Aug 2026): same reasoning as football.html's own copy of this
+       comment — starts this entity's real data fetch in parallel with the
+       template fetch instead of waiting for it to finish first. -->
+  <link rel="preload" as="fetch" crossorigin href="/api/theatre?slug=${slug}" />
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel=\'stylesheet\'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
