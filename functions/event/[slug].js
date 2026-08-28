@@ -282,10 +282,12 @@ export async function onRequestGet(ctx) {
   skeletonRowCount = Math.max(2, Math.min(8, skeletonRowCount));
   const estimatedCompareHeight = 40 + (skeletonRowCount * 60) + 65;
 
+  const allowImageTransform = await shouldTransformImages(env);
+
   const html = renderPage({
     slug: row?.slug || rawSlug, id: row?.id ?? null, category, cat, name, eventDate, venue, city, image,
     price, currency, tmUrl, tmPrice, isPast, indexable, entitySlug,
-    estimatedCompareHeight
+    estimatedCompareHeight, allowImageTransform
   });
 
   const resp = new Response(html, {
@@ -304,6 +306,49 @@ export async function onRequestGet(ctx) {
 // ===========================
 // Page rendering
 // ===========================
+
+// Cloudflare Images "Transformations" free tier is 5,000 unique
+// transformations/month, account-wide — confirmed live: hit this cap once
+// already (see the 24 Aug 2026 comment on cfImageUrl()'s onerror gap
+// above), and re-adding TM/Gigsberg as allowed Sources restores legitimate
+// usage that can trip the same cap again as real event volume grows. The
+// app has no way to see Cloudflare's real-time quota from the origin —
+// that's tracked entirely at the edge, invisible to application code — so
+// this tracks a deliberately CONSERVATIVE proxy instead: every call this
+// function is asked to approve, counted once per calendar month via KV.
+// It will typically stop approving new transformations a little BEFORE the
+// true Cloudflare-side limit, since it can't see the free savings from a
+// genuine cache hit (a repeat view of the same popular event costs
+// Cloudflare nothing, but this counter has no way to know that and counts
+// it anyway) — that's a deliberate trade: give up some optimization
+// headroom in exchange for a GUARANTEE this can never trip the account
+// into 403s again. If real usage regularly hits the SAFETY_MARGIN cutoff,
+// that's a sign the free tier is genuinely too small for real traffic —
+// worth just paying Cloudflare's $0.50/1,000 rather than tightening this
+// further, not a sign this function needs to be smarter.
+const CF_IMAGES_MONTHLY_LIMIT = 5000;
+const CF_IMAGES_SAFETY_MARGIN = 0.9; // stop at 90%, leaving headroom for anything else in the account also using Transformations
+
+async function shouldTransformImages(env) {
+  const kv = env.GIGSBERG_KV;
+  if (!kv) return true; // no KV available — fail open rather than silently disabling a working feature
+  const monthKey = `cfimages:count:${new Date().toISOString().slice(0, 7)}`; // e.g. "cfimages:count:2026-08" — resets naturally every month
+  try {
+    const raw = await kv.get(monthKey);
+    const count = raw ? (parseInt(raw, 10) || 0) : 0;
+    if (count >= CF_IMAGES_MONTHLY_LIMIT * CF_IMAGES_SAFETY_MARGIN) return false;
+    // Not atomic — KV has no native increment, so a burst of concurrent
+    // requests could each read the same pre-increment count and all pass,
+    // slightly overshooting. Acceptable here: the margin this leaves (500
+    // transformations) comfortably absorbs realistic burst sizes, and
+    // getting this wrong costs "one page's image isn't optimized this
+    // month", not anything worse.
+    await kv.put(monthKey, String(count + 1), { expirationTtl: 60 * 60 * 24 * 40 }); // ~40 days, safely past month-end
+    return true;
+  } catch {
+    return true; // KV error — fail open, same reasoning as the "no KV" case
+  }
+}
 
 function renderPage(d) {
   const dateStr = prettyDate(d.eventDate);
@@ -585,6 +630,17 @@ function renderPage(d) {
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
   <script type="application/ld+json" id="event-schema">${JSON.stringify(eventLd).replace(/</g, '\\u003c')}</script>
   <script type="application/ld+json">${JSON.stringify(breadcrumbLd).replace(/</g, '\\u003c')}</script>
+  <!-- Defined here, not in the later <script src="/compare.js"> block near
+       the footer — this must exist BEFORE the hero <img> in <body> below
+       can possibly fail to load, and image errors can fire while the rest
+       of the page is still being parsed. -->
+  <script>
+    function imgFallback(img) {
+      img.onerror = null; // clear first — a genuinely broken raw URL must not loop
+      var raw = img.dataset.rawSrc;
+      if (raw) img.src = raw;
+    }
+  </script>
 </head>
 <body>
   <nav class="navbar">
@@ -632,7 +688,32 @@ function renderPage(d) {
 
     <div class="detail-grid">
       <div class="detail-card">
-        ${d.image ? `<img class="detail-img" src="${esc(cfImageUrl(d.image, 700))}" alt="${esc(displayName)}" fetchpriority="high" />` : ''}
+        <!-- R9-adjacent fix (24 Aug 2026): Cloudflare's own onerror=redirect
+             (see cfImageUrl()'s comment) only covers failures IN the
+             transform itself (a bad/missing remote image). It does NOT
+             cover the zone's Transformations "Sources" allow-list
+             rejecting the request outright — confirmed live: a Gigsberg-
+             hosted event image 403'd flatly with no fallback once Sources
+             was restricted, because that's a gateway-level rejection
+             Cloudflare's own onerror handling never sees. This adds a
+             SECOND, client-side fallback: if the transformed URL fails to
+             load for ANY reason, swap to the raw original image once.
+             d.image is untrusted third-party feed data (Awin/TM), so it
+             goes into data-raw-src as plain attribute text (safe via esc()
+             either way) rather than being concatenated into the inline
+             onerror handler's JS itself — HTML-entity escaping does NOT
+             make a value safe to embed inside inline JS text, since the
+             browser decodes entities in the attribute BEFORE that text
+             runs as code; a stray quote in a feed-supplied URL could break
+             the string or worse. imgFallback() reads it back out via the
+             DOM's own dataset API, never via string concatenation.
+             allowImageTransform (set in onRequestGet, see
+             shouldTransformImages()'s comment) is the monthly quota
+             safety valve — once near the free-tier cap, this renders the
+             raw image directly rather than requesting a new
+             transformation at all, the same degraded-but-working state a
+             genuine transform failure already falls back to. -->
+        ${d.image ? `<img class="detail-img" src="${esc(d.allowImageTransform ? cfImageUrl(d.image, 700) : d.image)}" data-raw-src="${esc(d.image)}" alt="${esc(displayName)}" fetchpriority="high" onerror="imgFallback(this)" />` : ''}
         <div class="detail-body">
           <h1 class="detail-name" style="font-size:24px; margin:0 0 6px;">${esc(h1Text)}</h1>
           <div class="detail-meta">${esc(metaBits) || 'Details to be confirmed'}</div>
