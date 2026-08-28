@@ -1545,6 +1545,21 @@
     }
     tryRun();
   })();
+
+  // GSC pruning work (24 Aug 2026): same fix, same reasoning, as concert.html's
+  // own copy of this comment — noindex a dormant (30+ days no priced offers)
+  // entity, excluding protected (verified real) ones, self-healing via the
+  // same daily lifecycle sweep that already drives the sitemap filter.
+  (function () {
+    var slug = window.__THEATRE_SLUG__ || (location.pathname.match(/\/theatre\/([a-z0-9-]+)/) || [])[1];
+    if (!slug) return;
+    fetch('/api/entity-lifecycle?checkone=1&section=theatre&slug=' + encodeURIComponent(slug))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && d.dormant) setRobots('noindex, follow');
+      })
+      .catch(function () {});
+  })();
   </script>
 </body>
 </html>

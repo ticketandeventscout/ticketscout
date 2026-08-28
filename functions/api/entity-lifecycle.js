@@ -139,6 +139,51 @@ export async function onRequestGet({ request, env }) {
     });
   }
 
+  // ── CHECKONE (24 Aug 2026, GSC pruning work) ─────────────────────────────
+  // sitemap.js already reads this same dormant state to stop OFFERING a
+  // dormant entity's URL going forward — but that alone doesn't retroactively
+  // un-index a page Google already has from before it went quiet, since
+  // removing something from a sitemap is a weaker signal than an on-page
+  // noindex. This endpoint lets a single entity page ask "am I dormant?" at
+  // render time and set its OWN robots tag accordingly, via the exact same
+  // setRobots() mechanism concert/football/theatre/sports.html already use
+  // for their "not found" case — same self-healing property as the sitemap
+  // filter: the moment the daily lifecycle sweep sees real offers again,
+  // this flips back to dormant:false on the very next page load, no
+  // separate re-check job needed.
+  //
+  // Deliberately its own read-only mode on THIS file rather than a new
+  // endpoint — reuses the exact STATE_KEY blob sitemap.js and the dormant=1
+  // listing above already read, just filtered to one slug instead of
+  // returning the whole section.
+  //
+  // Usage: ?checkone=1&section=football&slug=arsenal
+  if (url.searchParams.get('checkone') === '1') {
+    if (!section) return json({ error: 'section required' }, 400);
+    const slug = url.searchParams.get('slug');
+    if (!slug) return json({ error: 'slug required' }, 400);
+    let state = {};
+    try { const v = await kv.get(STATE_KEY(section)); if (v) state = JSON.parse(v); } catch {}
+    const v = state[slug];
+    const nowMs = Date.now();
+    const isProtected = !!(v && v.protected);
+    // Noindex is a stronger, more consequential signal than sitemap
+    // removal (which sitemap.js already applies to protected AND
+    // unprotected dormant entities alike, unchanged by this). Protected
+    // status exists specifically to stop a real, verified entity being
+    // over-punished for a temporary quiet season — a genuine football
+    // club's page in the off-season is exactly the kind of page that
+    // should stay indexed even with nothing to sell right now, unlike the
+    // thin/junk templated pages this whole pruning effort is actually
+    // targeting. So: dormant-for-noindex-purposes excludes protected
+    // entities, even though dormant-for-sitemap-purposes does not.
+    return json({
+      section, slug, readOnly: true,
+      dormant: v ? (isDormant(v, nowMs) && !isProtected) : false,
+      protected: isProtected
+    });
+  }
+
   // ── DORMANT LIST ────────────────────────────────────────────────────────
   // Intended consumer: sitemap.js, to delist dormant entities.
   if (url.searchParams.get('dormant') === '1') {
