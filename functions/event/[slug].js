@@ -353,7 +353,23 @@ async function shouldTransformImages(env) {
 function renderPage(d) {
   const dateStr = prettyDate(d.eventDate);
   const where   = [d.venue, d.city].filter(Boolean).join(', ');
-  const metaBits = [dateStr, where].filter(Boolean).join(' · ');
+
+  // Internal linking fix (24 Aug 2026, GSC pruning work): venue pages were
+  // confirmed completely orphaned — this is the highest-value fix, since
+  // every event page has a real, known venue and there are far more event
+  // pages than any other page type, so this gives every real venue
+  // multiple genuine incoming links (one per event held there). Never
+  // links the "Venue to be announced" placeholder (that's not a real
+  // venue, and toSlug() on it would build a page for a venue that doesn't
+  // exist) — the plain-text `where`/`dateStr` above are left completely
+  // unchanged, since <title>/meta description must never contain HTML.
+  const VENUE_PLACEHOLDER = 'Venue to be announced';
+  const venueIsReal = !!d.venue && d.venue !== VENUE_PLACEHOLDER;
+  const venueHtml = venueIsReal
+    ? `<a href="/venue/${toSlug(d.venue)}">${esc(d.venue)}</a>`
+    : esc(d.venue || '');
+  const whereHtml = [venueHtml, esc(d.city || '')].filter(Boolean).join(', ');
+  const metaBitsHtml = [esc(dateStr), whereHtml].filter(Boolean).join(' · ');
 
   // M3 fix (6 Aug 2026, TICKETSCOUT-AUDIT-ROADMAP.md): concert/theatre
   // title+H1 now include venue+city, targeting long-tail queries with
@@ -716,7 +732,7 @@ function renderPage(d) {
         ${d.image ? `<img class="detail-img" src="${esc(d.allowImageTransform ? cfImageUrl(d.image, 700) : d.image)}" data-raw-src="${esc(d.image)}" alt="${esc(displayName)}" fetchpriority="high" onerror="imgFallback(this)" />` : ''}
         <div class="detail-body">
           <h1 class="detail-name" style="font-size:24px; margin:0 0 6px;">${esc(h1Text)}</h1>
-          <div class="detail-meta">${esc(metaBits) || 'Details to be confirmed'}</div>
+          <div class="detail-meta">${metaBitsHtml || 'Details to be confirmed'}</div>
           <!-- The "Tickets from £X" line was removed deliberately. It came
                from the event_pages row — one seller's cached price, usually
                SE365 — and routinely disagreed with the cheapest row in the
@@ -1140,6 +1156,34 @@ function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Internal linking fix (24 Aug 2026, GSC pruning work): venue pages were
+// confirmed completely orphaned — no navbar entry, no browse-all hub, and
+// event pages (here) didn't link to their own venue. Copied verbatim from
+// discover-pages.js's toSlug() rather than importing it — these are
+// independent, self-contained Cloudflare Functions in this codebase, same
+// pattern as every other shared-logic function across files here. MUST
+// STAY IN SYNC with discover-pages.js's copy: this is what turns a venue's
+// real name into the slug a link can point at, and it has to produce the
+// EXACT same slug that function used when the venue was first registered,
+// or the link either 404s or soft-fails to venue.html's own "couldn't find
+// this venue" fallback.
+function toSlug(name) {
+  return (name || '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/ß/g, 'ss').replace(/ø/g, 'o').replace(/Ø/g, 'o')
+    .replace(/æ/g, 'ae').replace(/Æ/g, 'ae').replace(/đ/g, 'd').replace(/Đ/g, 'd')
+    .replace(/ł/g, 'l').replace(/Ł/g, 'l')
+    .replace(/ð/g, 'd').replace(/Ð/g, 'd').replace(/þ/g, 'th').replace(/Þ/g, 'th')
+    .replace(/œ/g, 'oe').replace(/Œ/g, 'oe').replace(/ı/g, 'i').replace(/ŀ/g, 'l')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 60);
 }
 
 // LCP FIX (6 Aug 2026): rewrites the hero <img> URL through Cloudflare's
