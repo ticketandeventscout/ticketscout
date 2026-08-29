@@ -16,6 +16,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <!-- R9 (23 Aug 2026): same reasoning as football.html's own copy of this
+       comment — starts this entity's real data fetch in parallel with the
+       template fetch instead of waiting for it to finish first. -->
+  <link rel="preload" as="fetch" crossorigin href="/api/theatre?slug=theresa-caputo" />
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
 </head>
