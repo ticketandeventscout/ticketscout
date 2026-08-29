@@ -5001,6 +5001,21 @@ function generateTheatrePageHtml(slug, enrich) {
 
 function generateVenuePageHtml(slug) {
   const displayName = slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const pageUrl = `https://ticketscout.co.uk/venue/${slug}`;
+  const title = `${displayName} Tickets | TicketScout`;
+  const description = `Compare ${displayName} ticket prices across verified sellers. Find the cheapest ${displayName} tickets and buy direct. Updated daily.`;
+  // L3 fix (24 Aug 2026): functions/venue/[slug].js already has the
+  // COMPLETE og:/twitter: tag set (see its own L3 comment, 9 Aug 2026) —
+  // but Cloudflare Pages always serves a static file over a Function at
+  // the same path, and THIS function is what actually generates the
+  // static venue/{slug}.html files committed to the repo. Confirmed live:
+  // those static files exist, meaning the Function's fix has been
+  // completely shadowed since it shipped — every venue page was still
+  // missing og:image and ALL twitter:* tags (no preview image, broken
+  // Twitter/X card) despite that fix being written correctly. Matching
+  // the Function's exact tag set here, in the file that's actually being
+  // served, rather than touching the Function itself (which isn't being
+  // reached for any venue with an existing stub).
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5008,11 +5023,18 @@ function generateVenuePageHtml(slug) {
   <title>${slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} Events & Tickets | TicketScout</title>
   <meta name="robots" content="index, follow" />
   
-  <meta name="description" content="Compare ${displayName} ticket prices across verified sellers. Find the cheapest ${displayName} tickets and buy direct. Updated daily." />
-  <meta property="og:title" content="${displayName} Tickets | TicketScout" />
-  <meta property="og:description" content="Compare ${displayName} ticket prices across verified sellers. Find the best deal." />
+  <meta name="description" content="${escAttr(description)}" />
   <meta property="og:type" content="website" />
-  <link rel="canonical" href="https://ticketscout.co.uk/venue/${slug}" />
+  <meta property="og:site_name" content="TicketScout" />
+  <meta property="og:title" content="${escAttr(title)}" />
+  <meta property="og:description" content="${escAttr(description)}" />
+  <meta property="og:url" content="${pageUrl}" />
+  <meta property="og:image" content="https://ticketscout.co.uk/ogdefault.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${escAttr(title)}" />
+  <meta name="twitter:description" content="${escAttr(description)}" />
+  <meta name="twitter:image" content="https://ticketscout.co.uk/ogdefault.png" />
+  <link rel="canonical" href="${pageUrl}" />
   <script>window.__VENUE_SLUG__ = '${slug}';</script>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
