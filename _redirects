@@ -18,28 +18,35 @@
 
 
 # ===========================================================================
-# SITEMAP INDEX — attempted 9 Aug 2026, REVERTED. Do not re-add.
+# SITEMAP INDEX — attempted 9 Aug 2026 as a _redirects rewrite, REVERTED.
+# Do not re-add a rewrite here for it. (Separate issue, since resolved: see
+# UPDATE below.)
 # ===========================================================================
 #
 # A 200-rewrite was tried here to make /sitemap.xml serve the dynamic index
-# at /api/sitemap?sec=index (which carries real <lastmod> values, unlike the
-# static /sitemap.xml, which cannot).
+# at /api/sitemap?sec=index (which carries real <lastmod> values, unlike a
+# static file, which cannot).
 #
 #   /sitemap-test.xml  /api/sitemap?sec=index  200
 #
 # It was tested on that throwaway path first and returned 404. Conclusion:
 # _redirects 200-rewrites on this deployment reach STATIC files (see the
 # /concerts rule above, which works) but NOT Function routes under /api/.
-# A Pages Function at functions/sitemap.xml.js was tried before that and
-# also failed — it never mapped to /sitemap.xml.
+# This conclusion still stands — do not re-add a rewrite here.
 #
-# RESOLVED INSTEAD IN robots.txt, which now points the Sitemap: directive
-# straight at https://ticketscout.co.uk/api/sitemap?sec=index. Google accepts
-# a sitemap at any URL; this needs no routing behaviour and cannot 404. The
-# static /sitemap.xml stays in place as a fallback.
+# SEPARATE ISSUE, RESOLVED 29 Aug 2026: at the time this note was written, a
+# Pages Function at functions/sitemap.xml.js was also believed to have been
+# tried and failed. In fact that function was saved under the wrong filename
+# (functions/sitemap-xml-function.js), which is why it never routed — not a
+# Pages Functions limitation. It was renamed to the correct
+# functions/sitemap.xml.js on 29 Aug and now correctly serves /sitemap.xml
+# directly (confirmed live, 200, accurate <lastmod>). The static /sitemap.xml
+# fallback file was removed at the same time since it's no longer needed.
 #
-# If you are considering adding a sitemap rewrite here again: it was tested,
-# it does not work, and the working solution is already live in robots.txt.
+# robots.txt's Sitemap: directive still points at
+# https://ticketscout.co.uk/api/sitemap?sec=index rather than /sitemap.xml —
+# both now serve identical content; it's left as-is because it's already
+# submitted in GSC, not because /sitemap.xml doesn't work.
 # ===========================================================================
 
 

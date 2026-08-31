@@ -9,8 +9,10 @@
 // Returns: { artist: {...}, attractionId: "K8vZ917..." } or { error: "..." }
 // ===========================
 
-// Artist data — inlined here to avoid ES module import issues in Pages Functions
-// Keep in sync with concert-data.js at the project root
+// Artist data — inlined here to avoid ES module import issues in Pages Functions.
+// No shared concert-data.js exists — this 15-entry roster is hand-duplicated
+// in functions/concert/[slug].js (slug + name only, used for OG tags there).
+// Adding or renaming an artist means updating both arrays by hand.
 const ARTISTS = [
   { slug: 'coldplay',            name: 'Coldplay',            search: 'Coldplay',            genre: 'Rock / Pop',                   description: 'Coldplay are one of the best-selling music artists of all time, known for their anthemic rock sound and spectacular live shows. The British band have sold over 100 million records worldwide and are renowned for their colourful, immersive concerts featuring LED wristbands and confetti cannons.' },
   { slug: 'ed-sheeran',         name: 'Ed Sheeran',          search: 'Ed Sheeran',          genre: 'Pop',                          description: 'Ed Sheeran is one of the UK\'s most successful artists, known for his acoustic-driven pop sound and record-breaking world tours. With multiple Grammy Awards and Brit Awards to his name, his live shows are celebrated for their intimate atmosphere despite playing to stadium-sized crowds.' },

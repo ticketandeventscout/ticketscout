@@ -498,7 +498,7 @@ const GO_HOSTS = [
   'ticketmaster.co.uk', 'ticketmaster.com', 'gigsberg.com', 'sportsevents365.com', 'ticombo.com',
   'eventim.co.uk', 'eventim.pl', 'theatreticketsdirect.co.uk',
   'ticketnetwork.com', 'vividseats.com', 'skiddle.com', 'seatgeek.com',
-  'hotels.com', 'trivago.co.uk', 'awin1.com', 'prf.hn',
+  'hotels.com', 'trivago.co.uk', 'soldout.com', 'awin1.com', 'prf.hn',
   'pxf.io', 'sjv.io', 'evyy.net',
   'anrdoezrs.net', 'dpbolvw.net', 'jdoqocy.com', 'kqzyfj.com', 'tkqlhce.com'
 ];

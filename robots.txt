@@ -19,33 +19,28 @@
 # Sitemap is a non-group directive (host-scoped, not group-scoped), so its
 # position is functionally irrelevant — kept at the top for visibility.
 #
-# WHY THIS POINTS AT /api/sitemap?sec=index AND NOT /sitemap.xml (9 Aug 2026):
-# the static /sitemap.xml in the repo root cannot carry an accurate <lastmod>
-# — any date committed into it is stale the moment the next entity
-# auto-commits, and Google disregards <lastmod> sitewide once it decides the
-# values are untrustworthy, which is strictly worse than emitting none.
-# <lastmod> is Google's primary signal for which child sitemaps to re-fetch
-# and how often, so on a continuously auto-committing registry it directly
-# controls how fast new event pages get discovered.
+# WHY THIS POINTS AT /api/sitemap?sec=index AND NOT /sitemap.xml:
+# /api/sitemap?sec=index generates the sitemap index live with real
+# per-section <lastmod> dates (see functions/api/sitemap.js — every date
+# derives from the same data the child sitemaps emit per URL, never
+# Date.now()). <lastmod> is Google's primary signal for which child sitemaps
+# to re-fetch and how often, so on a continuously auto-committing registry it
+# directly controls how fast new event pages get discovered. Pointing the
+# directive straight at this URL needs no routing behaviour at all and cannot
+# 404. Google accepts a sitemap at ANY URL; there is no requirement that it
+# be named sitemap.xml or sit at the root.
 #
-# /api/sitemap?sec=index generates that index live with real per-section
-# dates (see functions/api/sitemap.js — every date derives from the same data
-# the child sitemaps emit per URL, never Date.now()).
-#
-# Two other routes to the same goal were tried and rejected on evidence:
-#   - a Pages Function at functions/sitemap.xml.js — never mapped to
-#     /sitemap.xml; 404'd once the static file was removed.
-#   - a _redirects 200-rewrite /sitemap.xml → /api/sitemap?sec=index —
-#     verified on a throwaway /sitemap-test.xml path and it 404'd too, so
-#     _redirects rewrites do not reach Function routes on this deployment
-#     (they do work to static files — see /concerts in _redirects).
-# Pointing the directive straight at the working URL needs no routing
-# behaviour at all and cannot 404. Google accepts a sitemap at ANY URL; there
-# is no requirement that it be named sitemap.xml or sit at the root.
-#
-# The static /sitemap.xml is deliberately LEFT IN PLACE as a fallback — it
-# still lists all seven children correctly, just without <lastmod>, so
-# anything already pointing at it keeps working.
+# UPDATE (29 Aug 2026): /sitemap.xml itself now also serves this exact same
+# dynamic content — functions/sitemap.xml.js was originally saved under the
+# wrong filename (functions/sitemap-xml-function.js), which is why it 404'd
+# on 9 Aug and was misdiagnosed then as "Pages Functions can't serve
+# /sitemap.xml". It was renamed to the correct functions/sitemap.xml.js on
+# 29 Aug and confirmed live serving 200 with accurate <lastmod> values — the
+# static /sitemap.xml fallback file was removed at the same time, since the
+# Function now covers that URL directly. This directive is left pointing at
+# /api/sitemap?sec=index rather than switched to /sitemap.xml because it
+# already works and is already submitted in GSC (see note below) — not
+# because /sitemap.xml doesn't work. Either URL is correct today.
 #
 # "Allow: /api/sitemap" appears in every group below, so this is fetchable.
 # ALSO SUBMIT THIS EXACT URL IN GSC > SITEMAPS — changing the directive here
