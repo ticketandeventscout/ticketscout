@@ -299,16 +299,22 @@ export async function onRequestGet({ request, env }) {
     try {
       const { results } = month
         ? await db.prepare(
-            "SELECT slug, updated_at FROM event_pages " +
+            "SELECT rowid AS id, slug, updated_at FROM event_pages " +
             "WHERE event_date >= date('now') AND substr(event_date,1,7) = ?1 " +
             "ORDER BY slug LIMIT 45000"
           ).bind(month).all()
         : await db.prepare(
-            "SELECT slug, updated_at FROM event_pages WHERE event_date >= date('now') ORDER BY slug LIMIT 45000"
+            "SELECT rowid AS id, slug, updated_at FROM event_pages WHERE event_date >= date('now') ORDER BY slug LIMIT 45000"
           ).all();
 
+      // Emit the -E{id} canonical form directly — functions/event/[slug].js
+      // 301s every bare-slug URL to this form once feature:event-id-redirect
+      // is on (confirmed on live 31 Aug 2026), so listing the bare slug here
+      // meant every sitemap entry was a redirect to a URL not itself listed
+      // anywhere, instead of real 200 content. Matches the canonical format
+      // used in functions/event/[slug].js (`${slug}-E${id}`).
       const entries = (results || []).map(r =>
-        `  <url><loc>${HOST}/event/${r.slug}</loc><lastmod>${String(r.updated_at || '').slice(0, 10)}</lastmod></url>`
+        `  <url><loc>${HOST}/event/${r.slug}-E${r.id}</loc><lastmod>${String(r.updated_at || '').slice(0, 10)}</lastmod></url>`
       ).join('\n');
       return xml(urlset(entries));
     } catch (e) {
