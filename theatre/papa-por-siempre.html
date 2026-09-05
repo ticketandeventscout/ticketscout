@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compare Papá por siempre Ticket Prices — Cheapest Papá por siempre Tickets | TicketScout</title>
+  <meta name="robots" content="index, follow" />
+  
+  <meta name="description" content="Compare Papá por siempre ticket prices across verified sellers and find the cheapest Papá por siempre tickets. Updated daily." />
+  <meta property="og:title" content="Papá por siempre Tickets | TicketScout" />
+  <meta property="og:description" content="Compare Papá por siempre ticket prices across verified sellers and find the cheapest Papá por siempre tickets. Updated daily." />
+  <meta property="og:type" content="website" />
+  <link rel="canonical" href="https://ticketscout.co.uk/theatre/papa-por-siempre" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Theatre","item":"https://ticketscout.co.uk/theatre"},{"@type":"ListItem","position":2,"name":"Papá por siempre Tickets"}]}]}</script>
+  <script>window.__THEATRE_SLUG__ = 'papa-por-siempre';</script>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://s1.ticketm.net" crossorigin />
+  <!-- R9 (23 Aug 2026): same reasoning as football.html's own copy of this
+       comment — starts this entity's real data fetch in parallel with the
+       template fetch instead of waiting for it to finish first. -->
+  <link rel="preload" as="fetch" crossorigin href="/api/theatre?slug=papa-por-siempre" />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" /></noscript>
+</head>
+<body>
+  <!-- S19-F fix: real, visible fallback content — always present, never
+       conditional on enrichment data. Replaced by the fetch+swap script
+       below once JS runs; this is what any non-JS-executing crawler
+       actually sees. -->
+  <h1>Papá por siempre Tickets</h1>
+  <p>Compare Papá por siempre ticket prices across verified sellers, including primary and secondary market platforms.</p>
+  <p>Compare Papá por siempre ticket prices across multiple verified sellers and find the cheapest tickets. Updated daily.</p>
+<script>
+  (async function() {
+    try {
+      const r = await fetch('/theatre.html?v=20260717a');
+      const html = await r.text();
+
+      // R1/R2/price-fallback follow-up (23 Aug 2026): same fix, same root
+      // cause, as generateFootballPageHtml above — see that comment for
+      // the full explanation. This stub's swap only ever replaced <body>,
+      // so document.getElementById('schema-org') was always null here too.
+      var HEAD_IDS = ['page-title','meta-description','canonical','schema-org',
+                      'og-title','og-description','og-url','og-image',
+                      'tw-title','tw-description','tw-image'];
+      function extractTag(src, id) {
+        var idx = src.indexOf('id="' + id + '"');
+        if (idx === -1) return null;
+        var tagStart = src.lastIndexOf('<', idx);
+        if (tagStart === -1) return null;
+        var tagNameMatch = src.slice(tagStart + 1, tagStart + 20).match(/^([a-zA-Z]+)/);
+        var tagName = tagNameMatch ? tagNameMatch[1].toLowerCase() : '';
+        if (tagName === 'meta' || tagName === 'link') {
+          var tagEnd = src.indexOf('>', idx);
+          return tagEnd === -1 ? null : src.slice(tagStart, tagEnd + 1);
+        }
+        var afterOpen = src.indexOf('>', idx) + 1;
+        var closeTag = '</' + tagName + '>';
+        var closeIdx = src.indexOf(closeTag, afterOpen);
+        return closeIdx === -1 ? null : src.slice(tagStart, closeIdx + closeTag.length);
+      }
+      var oldTitle = document.head.querySelector('title');
+      if (oldTitle) oldTitle.remove();
+      var oldDesc = document.head.querySelector('meta[name="description"]');
+      if (oldDesc) oldDesc.remove();
+      var oldCanonical = document.head.querySelector('link[rel="canonical"]');
+      if (oldCanonical) oldCanonical.remove();
+      var oldJsonLd = document.head.querySelector('script[type="application/ld+json"]');
+      if (oldJsonLd) oldJsonLd.remove();
+      document.head.querySelectorAll('meta[property^="og:"], meta[name^="twitter:"]').forEach(function(el) { el.remove(); });
+      HEAD_IDS.forEach(function(id) {
+        var tag = extractTag(html, id);
+        if (tag) document.head.insertAdjacentHTML('beforeend', tag);
+      });
+
+      const headStyleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+      if (headStyleMatch) {
+        const st = document.createElement('style');
+        st.textContent = headStyleMatch[1];
+        document.head.appendChild(st);
+      }
+      const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      if (!m) return;
+      document.body.innerHTML = m[1];
+      document.body.querySelectorAll('script').forEach(function(o) {
+        var s = document.createElement('script');
+        if (o.src) s.src = o.src; else s.textContent = o.textContent;
+        document.body.appendChild(s); o.remove();
+      });
+    } catch(e) { console.error('Failed to load theatre template:', e); }
+  })();
+</script></body></html>
