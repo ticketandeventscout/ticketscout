@@ -3798,17 +3798,39 @@ async function commitPendingPagesBatch(kv, githubToken, owner, repo, branch, dry
   }
 
   // ── Build ALL file contents up front (no API calls yet) ──────────────
+  // FIX (9 Sep 2026, production incident): Cloudflare Pages caps a deployment
+  // at 20,000 files. This repo hit that ceiling and every deploy had been
+  // silently failing for 6 days — the last one to actually go live was a
+  // week earlier. concert/ and venue/ static pages were ~78% of all tracked
+  // files (17,930 of 22,944) and are UNREACHABLE regardless: functions/
+  // concert/[slug].js and functions/venue/[slug].js already render every
+  // /concert/{slug} and /venue/{slug} request dynamically from the shared
+  // template + KV/D1 data, and a Function takes routing priority over a
+  // same-path static asset on this deployment (confirmed when the venue
+  // routing bug was fixed — the moment the Function matched, it started
+  // winning over the static file). Neither Function has a 404 branch, so
+  // this was never a fallback being relied on — just dead weight consuming
+  // the file-count budget. Existing concert/venue/*.html files were deleted
+  // in the same commit as this fix; this stops new ones being written so
+  // the count doesn't climb back past 20,000 in a couple of weeks at the
+  // ~300-files/day auto-add rate.
+  // football/theatre/sports are NOT skipped — they have no Function, so
+  // their static file IS the only thing that renders those pages.
   const files = [];
   for (const [category, items] of Object.entries(byCategory)) {
     if (items.length === 0) continue;
     const htmlGenerator = categoryToHtmlGenerator(category);
     for (const artist of items) {
-      files.push({ path: `${category}/${artist.slug}.html`, content: htmlGenerator(artist.slug, { name: artist.name }) });
+      if (category !== 'concert') {
+        files.push({ path: `${category}/${artist.slug}.html`, content: htmlGenerator(artist.slug, { name: artist.name }) });
+      }
       committed[category].push(artist.slug);
     }
   }
+  // venue static pages skipped entirely — see fix note above. venue:auto:
+  // KV records (written further below) are venue.js's real data path and
+  // are unaffected by this.
   for (const venue of venues) {
-    files.push({ path: `venue/${venue.slug}.html`, content: generateVenuePageHtml(venue.slug) });
     committed.venues.push(venue.slug);
   }
 
