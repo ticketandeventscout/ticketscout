@@ -396,11 +396,24 @@ export async function onRequestGet({ request, env }) {
   // not the fixture-name pattern above, since the registry keys are already
   // the real football/{slug} hub slugs. MUST STAY IN SYNC with the same club
   // list in EXCLUDED_FOOTBALL_CLUB_PATTERN/_SLUG_PATTERN above.
+  //
+  // Second block added after the initial deploy: the registry turned out to
+  // carry extensive duplicate/variant slugs per club (full-name forms,
+  // "-fc" suffixed duplicates, women's/legends sub-teams) that the exact
+  // base slugs above didn't catch — confirmed live by diffing the full
+  // /api/sitemap?sec=football output before and after the first exclusion
+  // shipped. Found by inspection, not a pattern, so there may be others not
+  // yet surfaced (e.g. a future duplicate created by the ingestion pipeline
+  // before it's caught here) — this list is not guaranteed exhaustive.
   const EXCLUDED_FOOTBALL_ENTITY_SLUGS = new Set([
     'arsenal', 'aston-villa', 'bournemouth', 'brentford', 'brighton', 'burnley', 'chelsea',
     'coventry-city', 'coventry-city-fc', 'crystal-palace', 'everton', 'fulham', 'hull-city',
     'leeds-united', 'liverpool', 'manchester-city', 'manchester-united', 'newcastle',
-    'nottingham-forest', 'sunderland', 'sunderland-afc', 'tottenham', 'west-ham', 'wolves'
+    'nottingham-forest', 'sunderland', 'sunderland-afc', 'tottenham', 'west-ham', 'wolves',
+    'arsenal-women', 'brighton-hove-albion', 'chelsea-fc', 'chelsea-women', 'everton-fc',
+    'fulham-fc', 'liverpool-fc', 'liverpool-legends', 'manchester-united-legends',
+    'newcastle-united', 'tottenham-hotspur', 'tottenham-hotspur-legends', 'tottenhamvitesse',
+    'west-ham-united', 'wolverhampton-wanderers', 'wolverhampton-wanderers-fc'
   ]);
 
   const entries = Object.entries(slugs)
