@@ -31,6 +31,23 @@ const KNOWN_KEY        = 'autodiscover:artists:known';
 const KNOWN_VENUES_KEY = 'autodiscover:venues:known';
 const CACHE_TTL        = 30 * 24 * 60 * 60; // 30 days — long TTL prevents 502 on missed cron runs
 const PENDING_TTL      = 8 * 60 * 60;  // 8 hours — expires after commit job runs
+
+// Clubs removed from the site (Sept 2026 business decision, not a data-
+// quality fix) — see the identical copy + full rationale in
+// functions/event/[slug].js's EXCLUDED_FOOTBALL_CLUB_PATTERN comment.
+// MUST STAY IN SYNC with that file and the copies in
+// functions/api/ticketmaster.js and functions/api/sportsevents365.js.
+const EXCLUDED_FOOTBALL_CLUB_PATTERN = new RegExp(
+  '\\b(arsenal|aston\\s+villa|bournemouth|brentford|brighton|burnley|chelsea|' +
+  'coventry\\s+city|crystal\\s+palace|everton|fulham|hull\\s+city|' +
+  'leeds\\s+united|liverpool|manchester\\s+(?:city|united)|man\\s+(?:city|utd|united)|' +
+  'newcastle\\s+united|nottingham\\s+forest|sunderland|tottenham|west\\s+ham|' +
+  'wolverhampton|wolves)\\b', 'i'
+);
+
+function isExcludedFootballFixture(category, name) {
+  return category === 'football' && EXCLUDED_FOOTBALL_CLUB_PATTERN.test(String(name || ''));
+}
 const CHUNK_SIZE       = 2000;
 
 const TRIBUTE_KEYWORDS = [
@@ -1389,6 +1406,10 @@ function tsEventSlug(category, date, name) {
 async function tsRegisterEvents(env, records) {
   const db = env.PRICE_DB;
   if (!db || !records || !records.length) return;
+  // Drop excluded-club fixtures before they ever reach event_pages — see
+  // EXCLUDED_FOOTBALL_CLUB_PATTERN above.
+  records = records.filter(r => !isExcludedFootballFixture(r.category, r.name));
+  if (!records.length) return;
   const now = new Date().toISOString();
   const stmt = db.prepare(
     'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) ' +

@@ -46,6 +46,38 @@ const CATEGORY_META = {
   sports:   { label: 'Sports',    hub: '/sports' ,   schemaType: 'SportsEvent',  noun: 'event'  }
 };
 
+// EXCLUDED_FOOTBALL_CLUBS — clubs removed from the site (Sept 2026 business
+// decision, not a data-quality fix). Applies to ANY match involving one of
+// these clubs, either side, regardless of competition (league, cup,
+// friendly) — not just Premier League fixtures, since some listed clubs
+// (West Ham, Wolves) are no longer in the Premier League but are kept
+// excluded anyway per that decision.
+//
+// Matched against the RAW fixture name text, not a derived slug — upstream
+// sources (Ticketmaster/SE365/Awin) use inconsistent full vs short club
+// names ("West Ham United" vs "West Ham"), and a slug-derivation mismatch
+// (see toEntitySlug below, which only strips one suffix token) would
+// silently let excluded fixtures back in. Word-boundary patterns chosen to
+// avoid false positives against similarly-named non-football entities
+// (e.g. Leeds Rhinos, Hull KR — rugby league).
+//
+// MUST STAY IN SYNC with the identical copies in functions/api/ticketmaster.js,
+// functions/api/sportsevents365.js, and functions/api/awin-category-cache.js
+// (which use this same pattern to stop these fixtures being registered into
+// event_pages in the first place) and with the noindex meta tag hardcoded
+// into each club's static football/{slug}.html page.
+const EXCLUDED_FOOTBALL_CLUB_PATTERN = new RegExp(
+  '\\b(arsenal|aston\\s+villa|bournemouth|brentford|brighton|burnley|chelsea|' +
+  'coventry\\s+city|crystal\\s+palace|everton|fulham|hull\\s+city|' +
+  'leeds\\s+united|liverpool|manchester\\s+(?:city|united)|man\\s+(?:city|utd|united)|' +
+  'newcastle\\s+united|nottingham\\s+forest|sunderland|tottenham|west\\s+ham|' +
+  'wolverhampton|wolves)\\b', 'i'
+);
+
+function isExcludedFootballFixture(category, name) {
+  return category === 'football' && EXCLUDED_FOOTBALL_CLUB_PATTERN.test(String(name || ''));
+}
+
 export async function onRequestGet(ctx) {
   const { env, params, request } = ctx;
   const rawParam = String(params.slug || '');
@@ -253,7 +285,11 @@ export async function onRequestGet(ctx) {
   const tmPrice = (tmUrl && price) ? price : null;
 
   // Indexable only when we have real registry data AND the event is upcoming
-  const indexable = !!row && !isPast;
+  // AND it doesn't involve a club we've deliberately excluded from the site
+  // (see EXCLUDED_FOOTBALL_CLUB_PATTERN above) — upcoming-only per that
+  // decision; already-past fixtures for these clubs are left to the normal
+  // decay ladder above rather than force-excluded here.
+  const indexable = !!row && !isPast && !isExcludedFootballFixture(category, name);
 
   // CLS FIX v2 (6 Aug 2026): the first attempt removed the static
   // min-height:450px outright and made CLS WORSE (0.144 → 0.397, confirmed

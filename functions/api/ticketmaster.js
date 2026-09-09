@@ -14,6 +14,23 @@ const TM_SORTS = new Set([
   'relevance,asc', 'relevance,desc', 'random'
 ]);
 
+// Clubs removed from the site (Sept 2026 business decision, not a data-
+// quality fix) — see the identical copy + full rationale in
+// functions/event/[slug].js's EXCLUDED_FOOTBALL_CLUB_PATTERN comment.
+// MUST STAY IN SYNC with that file and the copies in
+// functions/api/sportsevents365.js and functions/api/awin-category-cache.js.
+const EXCLUDED_FOOTBALL_CLUB_PATTERN = new RegExp(
+  '\\b(arsenal|aston\\s+villa|bournemouth|brentford|brighton|burnley|chelsea|' +
+  'coventry\\s+city|crystal\\s+palace|everton|fulham|hull\\s+city|' +
+  'leeds\\s+united|liverpool|manchester\\s+(?:city|united)|man\\s+(?:city|utd|united)|' +
+  'newcastle\\s+united|nottingham\\s+forest|sunderland|tottenham|west\\s+ham|' +
+  'wolverhampton|wolves)\\b', 'i'
+);
+
+function isExcludedFootballFixture(category, name) {
+  return category === 'football' && EXCLUDED_FOOTBALL_CLUB_PATTERN.test(String(name || ''));
+}
+
 export async function onRequestGet(ctx) {
   const { request, env } = ctx;
 
@@ -857,6 +874,10 @@ function tsExtractTmRecords(data, slugV2Enabled) {
 async function tsRegisterEvents(env, records) {
   const db = env.PRICE_DB;
   if (!db || !records || !records.length) return;
+  // Drop excluded-club fixtures before they ever reach event_pages — see
+  // EXCLUDED_FOOTBALL_CLUB_PATTERN above.
+  records = records.filter(r => !isExcludedFootballFixture(r.category, r.name));
+  if (!records.length) return;
   const now = new Date().toISOString();
   // created_at is bound in the INSERT values but deliberately OMITTED from the
   // ON CONFLICT DO UPDATE SET clause — SQLite leaves an omitted column

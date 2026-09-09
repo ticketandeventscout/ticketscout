@@ -27,6 +27,23 @@ const SANDBOX_BASE    = 'https://api-v2.sandbox365.com';
 const PRODUCTION_BASE = 'https://api-v2.sportsevents365.com';
 const CACHE_KEY       = 'se365:participants:latest';
 
+// Clubs removed from the site (Sept 2026 business decision, not a data-
+// quality fix) — see the identical copy + full rationale in
+// functions/event/[slug].js's EXCLUDED_FOOTBALL_CLUB_PATTERN comment.
+// MUST STAY IN SYNC with that file and the copies in
+// functions/api/ticketmaster.js and functions/api/awin-category-cache.js.
+const EXCLUDED_FOOTBALL_CLUB_PATTERN = new RegExp(
+  '\\b(arsenal|aston\\s+villa|bournemouth|brentford|brighton|burnley|chelsea|' +
+  'coventry\\s+city|crystal\\s+palace|everton|fulham|hull\\s+city|' +
+  'leeds\\s+united|liverpool|manchester\\s+(?:city|united)|man\\s+(?:city|utd|united)|' +
+  'newcastle\\s+united|nottingham\\s+forest|sunderland|tottenham|west\\s+ham|' +
+  'wolverhampton|wolves)\\b', 'i'
+);
+
+function isExcludedFootballFixture(category, name) {
+  return category === 'football' && EXCLUDED_FOOTBALL_CLUB_PATTERN.test(String(name || ''));
+}
+
 // Price-history capture. MUST MATCH price-sampler.js — same KV key, same
 // fallback table — so an SE365 sample and a VividSeats sample of the same
 // event convert to GBP identically and are directly comparable.
@@ -698,6 +715,10 @@ function tsEventSlug(category, date, name) {
 async function tsRegisterEvents(env, records) {
   const db = env.PRICE_DB;
   if (!db || !records || !records.length) return;
+  // Drop excluded-club fixtures before they ever reach event_pages — see
+  // EXCLUDED_FOOTBALL_CLUB_PATTERN above.
+  records = records.filter(r => !isExcludedFootballFixture(r.category, r.name));
+  if (!records.length) return;
   const now = new Date().toISOString();
   const stmt = db.prepare(
     'INSERT INTO event_pages (slug, category, name, event_date, venue, city, price, currency, tm_url, image, source, updated_at) ' +

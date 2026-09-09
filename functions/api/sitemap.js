@@ -44,6 +44,18 @@ const STATIC_URLS = [
   '/terms'
 ];
 
+// Clubs removed from the site (Sept 2026 business decision) — matched
+// against the frozen v1 event slug (category-date-nameslug), which is all
+// this query has. MUST STAY IN SYNC with EXCLUDED_FOOTBALL_CLUB_PATTERN in
+// functions/event/[slug].js (same club list, hyphens instead of spaces).
+const EXCLUDED_FOOTBALL_CLUB_SLUG_PATTERN = new RegExp(
+  '(?:^|-)(arsenal|aston-villa|bournemouth|brentford|brighton|burnley|chelsea|' +
+  'coventry-city|crystal-palace|everton|fulham|hull-city|' +
+  'leeds-united|liverpool|manchester-city|manchester-united|man-city|man-utd|man-united|' +
+  'newcastle-united|nottingham-forest|sunderland|tottenham|west-ham|' +
+  'wolverhampton|wolves)(?:-|$)'
+);
+
 const SECTIONS = ['static', 'concert', 'football', 'theatre', 'sports', 'venue', 'event'];
 
 export async function onRequestGet({ request, env }) {
@@ -313,7 +325,17 @@ export async function onRequestGet({ request, env }) {
       // meant every sitemap entry was a redirect to a URL not itself listed
       // anywhere, instead of real 200 content. Matches the canonical format
       // used in functions/event/[slug].js (`${slug}-E${id}`).
-      const entries = (results || []).map(r =>
+      //
+      // Excludes fixtures for clubs removed from the site (Sept 2026 —
+      // see EXCLUDED_FOOTBALL_CLUB_PATTERN in functions/event/[slug].js,
+      // which this mirrors against the slug instead of the raw name since
+      // that's all this query has). functions/event/[slug].js already
+      // force-noindexes these on direct visit; keeping them out of the
+      // sitemap too avoids listing a noindexed URL as if it were indexable.
+      const filtered = (results || []).filter(r =>
+        !(r.slug.startsWith('football-') && EXCLUDED_FOOTBALL_CLUB_SLUG_PATTERN.test(r.slug))
+      );
+      const entries = filtered.map(r =>
         `  <url><loc>${HOST}/event/${r.slug}-E${r.id}</loc><lastmod>${String(r.updated_at || '').slice(0, 10)}</lastmod></url>`
       ).join('\n');
       return xml(urlset(entries));
@@ -370,8 +392,20 @@ export async function onRequestGet({ request, env }) {
   const total = Object.keys(slugs).length;
   const suppress = dormant.size > 0 && dormant.size <= Math.floor(total / 2);
 
+  // Clubs removed from the site (Sept 2026) — exact entity slugs this time,
+  // not the fixture-name pattern above, since the registry keys are already
+  // the real football/{slug} hub slugs. MUST STAY IN SYNC with the same club
+  // list in EXCLUDED_FOOTBALL_CLUB_PATTERN/_SLUG_PATTERN above.
+  const EXCLUDED_FOOTBALL_ENTITY_SLUGS = new Set([
+    'arsenal', 'aston-villa', 'bournemouth', 'brentford', 'brighton', 'burnley', 'chelsea',
+    'coventry-city', 'coventry-city-fc', 'crystal-palace', 'everton', 'fulham', 'hull-city',
+    'leeds-united', 'liverpool', 'manchester-city', 'manchester-united', 'newcastle',
+    'nottingham-forest', 'sunderland', 'sunderland-afc', 'tottenham', 'west-ham', 'wolves'
+  ]);
+
   const entries = Object.entries(slugs)
     .filter(([slug]) => !(suppress && dormant.has(slug)))
+    .filter(([slug]) => !(sec === 'football' && EXCLUDED_FOOTBALL_ENTITY_SLUGS.has(slug)))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([slug, lastmod]) =>
       `  <url><loc>${HOST}/${sec}/${slug}</loc><lastmod>${lastmod}</lastmod></url>`)
