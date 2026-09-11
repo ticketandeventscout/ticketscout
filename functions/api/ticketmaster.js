@@ -40,18 +40,27 @@ const EXCLUDED_FOOTBALL_CLUB_PATTERN = new RegExp(
   'lincoln\\s+city|mansfield(?:\\s+town)?|milton\\s+keynes|mk\\s+dons|newport\\s+county|' +
   'northampton(?:\\s+town)?|notts\\s+county|oldham(?:\\s+athletic)?|oxford\\s+united|' +
   'penybont|peterborough(?:\\s+united)?|plymouth(?:\\s+argyle)?|port\\s+vale|' +
-  'preston(?:\\s+north\\s+end)?|reading|rotherham(?:\\s+united)?|salford(?:\\s+city)?|' +
+  'preston(?:\\s+north\\s+end)?|reading(?!\\s*royals)|rotherham(?:\\s+united)?|salford(?:\\s+city)?|' +
   'shrewsbury(?:\\s+town)?|stevenage|sutton\\s+united|swindon(?:\\s+town)?|' +
   'the\\s+new\\s+saints|tranmere(?:\\s+rovers)?|walsall|west\\s+brom(?:wich)?(?:\\s+albion)?|' +
   'wigan(?:\\s+athletic)?|wrexham|wycombe(?:\\s+wanderers)?|yeovil(?:\\s+town)?|' +
-  'leicester(?:\\s+city)?|southampton|ipswich(?:\\s+town)?|sheffield\\s+(?:united|wednesday)|' +
+  'leicester\\s+city|southampton|ipswich(?:\\s+town)?|sheffield\\s+(?:united|wednesday)|' +
   'middlesbrough|norwich(?:\\s+city)?|stoke(?:\\s+city)?|swansea(?:\\s+city)?|' +
   'cardiff(?:\\s+city)?|blackburn(?:\\s+rovers)?|derby\\s+county|millwall|' +
   'queens\\s+park\\s+rangers|luton(?:\\s+town)?|watford)\\b', 'i'
 );
 
+// FIX (11 Sep 2026, live incident): confirmed real football fixtures
+// (Derby County vs Wrexham, Millwall vs Swansea City, West Bromwich Albion
+// vs Wrexham, etc.) registered under category='sports' instead of
+// 'football' — a pre-existing mis-categorisation upstream, not something
+// this exclusion created. Checking 'sports' too closes that leak. Deliberately
+// NOT extended to concert/theatre: those categories legitimately have
+// venue-city coincidences (e.g. a concert AT a venue in Leicester/Reading)
+// that must not be excluded just for sharing a club's city name.
 function isExcludedFootballFixture(category, name) {
-  return category === 'football' && EXCLUDED_FOOTBALL_CLUB_PATTERN.test(String(name || ''));
+  return (category === 'football' || category === 'sports')
+    && EXCLUDED_FOOTBALL_CLUB_PATTERN.test(String(name || ''));
 }
 
 export async function onRequestGet(ctx) {

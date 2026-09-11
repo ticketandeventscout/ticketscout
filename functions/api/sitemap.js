@@ -64,11 +64,11 @@ const EXCLUDED_FOOTBALL_CLUB_SLUG_PATTERN = new RegExp(
   'lincoln-city|mansfield(?:-town)?|milton-keynes|mk-dons|newport-county|' +
   'northampton(?:-town)?|notts-county|oldham(?:-athletic)?|oxford-united|' +
   'penybont|peterborough(?:-united)?|plymouth(?:-argyle)?|port-vale|' +
-  'preston(?:-north-end)?|reading|rotherham(?:-united)?|salford(?:-city)?|' +
+  'preston(?:-north-end)?|reading(?!-royals)|rotherham(?:-united)?|salford(?:-city)?|' +
   'shrewsbury(?:-town)?|stevenage|sutton-united|swindon(?:-town)?|' +
   'the-new-saints|tranmere(?:-rovers)?|walsall|west-brom(?:wich)?(?:-albion)?|' +
   'wigan(?:-athletic)?|wrexham|wycombe(?:-wanderers)?|yeovil(?:-town)?|' +
-  'leicester(?:-city)?|southampton|ipswich(?:-town)?|sheffield-(?:united|wednesday)|' +
+  'leicester-city|southampton|ipswich(?:-town)?|sheffield-(?:united|wednesday)|' +
   'middlesbrough|norwich(?:-city)?|stoke(?:-city)?|swansea(?:-city)?|' +
   'cardiff(?:-city)?|blackburn(?:-rovers)?|derby-county|millwall|' +
   'queens-park-rangers|luton(?:-town)?|watford)(?:-|$)'
@@ -350,8 +350,16 @@ export async function onRequestGet({ request, env }) {
       // that's all this query has). functions/event/[slug].js already
       // force-noindexes these on direct visit; keeping them out of the
       // sitemap too avoids listing a noindexed URL as if it were indexable.
+      //
+      // FIX (11 Sep 2026): also checks 'sports-' prefixed slugs, not just
+      // 'football-' — confirmed live that real football fixtures (Derby
+      // County vs Wrexham, Millwall vs Swansea City) get registered under
+      // category='sports', a pre-existing mis-categorisation upstream.
+      // Deliberately NOT extended to concert-/theatre- slugs, which
+      // legitimately share a club's city name via venue location.
       const filtered = (results || []).filter(r =>
-        !(r.slug.startsWith('football-') && EXCLUDED_FOOTBALL_CLUB_SLUG_PATTERN.test(r.slug))
+        !((r.slug.startsWith('football-') || r.slug.startsWith('sports-'))
+          && EXCLUDED_FOOTBALL_CLUB_SLUG_PATTERN.test(r.slug))
       );
       const entries = filtered.map(r =>
         `  <url><loc>${HOST}/event/${r.slug}-E${r.id}</loc><lastmod>${String(r.updated_at || '').slice(0, 10)}</lastmod></url>`
