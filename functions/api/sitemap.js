@@ -411,9 +411,10 @@ export async function onRequestGet({ request, env }) {
     'leeds-united', 'liverpool', 'manchester-city', 'manchester-united', 'newcastle',
     'nottingham-forest', 'sunderland', 'sunderland-afc', 'tottenham', 'west-ham', 'wolves',
     'arsenal-women', 'brighton-hove-albion', 'chelsea-fc', 'chelsea-women', 'everton-fc',
-    'fulham-fc', 'liverpool-fc', 'liverpool-legends', 'manchester-united-legends',
+    'fulham-fc', 'liverpool-fc', 'liverpool-legends', 'liverpool-women',
+    'manchester-united-legends', 'manchester-united-women',
     'newcastle-united', 'tottenham-hotspur', 'tottenham-hotspur-legends', 'tottenhamvitesse',
-    'west-ham-united', 'wolverhampton-wanderers', 'wolverhampton-wanderers-fc'
+    'west-ham-united', 'wolverhampton', 'wolverhampton-wanderers', 'wolverhampton-wanderers-fc'
   ]);
 
   const entries = Object.entries(slugs)
