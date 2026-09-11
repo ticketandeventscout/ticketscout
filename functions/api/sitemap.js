@@ -53,7 +53,25 @@ const EXCLUDED_FOOTBALL_CLUB_SLUG_PATTERN = new RegExp(
   'coventry-city|crystal-palace|everton|fulham|hull-city|' +
   'leeds-united|liverpool|manchester-city|manchester-united|man-city|man-utd|man-united|' +
   'newcastle-united|nottingham-forest|sunderland|tottenham|west-ham|' +
-  'wolverhampton|wolves)(?:-|$)'
+  'wolverhampton|wolves|' +
+  'accrington-stanley|afc-wimbledon|barnsley|barrow|birmingham(?:-city)?|' +
+  'blackpool|bolton(?:-wanderers)?|boreham-wood|bradford(?:-city)?|' +
+  'bristol-(?:city|rovers)|burton-albion|caernarfon|cambridge-united|' +
+  'carlisle(?:-united)?|charlton(?:-athletic)?|chesterfield|colchester(?:-united)?|' +
+  'connahs-quay|crewe(?:-alexandra)?|dagenham|doncaster(?:-rovers)?|' +
+  'exeter(?:-city)?|fleetwood(?:-town)?|forest-green|gillingham|' +
+  'harrogate(?:-town)?|haverfordwest|huddersfield(?:-town)?|leyton-orient|' +
+  'lincoln-city|mansfield(?:-town)?|milton-keynes|mk-dons|newport-county|' +
+  'northampton(?:-town)?|notts-county|oldham(?:-athletic)?|oxford-united|' +
+  'penybont|peterborough(?:-united)?|plymouth(?:-argyle)?|port-vale|' +
+  'preston(?:-north-end)?|reading|rotherham(?:-united)?|salford(?:-city)?|' +
+  'shrewsbury(?:-town)?|stevenage|sutton-united|swindon(?:-town)?|' +
+  'the-new-saints|tranmere(?:-rovers)?|walsall|west-brom(?:wich)?(?:-albion)?|' +
+  'wigan(?:-athletic)?|wrexham|wycombe(?:-wanderers)?|yeovil(?:-town)?|' +
+  'leicester(?:-city)?|southampton|ipswich(?:-town)?|sheffield-(?:united|wednesday)|' +
+  'middlesbrough|norwich(?:-city)?|stoke(?:-city)?|swansea(?:-city)?|' +
+  'cardiff(?:-city)?|blackburn(?:-rovers)?|derby-county|millwall|' +
+  'queens-park-rangers|luton(?:-town)?|watford)(?:-|$)'
 );
 
 const SECTIONS = ['static', 'concert', 'football', 'theatre', 'sports', 'venue', 'event'];
@@ -414,7 +432,32 @@ export async function onRequestGet({ request, env }) {
     'fulham-fc', 'liverpool-fc', 'liverpool-legends', 'liverpool-women',
     'manchester-united-legends', 'manchester-united-women',
     'newcastle-united', 'tottenham-hotspur', 'tottenham-hotspur-legends', 'tottenhamvitesse',
-    'west-ham-united', 'wolverhampton', 'wolverhampton-wanderers', 'wolverhampton-wanderers-fc'
+    'west-ham-united', 'wolverhampton', 'wolverhampton-wanderers', 'wolverhampton-wanderers-fc',
+    // Third block (Sept 2026): scope expanded from "Premier League" to
+    // "every English and Welsh club" per explicit instruction. Cross-
+    // referenced against the live registry, not guessed from memory.
+    'leicester', 'leicester-city', 'southampton', 'ipswich', 'ipswich-town',
+    'sheffield-united', 'sheffield-wednesday', 'middlesbrough', 'norwich-city',
+    'stoke-city', 'swansea-city', 'cardiff-city', 'blackburn-rovers', 'derby-county',
+    'millwall', 'millwall-fc', 'queens-park-rangers', 'luton-town', 'watford', 'watford-fc',
+    'accrington-stanley', 'afc-wimbledon', 'arsenal-legends', 'barnsley', 'barrow',
+    'birmingham-city', 'blackpool', 'blackpool-fc', 'bolton-wanderers', 'boreham-wood',
+    'bradford-city', 'bristol-city', 'bristol-rovers', 'bristol-rovers-fc', 'burton-albion',
+    'caernarfon-town-fc', 'cambridge-united', 'carlisle-united', 'charlton-athletic',
+    'chesterfield-fc', 'colchester-united', 'connahs-quay-nomads', 'crewe-alexandra',
+    'dagenham-redbridge', 'doncaster-rovers', 'exeter-city', 'fleetwood-town-fc',
+    'forest-green-rovers', 'gillingham', 'harrogate-town', 'haverfordwest-county-afc',
+    'huddersfield-town', 'leyton-orient', 'lincoln-city', 'liverpool-futbol-club',
+    'mansfield-town', 'milton-keynes-dons', 'mk-dons', 'newport-county-afc',
+    'northampton-town', 'notts-county', 'oldham-athletic', 'oxford-united',
+    'penybont-football-club', 'peterborough-united-fc', 'plymouth', 'port-vale',
+    'preston-north-end', 'reading', 'rotherham-united', 'salford-city-fc',
+    'shrewsbury-town', 'stevenage', 'sutton-united', 'swindon-town', 'the-new-saints-fc',
+    'tranmere-rovers', 'walsall', 'walsall-fc', 'west-bromwich-albion', 'wigan-athletic',
+    'wrexham', 'wrexham-afc', 'wycombe-wanderers', 'yeovil-town',
+    // Data-quality glitch slugs, excluded alongside their (already-excluded)
+    // real counterparts rather than left live as orphaned oddities.
+    'liverpool-blackburn', 'manchester-cityceltic', 'liverpoolfestivalen'
   ]);
 
   const entries = Object.entries(slugs)

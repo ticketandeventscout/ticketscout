@@ -24,7 +24,30 @@ const EXCLUDED_FOOTBALL_CLUB_PATTERN = new RegExp(
   'coventry\\s+city|crystal\\s+palace|everton|fulham|hull\\s+city|' +
   'leeds\\s+united|liverpool|manchester\\s+(?:city|united)|man\\s+(?:city|utd|united)|' +
   'newcastle\\s+united|nottingham\\s+forest|sunderland|tottenham|west\\s+ham|' +
-  'wolverhampton|wolves)\\b', 'i'
+  'wolverhampton|wolves|' +
+  // Second wave (Sept 2026): "every English and Welsh football club", not
+  // just Premier League — same rationale, see EXCLUDED_FOOTBALL_CLUB_PATTERN
+  // comment above. Full list covers the English pyramid (Championship down
+  // to National League) plus Welsh Cymru Premier clubs, cross-referenced
+  // against the live /api/sitemap?sec=football registry rather than guessed.
+  'accrington\\s+stanley|afc\\s+wimbledon|barnsley|barrow|birmingham(?:\\s+city)?|' +
+  'blackpool|bolton(?:\\s+wanderers)?|boreham\\s+wood|bradford(?:\\s+city)?|' +
+  'bristol\\s+(?:city|rovers)|burton\\s+albion|caernarfon|cambridge\\s+united|' +
+  'carlisle(?:\\s+united)?|charlton(?:\\s+athletic)?|chesterfield|colchester(?:\\s+united)?|' +
+  'connahs?.?\\s+quay|crewe(?:\\s+alexandra)?|dagenham|doncaster(?:\\s+rovers)?|' +
+  'exeter(?:\\s+city)?|fleetwood(?:\\s+town)?|forest\\s+green|gillingham|' +
+  'harrogate(?:\\s+town)?|haverfordwest|huddersfield(?:\\s+town)?|leyton\\s+orient|' +
+  'lincoln\\s+city|mansfield(?:\\s+town)?|milton\\s+keynes|mk\\s+dons|newport\\s+county|' +
+  'northampton(?:\\s+town)?|notts\\s+county|oldham(?:\\s+athletic)?|oxford\\s+united|' +
+  'penybont|peterborough(?:\\s+united)?|plymouth(?:\\s+argyle)?|port\\s+vale|' +
+  'preston(?:\\s+north\\s+end)?|reading|rotherham(?:\\s+united)?|salford(?:\\s+city)?|' +
+  'shrewsbury(?:\\s+town)?|stevenage|sutton\\s+united|swindon(?:\\s+town)?|' +
+  'the\\s+new\\s+saints|tranmere(?:\\s+rovers)?|walsall|west\\s+brom(?:wich)?(?:\\s+albion)?|' +
+  'wigan(?:\\s+athletic)?|wrexham|wycombe(?:\\s+wanderers)?|yeovil(?:\\s+town)?|' +
+  'leicester(?:\\s+city)?|southampton|ipswich(?:\\s+town)?|sheffield\\s+(?:united|wednesday)|' +
+  'middlesbrough|norwich(?:\\s+city)?|stoke(?:\\s+city)?|swansea(?:\\s+city)?|' +
+  'cardiff(?:\\s+city)?|blackburn(?:\\s+rovers)?|derby\\s+county|millwall|' +
+  'queens\\s+park\\s+rangers|luton(?:\\s+town)?|watford)\\b', 'i'
 );
 
 function isExcludedFootballFixture(category, name) {
