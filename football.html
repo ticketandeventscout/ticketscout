@@ -770,25 +770,6 @@
         document.getElementById('artist-name').textContent = 'Football Tickets';
         document.getElementById('artist-sub').textContent  = 'Compare match ticket prices across verified sellers';
 
-        const premClubs = [
-          ['arsenal','Arsenal'],['chelsea','Chelsea'],['liverpool','Liverpool'],
-          ['manchester-united','Man United'],['manchester-city','Man City'],
-          ['tottenham','Tottenham'],['newcastle','Newcastle'],['aston-villa','Aston Villa'],
-          ['west-ham','West Ham'],['brighton','Brighton'],['everton','Everton'],
-          ['fulham','Fulham'],['brentford','Brentford'],['crystal-palace','Crystal Palace'],
-          ['nottingham-forest','Nott\u2019m Forest']
-        ];
-        const otherClubs = [
-          ['leeds-united','Leeds United'],['celtic','Celtic'],['rangers','Rangers'],
-          ['sheffield-united','Sheffield Utd'],['sunderland','Sunderland'],
-          ['middlesbrough','Middlesbrough'],['hearts','Hearts'],['hibernian','Hibernian'],
-          ['burnley','Burnley'],['watford','Watford']
-        ];
-
-        function clubLink(slug, name) {
-          return '<a href="/football/' + slug + '" style="display:block;padding:12px 14px;background:#f8f9fa;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none;color:#1a1a1a;font-size:14px;font-weight:500;">' + name + '</a>';
-        }
-
         // Static hub content (all 117 clubs) ships in the template HTML — nothing to render here.
 
         // Hide team-specific sections that don't apply to the landing page
