@@ -22,6 +22,24 @@
 
 const TM_BASE = 'https://app.ticketmaster.com/discovery/v2/events.json';
 
+// Clubs removed from the site (Sept 2026 business decision, not a data-
+// quality fix) — see the identical copy + full rationale in
+// functions/event/[slug].js's EXCLUDED_FOOTBALL_CLUB_PATTERN comment.
+// MUST STAY IN SYNC with that file and the copies in
+// functions/api/ticketmaster.js, functions/api/sportsevents365.js,
+// functions/api/awin-category-cache.js, and functions/api/awin-events.js.
+const EXCLUDED_FOOTBALL_CLUB_PATTERN = new RegExp(
+  '\\b(arsenal|aston\\s+villa|bournemouth|brentford|brighton|burnley|chelsea|' +
+  'coventry\\s+city|crystal\\s+palace|everton|fulham|hull\\s+city|' +
+  'leeds\\s+united|liverpool|manchester\\s+(?:city|united)|man\\s+(?:city|utd|united)|' +
+  'newcastle\\s+united|nottingham\\s+forest|sunderland|tottenham|west\\s+ham|' +
+  'wolverhampton|wolves)\\b', 'i'
+);
+
+function isExcludedFootballFixture(category, name) {
+  return category === 'football' && EXCLUDED_FOOTBALL_CLUB_PATTERN.test(String(name || ''));
+}
+
 // Segments that represent real ticketed events. TM classifies attractions
 // (The View from The Shard, Twist Museum, Sea Life) as Miscellaneous /
 // Undefined — confirmed against the live payload 23 Jul.
@@ -110,6 +128,17 @@ async function fetchSegment(apiKey, segment, size) {
     const k = performanceKey(e);
     if (seen.has(k)) continue;
     seen.add(k);
+
+    // Clubs removed from the site (Sept 2026) — checked BEFORE this fixture
+    // can enter the homepage grid at all, not just before it's registered
+    // into event_pages. This file pulls straight from TM's live "Sports"
+    // segment, so an excluded club's fixture could appear here as soon as
+    // TM lists it, regardless of the sitemap/hub-page exclusions elsewhere.
+    // The comment below (from before this fix existed) documents exactly
+    // this happening: an Arsenal fixture was featured on the homepage.
+    const category = tsTmCategory(e);
+    if (isExcludedFootballFixture(category, e.name)) continue;
+
     events.push(slim(e));           // slim immediately; raw is released below
     if (names.length < 8) names.push(e.name);
 
@@ -122,7 +151,6 @@ async function fetchSegment(apiKey, segment, size) {
     // homepage fixtures (Arsenal vs Como) still noindexed with zero D1 row.
     // Built from the RAW event, not the slimmed card — slim() drops e.url
     // (needed for tmUrl) to keep card payloads small.
-    const category = tsTmCategory(e);
     const date = (e.dates && e.dates.start && e.dates.start.localDate) || '';
     if (category && date && date >= today) {
       const slug = tsEventSlug(category, date, normaliseFixtureName(e.name));
