@@ -969,6 +969,18 @@
         // the hub renders a bare "About the artist" with nothing under it.
         document.getElementById('about-heading').textContent = 'About concert tickets on TicketScout';
         document.getElementById('faq-heading').textContent = 'Frequently asked questions';
+        // R7 (1 Oct 2026): this page was ranking position ~8 on 1,559
+        // impressions but converting at 0.06% CTR (1 click) — the static
+        // head-level title/description below never got hub-specific copy,
+        // only the single-artist default. Scoped to the hub only (the
+        // single-artist branch below is untouched) so its effect can be
+        // measured on its own.
+        document.title = 'Concert Tickets UK — Compare Prices Across 13 Sellers | TicketScout';
+        setEl('page-title', null, 'Concert Tickets UK — Compare Prices Across 13 Sellers | TicketScout');
+        document.getElementById('meta-description') && document.getElementById('meta-description').setAttribute(
+          'content',
+          'Compare concert ticket prices across 13 verified UK sellers. Find the cheapest tickets for your favourite artists on TicketScout.'
+        );
         await loadHub('/api/concert?list=1', 'Concert');
         return;
       }
