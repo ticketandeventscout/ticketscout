@@ -14,8 +14,6 @@ TicketScout compares ticket prices across verified sellers including Gigsberg, S
 
 ## Key Pages
 
-- [Arsenal Tickets](https://ticketscout.co.uk/football/arsenal)
-- [Chelsea Tickets](https://ticketscout.co.uk/football/chelsea)
 - [FC Barcelona Tickets](https://ticketscout.co.uk/football/fc-barcelona)
 - [Real Madrid Tickets](https://ticketscout.co.uk/football/real-madrid)
 - [Wembley Stadium Events](https://ticketscout.co.uk/venue/wembley-stadium)
