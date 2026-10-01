@@ -468,8 +468,30 @@ export async function onRequestGet({ request, env }) {
     'liverpool-blackburn', 'manchester-cityceltic', 'liverpoolfestivalen'
   ]);
 
+  // R5 (1 Oct 2026): drop merged slugs. duplicate-entities.js's merge tool
+  // writes redirectSlug:{sec}:{oldSlug} but leaves the old slug in the
+  // registry, so the loser kept being listed here as if it were a normal
+  // indexable page. For football/sports/theatre the old URL still serves
+  // its own static stub (index,follow + self canonical) and only redirects
+  // client-side after JS runs — a sitemap entry for it asks Google to index
+  // a page we have already decided is a duplicate. One paged KV list per
+  // section request; FAIL-OPEN like the dormancy filter above, so a list
+  // error can only ever leave the sitemap as it was, never empty it.
+  const redirected = new Set();
+  try {
+    const prefix = `redirectSlug:${sec}:`;
+    let cursor;
+    for (let page = 0; page < 20; page++) {
+      const res = await kv.list({ prefix, cursor });
+      for (const k of res.keys || []) redirected.add(k.name.slice(prefix.length));
+      if (res.list_complete || !res.cursor) break;
+      cursor = res.cursor;
+    }
+  } catch { redirected.clear(); /* fail open */ }
+
   const entries = Object.entries(slugs)
     .filter(([slug]) => !(suppress && dormant.has(slug)))
+    .filter(([slug]) => !redirected.has(slug))
     .filter(([slug]) => !(sec === 'football' && EXCLUDED_FOOTBALL_ENTITY_SLUGS.has(slug)))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([slug, lastmod]) =>
