@@ -18,6 +18,8 @@
 // Safe to delete once run once and confirmed working.
 // ============================================================================
 
+import { requireAdmin } from './_auth.js';
+
 const PAIRS = [
   // Batch 1 (commitSha 3a5f64d9...)
   ['opener-festival-2-day-pass', 'opener-festival'],
@@ -67,6 +69,11 @@ export async function onRequestGet({ request, env }) {
       message: 'Add &confirm=yes to write these 27 entries.'
     }, 200);
   }
+
+  // F6 (1 Oct 2026): the write branch requires the admin token (see _auth.js).
+  // The dry run above stays open.
+  const denied = await requireAdmin(request, env);
+  if (denied) return denied;
 
   const written = [];
   for (const [oldSlug, newSlug] of PAIRS) {

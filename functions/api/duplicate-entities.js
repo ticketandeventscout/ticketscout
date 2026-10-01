@@ -57,6 +57,8 @@
 //   /api/duplicate-entities?scan=1&trigger=1&tier=A     (A | B | C | all)
 // =============================================================================
 
+import { requireAdmin } from './_auth.js';
+
 const CATEGORIES = ['concert', 'football', 'theatre', 'sports', 'venue'];
 
 // Per-category entity record prefix — confirmed from discover-pages.js and
@@ -342,6 +344,9 @@ export async function onRequestGet({ request, env }) {
           message: 'Dry run — nothing written. Add &confirm=yes to apply.'
         }, 200);
       }
+      // F6 (1 Oct 2026): the write requires the admin token (see _auth.js).
+      const denied = await requireAdmin(request, env);
+      if (denied) return denied;
       rec.search = newSearch;
       await kv.put(prefix + slug, JSON.stringify(rec));
       return jsonResponse({
@@ -353,11 +358,11 @@ export async function onRequestGet({ request, env }) {
   }
 
   if (url.searchParams.get('repair') === '1' && url.searchParams.get('trigger') === '1') {
-    return runRepair(url, env);
+    return runRepair(url, env, request);
   }
 
   if (url.searchParams.get('merge') === '1' && url.searchParams.get('trigger') === '1') {
-    return runMerge(url, env);
+    return runMerge(url, env, request);
   }
 
   if (url.searchParams.get('scan') !== '1' || url.searchParams.get('trigger') !== '1') {
@@ -502,7 +507,7 @@ async function resolveRiskyOverridePairs(url, tierBRisky) {
 //          — ALSO merges named tierB_riskyLeadingPrefix pairs (see above);
 //          every other risky pair, and every group in tierA_variantSuspect/
 //          tierC, remains untouched regardless
-async function runMerge(url, env) {
+async function runMerge(url, env, request) {
   const kv = env.GIGSBERG_KV;
   if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
 
@@ -510,6 +515,13 @@ async function runMerge(url, env) {
   const categories = onlyCategory ? [onlyCategory] : CATEGORIES;
   const confirm = url.searchParams.get('confirm') === 'yes';
   const dryRun = !confirm;
+
+  // F6 (1 Oct 2026): confirm=yes writes redirect keys, entity meta and the
+  // registry, so it requires the admin token (see _auth.js). Dry run stays open.
+  if (confirm) {
+    const denied = await requireAdmin(request, env);
+    if (denied) return denied;
+  }
 
   let registry = null;
   try { const r = await kv.get('sitemap:registry'); if (r) registry = JSON.parse(r); }
@@ -719,7 +731,7 @@ async function runMerge(url, env) {
 //
 // Usage: ?repair=1&trigger=1&category=football               — dry run
 //        ?repair=1&trigger=1&category=football&confirm=yes    — writes
-async function runRepair(url, env) {
+async function runRepair(url, env, request) {
   const kv = env.GIGSBERG_KV;
   if (!kv) return jsonResponse({ error: 'Missing GIGSBERG_KV' }, 500);
 
@@ -729,6 +741,13 @@ async function runRepair(url, env) {
   if (!prefix) return jsonResponse({ error: `No entity KV prefix known for category "${onlyCategory}"` }, 400);
   const confirm = url.searchParams.get('confirm') === 'yes';
   const dryRun = !confirm;
+
+  // F6 (1 Oct 2026): confirm=yes rewrites the registry, so it requires the
+  // admin token (see _auth.js). Dry run stays open.
+  if (confirm) {
+    const denied = await requireAdmin(request, env);
+    if (denied) return denied;
+  }
 
   let registry = null;
   try { const r = await kv.get('sitemap:registry'); if (r) registry = JSON.parse(r); }
