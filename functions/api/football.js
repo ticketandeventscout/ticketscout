@@ -156,17 +156,31 @@ export async function onRequestGet({ request, env }) {
   // synthesis are not.
   let verifiedMatch = !!team;
 
-  // If not in hardcoded list, check KV for auto-discovered team data
+  // If not in hardcoded list, check KV for auto-discovered team data.
+  //
+  // R4 (1 Oct 2026): try the RAW slug first, then the suffix-stripped one.
+  // discover-pages.js writes football:team:{fileSlug} using the page's own
+  // slug (e.g. 'pau-fc'), but this lookup previously only tried normSlug
+  // ('pau'). For every auto-discovered club whose slug ends -fc/-afc/-soccer
+  // etc. that meant a KV miss -> synthesised team -> found:false -> the
+  // template set noindex AND rewrote the canonical to /football/{normSlug},
+  // a URL with no page (404). Raw-first keeps the stripped lookup as a
+  // fallback, so clubs that only exist under the short key are unaffected.
   if (!team) {
     const kv = env.GIGSBERG_KV;
     if (kv) {
-      try {
-        const kvData = await kv.get(`football:team:${normSlug}`);
-        if (kvData) {
-          team = JSON.parse(kvData);
-          verifiedMatch = true;
-        }
-      } catch {}
+      const rawSlug = slug.toLowerCase();
+      const keys = rawSlug === normSlug ? [normSlug] : [rawSlug, normSlug];
+      for (const k of keys) {
+        try {
+          const kvData = await kv.get(`football:team:${k}`);
+          if (kvData) {
+            team = JSON.parse(kvData);
+            verifiedMatch = true;
+            break;
+          }
+        } catch {}
+      }
     }
   }
 
