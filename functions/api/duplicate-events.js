@@ -59,6 +59,8 @@
 //   /api/duplicate-events?scan=1&trigger=1&includeDifferent=1  — see everything
 // =============================================================================
 
+import { requireAdmin } from './_auth.js';
+
 function normaliseBaseName(name) {
   let n = String(name || '').trim();
   // Same intent as extractPerformerName() in compare.js: strip a subtitle
@@ -105,7 +107,7 @@ export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
 
   if (url.searchParams.get('merge') === '1' && url.searchParams.get('trigger') === '1') {
-    return runMerge(url, env);
+    return runMerge(url, env, request);
   }
 
   if (url.searchParams.get('scan') !== '1' || url.searchParams.get('trigger') !== '1') {
@@ -239,7 +241,7 @@ export async function onRequestGet({ request, env }) {
 // remember how far through the candidate-group list they got, so repeatedly
 // hitting the same URL sweeps the whole backlog instead of re-scanning the
 // front of the list every time.
-async function runMerge(url, env) {
+async function runMerge(url, env, request) {
   const db = env.PRICE_DB;
   const kv = env.GIGSBERG_KV;
   if (!db) return jsonResponse({ error: 'Missing PRICE_DB' }, 500);
@@ -249,6 +251,14 @@ async function runMerge(url, env) {
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 200);
   const confirm = url.searchParams.get('confirm') === 'yes';
   const dryRun = !confirm;
+
+  // F6 (1 Oct 2026): confirm=yes deletes/updates event_pages rows and writes
+  // redirect keys, so it requires the admin token (see _auth.js). The dry
+  // run (no confirm) writes nothing and stays open.
+  if (confirm) {
+    const denied = await requireAdmin(request, env);
+    if (denied) return denied;
+  }
 
   const cursorKey = 'dupemerge:cursor:' + (category || 'all');
   let offset = 0;
