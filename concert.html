@@ -975,11 +975,11 @@
         // only the single-artist default. Scoped to the hub only (the
         // single-artist branch below is untouched) so its effect can be
         // measured on its own.
-        document.title = 'Concert Tickets UK — Compare Prices Across 13 Sellers | TicketScout';
-        setEl('page-title', null, 'Concert Tickets UK — Compare Prices Across 13 Sellers | TicketScout');
+        document.title = 'Concert Tickets UK — Compare Prices Across Up to 13 Sellers | TicketScout';
+        setEl('page-title', null, 'Concert Tickets UK — Compare Prices Across Up to 13 Sellers | TicketScout');
         document.getElementById('meta-description') && document.getElementById('meta-description').setAttribute(
           'content',
-          'Compare concert ticket prices across 13 verified UK sellers. Find the cheapest tickets for your favourite artists on TicketScout.'
+          'Compare concert ticket prices across up to 13 verified UK sellers. Find the cheapest tickets for your favourite artists on TicketScout.'
         );
         await loadHub('/api/concert?list=1', 'Concert');
         return;
