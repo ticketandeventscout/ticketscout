@@ -86,6 +86,13 @@ Disallow: /api/vividseats-cache
 Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
+# R2 (1 Oct 2026): write-capable and diagnostic endpoints not previously listed
+Disallow: /api/backfill-redirects
+Disallow: /api/duplicate-entities
+Disallow: /api/duplicate-events
+Disallow: /api/fixcat-diag
+Disallow: /api/mergefrag-diag
+Disallow: /api/normalise-fixture-test
 
 # --- Search crawlers -------------------------------------------------------
 
@@ -114,6 +121,13 @@ Disallow: /api/vividseats-cache
 Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
+# R2 (1 Oct 2026): write-capable and diagnostic endpoints not previously listed
+Disallow: /api/backfill-redirects
+Disallow: /api/duplicate-entities
+Disallow: /api/duplicate-events
+Disallow: /api/fixcat-diag
+Disallow: /api/mergefrag-diag
+Disallow: /api/normalise-fixture-test
 
 User-agent: Bingbot
 Allow: /api/sitemap
@@ -140,6 +154,13 @@ Disallow: /api/vividseats-cache
 Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
+# R2 (1 Oct 2026): write-capable and diagnostic endpoints not previously listed
+Disallow: /api/backfill-redirects
+Disallow: /api/duplicate-entities
+Disallow: /api/duplicate-events
+Disallow: /api/fixcat-diag
+Disallow: /api/mergefrag-diag
+Disallow: /api/normalise-fixture-test
 
 # --- AI crawlers -----------------------------------------------------------
 # Content is welcome; write/admin/debug endpoints are not. Each group repeats
@@ -171,6 +192,13 @@ Disallow: /api/vividseats-cache
 Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
+# R2 (1 Oct 2026): write-capable and diagnostic endpoints not previously listed
+Disallow: /api/backfill-redirects
+Disallow: /api/duplicate-entities
+Disallow: /api/duplicate-events
+Disallow: /api/fixcat-diag
+Disallow: /api/mergefrag-diag
+Disallow: /api/normalise-fixture-test
 
 User-agent: ClaudeBot
 Allow: /api/sitemap
@@ -197,6 +225,13 @@ Disallow: /api/vividseats-cache
 Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
+# R2 (1 Oct 2026): write-capable and diagnostic endpoints not previously listed
+Disallow: /api/backfill-redirects
+Disallow: /api/duplicate-entities
+Disallow: /api/duplicate-events
+Disallow: /api/fixcat-diag
+Disallow: /api/mergefrag-diag
+Disallow: /api/normalise-fixture-test
 
 User-agent: anthropic-ai
 Allow: /api/sitemap
@@ -223,6 +258,13 @@ Disallow: /api/vividseats-cache
 Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
+# R2 (1 Oct 2026): write-capable and diagnostic endpoints not previously listed
+Disallow: /api/backfill-redirects
+Disallow: /api/duplicate-entities
+Disallow: /api/duplicate-events
+Disallow: /api/fixcat-diag
+Disallow: /api/mergefrag-diag
+Disallow: /api/normalise-fixture-test
 
 User-agent: PerplexityBot
 Allow: /api/sitemap
@@ -249,6 +291,13 @@ Disallow: /api/vividseats-cache
 Disallow: /api/sportsevents365-cache
 Disallow: /api/ticombo-cache
 Disallow: /api/awin-category-cache
+# R2 (1 Oct 2026): write-capable and diagnostic endpoints not previously listed
+Disallow: /api/backfill-redirects
+Disallow: /api/duplicate-entities
+Disallow: /api/duplicate-events
+Disallow: /api/fixcat-diag
+Disallow: /api/mergefrag-diag
+Disallow: /api/normalise-fixture-test
 
 # --- Control tokens (NOT crawlers) -----------------------------------------
 # Google-Extended never fetches anything. It is a control token only: it
