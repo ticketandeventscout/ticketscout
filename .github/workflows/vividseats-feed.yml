@@ -74,3 +74,71 @@ jobs:
             git pull --rebase origin main
           done
           echo "ERROR: push failed after 3 attempts"; exit 1
+
+      - name: Rebuild Cloudflare KV cache
+        env:
+          CACHE_URL: ${{ secrets.CLOUDFLARE_CACHE_URL }}
+          SECRET_NAME: CLOUDFLARE_CACHE_URL
+        run: |
+          # Fails the job on any persistent failure. Never prints CACHE_URL.
+          set -u
+          if [ -z "$CACHE_URL" ]; then
+            echo "::error::$SECRET_NAME is not set - the KV cache rebuild cannot run"
+            exit 1
+          fi
+
+          # raw.githubusercontent.com serves with Cache-Control: max-age=300, and
+          # the cache endpoint reads the CSV from there. If this run just pushed a
+          # new feed commit, wait out that window so the rebuild reads the new file.
+          COMMIT_AGE=$(( $(date +%s) - $(git log -1 --format=%ct) ))
+          if [ "$COMMIT_AGE" -lt 330 ]; then
+            echo "Feed commit is ${COMMIT_AGE}s old; waiting $((330 - COMMIT_AGE))s for the raw.githubusercontent.com cache"
+            sleep $((330 - COMMIT_AGE))
+          fi
+
+          # Status page = the same URL without its query string (read-only mode).
+          STATUS_URL="${CACHE_URL%%\?*}"
+          read_updated() {
+            curl -sS --max-time 30 "$STATUS_URL" 2>/dev/null | sed -n 's/^Last updated: //p' | head -1 | tr -d '\r'
+          }
+
+          BEFORE=$(read_updated)
+          echo "Last updated before rebuild: ${BEFORE:-unreadable}"
+          START_ISO=$(date -u -d '60 seconds ago' +%Y-%m-%dT%H:%M:%S.000Z)  # 60s tolerance for runner/Cloudflare clock skew
+
+          HEADERS=$(mktemp); BODY=$(mktemp)
+          OK=0
+          for ATTEMPT in 1 2 3; do
+            CURL_EXIT=0
+            HTTP_CODE=$(curl -sS --max-time 90 -D "$HEADERS" -o "$BODY" -w '%{http_code}' "$CACHE_URL") || CURL_EXIT=$?
+            CF_MITIGATED=$(grep -i '^cf-mitigated:' "$HEADERS" 2>/dev/null | tail -1 | tr -d '\r')
+            if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "200" ] && grep -q '"success":true' "$BODY"; then
+              OK=1
+              break
+            fi
+            echo "Attempt $ATTEMPT failed: curl exit $CURL_EXIT, HTTP status ${HTTP_CODE:-none}, cf-mitigated: ${CF_MITIGATED:-not present}"
+            echo "Response body (first 300 chars):"; head -c 300 "$BODY"; echo
+            if [ "$ATTEMPT" -lt 3 ]; then
+              DELAY=$((ATTEMPT * ATTEMPT * 15))
+              echo "Retrying in ${DELAY}s"
+              sleep "$DELAY"
+            fi
+          done
+          rm -f "$HEADERS" "$BODY"
+
+          if [ "$OK" -ne 1 ]; then
+            echo "::error::KV cache rebuild failed after 3 attempts (last: HTTP ${HTTP_CODE:-none}, curl exit $CURL_EXIT, ${CF_MITIGATED:-no cf-mitigated header})"
+            exit 1
+          fi
+
+          AFTER=$(read_updated)
+          echo "Last updated after rebuild: ${AFTER:-unreadable}"
+          if [ -z "$AFTER" ]; then
+            echo "::error::Rebuild reported success but the status page's 'Last updated' could not be read"
+            exit 1
+          fi
+          if [[ "$AFTER" < "$START_ISO" ]] || { [ -n "$BEFORE" ] && [[ ! "$AFTER" > "$BEFORE" ]]; }; then
+            echo "::error::Rebuild reported success but 'Last updated' did not advance (before: ${BEFORE:-unreadable}, after: $AFTER, started: $START_ISO)"
+            exit 1
+          fi
+          echo "Cache rebuild verified"
