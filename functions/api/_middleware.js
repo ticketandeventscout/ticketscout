@@ -35,15 +35,57 @@
 // sitemaps are exempt. All methods (GET/HEAD/OPTIONS/POST) pass through;
 // only a response header is added, the body is streamed, never buffered.
 
+//
+// R7 (20 Oct 2026): the same middleware also removes fixtures involving
+// English / Welsh clubs from the JSON returned by the public list endpoints
+// below. Those fixtures are removed from the site (see _excluded-clubs.js);
+// registration and the sitemap already skipped them, but these endpoints were
+// still returning them to the pages. Filtering here covers every endpoint in
+// one place. Only whitelisted GET JSON responses are buffered; everything
+// else still streams. A response with nothing to remove is returned
+// byte-for-byte as it came. Fail-safe: any error returns the original.
+import { stripExcludedFixtures } from './_excluded-clubs.js';
+
 const SKIP_PREFIXES = ['/api/sitemap'];
 
+const FIXTURE_FILTER_PATHS = new Set([
+  '/api/awin-events', '/api/awin-category', '/api/sportsevents365',
+  '/api/vividseats', '/api/ticombo', '/api/ticketnetwork', '/api/ticketmaster',
+  '/api/venue', '/api/football', '/api/attractions', '/api/seatgeek',
+  '/api/viagogo', '/api/eventim', '/api/gigsberg', '/api/trending'
+]);
+const MAX_FILTER_BYTES = 3 * 1024 * 1024;
+
+async function filterFixtures(request, response, path) {
+  if (request.method !== 'GET' || response.status !== 200) return response;
+  if (!FIXTURE_FILTER_PATHS.has(path)) return response;
+  if (!/json/i.test(response.headers.get('Content-Type') || '')) return response;
+  const len = Number(response.headers.get('Content-Length') || 0);
+  if (len > MAX_FILTER_BYTES) return response;
+  try {
+    const text = await response.clone().text();
+    if (text.length > MAX_FILTER_BYTES) return response;
+    const data = JSON.parse(text);
+    if (stripExcludedFixtures(data) === 0) return response;
+    const headers = new Headers(response.headers);
+    headers.delete('Content-Length');
+    headers.delete('ETag');
+    return new Response(JSON.stringify(data), {
+      status: response.status, statusText: response.statusText, headers
+    });
+  } catch {
+    return response;
+  }
+}
+
 export async function onRequest(context) {
-  const response = await context.next();
+  let response = await context.next();
   try {
     const path = new URL(context.request.url).pathname;
     if (SKIP_PREFIXES.some(p => path === p || path.startsWith(p + '/'))) {
       return response;
     }
+    response = await filterFixtures(context.request, response, path);
     if (response.headers.has('X-Robots-Tag')) return response; // e.g. /api/go sets its own
     // Responses from fetch()/Response.redirect() can have immutable headers,
     // so re-wrap rather than mutate in place.

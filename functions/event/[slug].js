@@ -258,6 +258,16 @@ export async function onRequestGet(ctx) {
   const entityUrl  = entitySlug ? `${HOST}/${category}/${entitySlug}` : `${HOST}${cat.hub}`;
   const image = row?.image || '';
 
+  // R7 (20 Oct 2026): fixtures involving an English / Welsh club are removed
+  // from the site, so an already-registered page for one no longer renders —
+  // it answers 410 Gone (tells search engines to drop the URL) instead of the
+  // earlier noindex-but-still-live behaviour. Short cache so a mistake is
+  // quick to undo. Runs before the past-event ladder: removal applies to
+  // past and upcoming fixtures alike.
+  if (isExcludedFootballFixture(category, name)) {
+    return removedResponse(cat);
+  }
+
   // ── Past event → three-tier decay, not an immediate 410 ──────────────────
   // A hard 410 the instant an event passes was destroying real, still-live
   // search demand (recap/highlights/"how was it" queries land on the event
@@ -1387,6 +1397,24 @@ function goneResponse({ cat, name, eventDate, venue, city }) {
       // itself) — safe to cache generously, unlike the noindex/best-effort path.
       'Cache-Control': 'public, max-age=3600, s-maxage=86400'
     }
+  });
+}
+
+// R7 (20 Oct 2026): 410 for fixtures removed from the site.
+function removedResponse(cat) {
+  const body = `<!DOCTYPE html>
+<html lang="en-GB"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Page removed | TicketScout</title><meta name="robots" content="noindex" />
+<link rel="stylesheet" href="/styles.css" /></head>
+<body><main class="container" style="max-width:700px; margin:60px auto; padding:0 16px; text-align:center;">
+<h1 style="color:#0c2d5a;">This page is no longer available</h1>
+<p>We no longer list this fixture.</p>
+<p><a href="${esc(cat.hub)}">Browse ${esc(cat.label.toLowerCase())} →</a></p>
+<p><a href="/">← Back to TicketScout</a> · <a href="/football">Football</a> · <a href="/concert">Concerts</a> · <a href="/theatre">Theatre</a></p>
+</main></body></html>`;
+  return new Response(body, {
+    status: 410,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300, s-maxage=3600' }
   });
 }
 
